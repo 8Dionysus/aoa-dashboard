@@ -113,6 +113,7 @@ def observe_goal(config: dict[str, Any]) -> dict[str, Any]:
 def _record_summary(path: Path, goal_id: str | None = None) -> dict[str, Any]:
     payload_types: Counter[str] = Counter()
     top_level_types: Counter[str] = Counter()
+    payload_schema_versions: Counter[str] = Counter()
     timestamps: list[str] = []
     valid = 0
     invalid = 0
@@ -139,7 +140,7 @@ def _record_summary(path: Path, goal_id: str | None = None) -> dict[str, Any]:
                     invalid += 1
                     continue
                 valid += 1
-                value_type = item.get("type")
+                value_type = item.get("type") or item.get("event_kind")
                 if isinstance(value_type, str):
                     top_level_types[value_type] += 1
                 payload = item.get("payload")
@@ -147,9 +148,14 @@ def _record_summary(path: Path, goal_id: str | None = None) -> dict[str, Any]:
                     payload_type = payload.get("type")
                     if isinstance(payload_type, str):
                         payload_types[payload_type] += 1
+                    schema_version = payload.get("schema_version")
+                    if isinstance(schema_version, str):
+                        payload_schema_versions[schema_version] += 1
                 timestamp = item.get("timestamp")
                 if timestamp is None and isinstance(payload, dict):
                     timestamp = payload.get("timestamp")
+                if timestamp is None:
+                    timestamp = item.get("observed_at")
                 if isinstance(timestamp, str) and timestamp:
                     timestamps.append(timestamp)
                 if contains_goal(item):
@@ -161,6 +167,7 @@ def _record_summary(path: Path, goal_id: str | None = None) -> dict[str, Any]:
         "valid_records": valid,
         "invalid_records": invalid,
         "payload_types": dict(payload_types),
+        "payload_schema_versions": dict(payload_schema_versions),
         "top_level_types": dict(top_level_types),
         "latest_timestamp": max(timestamps) if timestamps else None,
         "matching_goal_records": matching_goal,
@@ -327,13 +334,20 @@ def observe_stats(config: dict[str, Any], actor_source: dict[str, Any]) -> dict[
     if registry_error or registry is None:
         return _error_source("aoa-stats-source-coverage", "aoa-stats", str(registry_path), registry_error or "unknown error")
     generated = value.get("generated_from") if isinstance(value.get("generated_from"), dict) else {}
-    owner_counts = value.get("owner_counts") if isinstance(value.get("owner_counts"), dict) else {}
+    owner_counts = value.get("owner_repo_counts")
+    if not isinstance(owner_counts, dict):
+        owner_counts = value.get("owner_counts") if isinstance(value.get("owner_counts"), dict) else {}
     expected = value.get("expected_owner_repos") if isinstance(value.get("expected_owner_repos"), list) else []
     missing = value.get("missing_owner_repos") if isinstance(value.get("missing_owner_repos"), list) else []
     sources = registry.get("sources") if isinstance(registry.get("sources"), list) else []
     actor_registered = any(
         isinstance(item, dict)
-        and (item.get("owner_repo") == "aoa-agents" or "actor-responsibility" in str(item.get("path", "")))
+        and (
+            item.get("owner_repo") == "aoa-agents"
+            or item.get("repo") == "aoa-agents"
+            or "actor-responsibility" in str(item.get("path", ""))
+            or "actor_responsibility" in str(item.get("relative_path", ""))
+        )
         for item in sources
     )
     return {
@@ -344,12 +358,13 @@ def observe_stats(config: dict[str, Any], actor_source: dict[str, Any]) -> dict[
         "observation": "Source coverage is readable, but the owner surface reports freshness as not_attested; recent generation is not promoted to current.",
         "metadata": {
             "schema_version": value.get("schema_version"),
-            "total_receipts": generated.get("total_receipts"),
+            "total_receipts": generated.get("total_receipts", value.get("active_receipt_total")),
             "latest_observed_at": generated.get("latest_observed_at"),
             "owner_counts": owner_counts,
             "expected_owner_repos": expected,
             "missing_owner_repos": missing,
             "thin_signal_flags": value.get("thin_signal_flags", []),
+            "event_kind_counts": value.get("event_kind_counts", {}),
             "actor_source_registered": actor_registered,
             "actor_publisher_state": actor_source.get("state"),
         },
