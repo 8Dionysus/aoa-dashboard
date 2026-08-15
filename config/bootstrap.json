@@ -1,0 +1,61 @@
+{
+  "schema_version": "aoa_dashboard_bootstrap_config_v1",
+  "profile": "host-local-first-slice",
+  "goal_id": "aoa-dashboard-goal-01a00722-20260815",
+  "title": "Create aoa-dashboard first working vertical slice",
+  "goal_anchor_path": "/home/dionysus/.codex/attachments/11f36fe1-23db-4a4f-bce5-cbbdc77a9033/pasted-text-1.txt",
+  "session_manifest_path": "/srv/AbyssOS/.aoa/sessions/2026-08-15__065__ты-принимаешь-первую-самостоятельную/session.manifest.json",
+  "session_archive_raw_path": "/srv/AbyssOS/.aoa/sessions/2026-08-15__065__ты-принимаешь-первую-самостоятельную/raw/session.raw.jsonl",
+  "actor_manifest_path": "/srv/abyss-machine/runtimes/codex-incarnations/sha256-edeac34cba6361d9086a5d6da20b1cd2a05cf49b88fe499a6abab58fad5be987/incarnation-home.json",
+  "actor_receipt_path": "/srv/AbyssOS/aoa-agents/.aoa/live_receipts/actor-responsibility-execution-receipts.jsonl",
+  "stats_surface_path": "/srv/AbyssOS/aoa-stats/state/generated/source_coverage_summary.min.json",
+  "stats_registry_path": "/srv/AbyssOS/aoa-stats/mechanics/recurrence/parts/live-receipt-refresh/config/live_receipt_sources.json",
+  "stats_observed_freshness_status": "not_attested",
+  "kag_projection_digest": "61feed0fd1fa15bffb8e50a76a929d8c900aa0b2330d7469497ad385254f9552",
+  "kag_projection_updated_at": "2026-08-08T21:35:49.720109+00:00",
+  "parent_posture": "paused",
+  "lifecycle": [
+    {"step": "planned", "evidence": "goal_anchor"},
+    {"step": "bound", "evidence": "actor_manifest_and_bootstrap"},
+    {"step": "running", "evidence": "live_session_source"},
+    {"step": "paused", "evidence": "parent_posture"},
+    {"step": "returned", "evidence": "goal_scoped_return_receipt"},
+    {"step": "reviewed", "evidence": "independent_eval_packet"},
+    {"step": "accepted", "evidence": "owner_acceptance"},
+    {"step": "wake requested", "evidence": "handoff_delivery"},
+    {"step": "reentered", "evidence": "master_reentry_event"}
+  ],
+  "dag": [
+    {"id": "G0", "title": "Goal Anchor and master cycle", "pressure": "master must see real increment"},
+    {"id": "D1", "title": "Organ and ownership", "pressure": "missing goal-space owner"},
+    {"id": "D2", "title": "Goal Space contracts", "pressure": "no shared typed read model"},
+    {"id": "D3", "title": "Owner adapters and provenance", "pressure": "source/deploy/live divergence"},
+    {"id": "D4", "title": "Correlation read model", "pressure": "runtime event drift"},
+    {"id": "D5", "title": "Actor, runtime, return, wake", "pressure": "actor and session coverage"},
+    {"id": "D6", "title": "Operator UI", "pressure": "operators lack one truthful view"},
+    {"id": "D7", "title": "Trust, access, privacy, action", "pressure": "read and write planes need separation"},
+    {"id": "D8", "title": "Dogfood current Goal", "pressure": "the organ must observe its own creation"},
+    {"id": "D9", "title": "Independent evaluation and acceptance", "pressure": "green proxy cannot be verdict"},
+    {"id": "P∞", "title": "Pressure intake", "pressure": "new pressures need bounded routing"}
+  ],
+  "owner_surfaces": [
+    {"owner": "aoa-agents", "source_path": "/srv/AbyssOS/aoa-agents", "runtime_path": null, "authority": "role, obligation, responsibility, handoff, return, wake", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-skills", "source_path": "/srv/AbyssOS/aoa-skills", "runtime_path": null, "authority": "capability ABI, navigation, task-local DAG", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-sdk", "source_path": "/srv/AbyssOS/aoa-sdk", "runtime_path": null, "authority": "RunPlan and runtime-neutral incarnation binding", "kag_snapshot_state": "stale"},
+    {"owner": "abyss-stack", "source_path": "/home/dionysus/src/abyss-stack", "runtime_path": "/srv/AbyssOS/abyss-stack", "authority": "runtime lifecycle and deployed service", "kag_snapshot_state": "stale"},
+    {"owner": ".aoa/session-memory", "source_path": "/srv/AbyssOS/.aoa", "runtime_path": "/srv/AbyssOS/.aoa", "authority": "raw session refs, archive, freshness", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-evals", "source_path": "/srv/AbyssOS/aoa-evals", "runtime_path": null, "authority": "proof, review, eval verdict", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-memo", "source_path": "/srv/AbyssOS/aoa-memo", "runtime_path": null, "authority": "reviewed durable memory", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-stats", "source_path": "/srv/AbyssOS/aoa-stats", "runtime_path": null, "authority": "measurement compatibility and derived stats", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-kag", "source_path": "/srv/AbyssOS/aoa-kag", "runtime_path": null, "authority": "derived navigation and evidence-bearing relations", "kag_snapshot_state": "current_snapshot"}
+  ],
+  "claim_limits": [
+    "This is a dashboard-owned derived view, not source-owner truth.",
+    "A file observation is not process health, runtime success, proof, review, or acceptance.",
+    "Raw session bodies and private actor payloads are not exposed in the projection.",
+    "The .aoa archive is stale or deferred while its live source advances.",
+    "aoa-stats freshness is unknown because the live surface reports not_attested.",
+    "KAG is a stale navigation snapshot and cannot establish current owner facts.",
+    "An action intent is recorded for a future owner route and is never executed here."
+  ]
+}

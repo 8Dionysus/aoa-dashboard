@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/goal-anchor-v1",
+  "title": "Dashboard goal anchor binding",
+  "type": "object",
+  "required": ["schema_version", "goal_id", "title", "anchor_path", "anchor_digest", "source_ref"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_goal_anchor_binding_v1"},
+    "goal_id": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "anchor_path": {"type": "string", "minLength": 1},
+    "anchor_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_ref": {"type": "string", "minLength": 1},
+    "claim_limit": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

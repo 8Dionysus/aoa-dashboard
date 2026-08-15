@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/dashboard-annotation-v1",
+  "title": "Dashboard-owned operator annotation",
+  "type": "object",
+  "required": ["schema_version", "annotation_id", "created_at", "author_ref", "target_ref", "body", "authority"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_annotation_v1"},
+    "annotation_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "author_ref": {"type": "string", "minLength": 1},
+    "target_ref": {"type": "string", "minLength": 1},
+    "body": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "authority": {"const": "dashboard_owned"}
+  },
+  "additionalProperties": false
+}

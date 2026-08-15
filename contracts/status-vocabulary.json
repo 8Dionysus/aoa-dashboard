@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/status-vocabulary-v1",
+  "title": "aoa-dashboard status vocabulary",
+  "type": "object",
+  "properties": {
+    "lifecycle": {
+      "type": "array",
+      "const": ["planned", "bound", "running", "paused", "returned", "reviewed", "accepted", "wake requested", "reentered"]
+    },
+    "observation_quality": {
+      "type": "array",
+      "const": ["missing", "unknown", "stale", "deferred", "invalid"]
+    }
+  },
+  "required": ["lifecycle", "observation_quality"],
+  "additionalProperties": false
+}
