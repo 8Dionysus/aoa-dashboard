@@ -1318,16 +1318,18 @@ def _ledger_lock(observation_log_path: Path, checkpoint_path: Path):
     local_key = str(lock_path.resolve())
     local_lock = _local_ledger_lock(local_key)
     local_lock.acquire()
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    descriptor = -1
     try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield lock_path
     finally:
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
-            local_lock.release()
+        if descriptor != -1:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)
+        local_lock.release()
 
 
 def _checkpoint_temp_paths(path: Path) -> list[Path]:

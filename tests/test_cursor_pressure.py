@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import copy
+import json
+import multiprocessing
 import os
 import sys
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aoa_dashboard.cursor import (  # noqa: E402
     append_correlation_observations,
+    content_digest,
     make_observation,
     materialize_goal_local_projection,
     migrate_legacy_correlation_input,
@@ -39,6 +44,20 @@ SOURCE_REF = {
     "access_scope": "owner_bounded",
     "claim_limit": "Test source is not acceptance.",
 }
+
+
+def _materialize_process_worker(log_path: str, checkpoint_path: str, item: dict, queue: object) -> None:
+    try:
+        result = materialize_goal_local_projection(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observations=[item],
+            observation_log_path=log_path,
+            checkpoint_path=checkpoint_path,
+        )
+        queue.put({"ok": True, "status": result["status"]})
+    except Exception as exc:  # pragma: no cover - exercised in the parent assertion
+        queue.put({"ok": False, "error": str(exc)})
 
 
 def observation(observation_id: str = "return:one", state: str = "returned", entity_key: str | None = None) -> dict:
@@ -176,6 +195,67 @@ class CursorRetentionTests(unittest.TestCase):
         self.assertEqual(replay["rebuild"]["mode"], "replay")
         self.assertEqual(replay["checkpoint"]["projection_digest"], baseline["checkpoint"]["projection_digest"])
 
+    def test_replay_digest_ignores_observation_level_observed_at(self) -> None:
+        first = observation()
+        first["observed_at"] = "2026-08-15T23:00:00Z"
+        baseline = rebuild_goal_local_projection(
+            goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[first]
+        )
+        second = copy.deepcopy(first)
+        second["observed_at"] = "2026-08-15T23:01:00Z"
+        replay = rebuild_goal_local_projection(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observations=[second],
+            checkpoint=baseline["checkpoint"],
+        )
+        self.assertEqual(replay["status"], "current")
+        self.assertEqual(replay["rebuild"]["mode"], "replay")
+        self.assertEqual(replay["cursor"]["cursor_digest"], baseline["cursor"]["cursor_digest"])
+        self.assertEqual(replay["checkpoint"]["projection_digest"], baseline["checkpoint"]["projection_digest"])
+
+    def test_forged_extension_cursor_is_invalid_before_new_record_is_admitted(self) -> None:
+        first = observation("return:one")
+        baseline = rebuild_goal_local_projection(
+            goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[first]
+        )
+        forged = copy.deepcopy(baseline["checkpoint"])
+        forged["cursor"]["input_digest"] = "f" * 64
+        forged_cursor = copy.deepcopy(forged["cursor"])
+        forged_cursor.pop("cursor_digest")
+        forged["cursor"]["cursor_digest"] = content_digest(forged_cursor)
+        forged["checkpoint_id"] = f"checkpoint:{forged['cursor']['cursor_digest']}"
+        result = rebuild_goal_local_projection(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observations=[first, observation("return:two")],
+            checkpoint=forged,
+        )
+        self.assertEqual(result["status"], "invalid")
+        self.assertEqual(result["rebuild"]["mode"], "invalid")
+        self.assertTrue(any("checkpoint_invalid" in error for error in result["rebuild"]["errors"]))
+
+    def test_checkpoint_maps_and_conflicts_are_authenticated(self) -> None:
+        first = observation("return:one")
+        baseline = rebuild_goal_local_projection(
+            goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[first]
+        )
+        for field, value in (
+            ("retained_observation_ids", []),
+            ("conflict_ids", ["conflict:forged"]),
+            ("projection_digest", "f" * 64),
+        ):
+            checkpoint = copy.deepcopy(baseline["checkpoint"])
+            checkpoint[field] = value
+            result = rebuild_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[first],
+                checkpoint=checkpoint,
+            )
+            self.assertEqual(result["status"], "invalid", field)
+            self.assertTrue(result["rebuild"]["errors"], field)
+
     def test_malformed_checkpoint_fails_closed(self) -> None:
         baseline = rebuild_goal_local_projection(
             goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[observation()]
@@ -217,6 +297,52 @@ class CursorRetentionTests(unittest.TestCase):
         self.assertEqual(len(result["duplicates"]), 1)
         self.assertEqual(result["retention"]["winner_selection"], "none")
 
+    def test_same_observation_payload_with_different_entity_is_a_conflict(self) -> None:
+        first = observation("return:same", entity_key="entity:first")
+        second = observation("return:same", entity_key="entity:second")
+        result = rebuild_goal_local_projection(
+            goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[first, second]
+        )
+        self.assertEqual(result["status"], "conflicted")
+        self.assertEqual(len(result["observations"]), 2)
+        self.assertEqual(result["duplicates"], [])
+        self.assertIsNone(result["conflicts"][0]["winner"])
+
+    def test_source_watermark_collision_retains_complete_candidates(self) -> None:
+        first = observation("return:source-a")
+        second = make_observation(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observation_id="return:source-b",
+            entity_key="return:source-b",
+            kind="test_observation",
+            payload={"state": "returned", "owner_fact": "retained"},
+            source_refs=[{**SOURCE_REF, "sha256": "b" * 64}],
+        )
+        result = rebuild_goal_local_projection(
+            goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[first, second]
+        )
+        self.assertEqual(len(result["cursor"]["source_watermarks"]), 2)
+        self.assertEqual(len(result["cursor"]["source_collisions"]), 1)
+        self.assertIsNone(result["cursor"]["source_collisions"][0]["winner"])
+
+    def test_source_access_downgrade_is_visible_as_unresolved_collision(self) -> None:
+        first = observation("return:access-a")
+        second = make_observation(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observation_id="return:access-b",
+            entity_key="return:access-b",
+            kind="test_observation",
+            payload={"state": "returned", "owner_fact": "retained"},
+            source_refs=[{**SOURCE_REF, "access_scope": "public_metadata"}],
+        )
+        result = rebuild_goal_local_projection(
+            goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[first, second]
+        )
+        self.assertEqual(result["status"], "conflicted")
+        self.assertTrue(result["cursor"]["source_collisions"][0]["access_downgrade"])
+
     def test_conflicting_observations_are_both_retained_without_winner(self) -> None:
         first = observation(state="returned")
         second = observation(state="deferred")
@@ -242,6 +368,40 @@ class CursorRetentionTests(unittest.TestCase):
         result = rebuild_goal_local_projection(goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[item])
         self.assertEqual(result["status"], "invalid")
         self.assertTrue(any("authority" in error for error in result["rebuild"]["errors"]))
+
+    def test_metadata_boundary_rejects_raw_and_nested_secret_content(self) -> None:
+        with self.assertRaises(ValueError):
+            make_observation(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observation_id="raw",
+                entity_key="raw",
+                kind="correlation_envelope",
+                payload={"raw_body": "PRIVATE-BODY"},
+                source_refs=[SOURCE_REF],
+            )
+        with self.assertRaises(ValueError):
+            make_observation(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observation_id="nested-secret",
+                entity_key="nested-secret",
+                kind="correlation_envelope",
+                payload={"goal": {"nested_secret": "PRIVATE"}},
+                source_refs=[SOURCE_REF],
+            )
+        missing_scope = copy.deepcopy(SOURCE_REF)
+        missing_scope.pop("access_scope")
+        with self.assertRaises(ValueError):
+            make_observation(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observation_id="missing-scope",
+                entity_key="missing-scope",
+                kind="test_observation",
+                payload={"state": "returned", "owner_fact": "retained"},
+                source_refs=[missing_scope],
+            )
 
     def test_append_only_log_is_durable_and_malformed_lines_are_not_discarded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -278,6 +438,199 @@ class CursorRetentionTests(unittest.TestCase):
             self.assertEqual(second["status"], "conflicted")
             self.assertEqual(len(second["conflicts"]), 1)
             self.assertTrue(log_path.exists())
+            self.assertTrue(checkpoint_path.exists())
+
+    def test_materialization_serializes_concurrent_threads(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            barrier = threading.Barrier(3)
+            results: list[dict] = []
+
+            def worker(item: dict) -> None:
+                barrier.wait()
+                results.append(
+                    materialize_goal_local_projection(
+                        goal_id=GOAL_ID,
+                        master_thread_id=THREAD_ID,
+                        observations=[item],
+                        observation_log_path=log_path,
+                        checkpoint_path=checkpoint_path,
+                    )
+                )
+
+            threads = [
+                threading.Thread(target=worker, args=(observation("return:thread-one"),)),
+                threading.Thread(target=worker, args=(observation("return:thread-two"),)),
+            ]
+            for thread in threads:
+                thread.start()
+            barrier.wait()
+            for thread in threads:
+                thread.join(timeout=5)
+            self.assertEqual(len(results), 2)
+            self.assertTrue(all(result["status"] in {"current", "conflicted"} for result in results))
+            records, errors = read_correlation_observation_log(log_path)
+            self.assertEqual(errors, [])
+            self.assertEqual(len(records), 2)
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(checkpoint["retained_observation_ids"]), 2)
+
+    def test_materialization_serializes_concurrent_processes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            context = multiprocessing.get_context("fork")
+            queue = context.Queue()
+            processes = [
+                context.Process(
+                    target=_materialize_process_worker,
+                    args=(str(log_path), str(checkpoint_path), observation("return:process-one"), queue),
+                ),
+                context.Process(
+                    target=_materialize_process_worker,
+                    args=(str(log_path), str(checkpoint_path), observation("return:process-two"), queue),
+                ),
+            ]
+            for process in processes:
+                process.start()
+            for process in processes:
+                process.join(timeout=10)
+                self.assertEqual(process.exitcode, 0)
+            results = [queue.get(timeout=3), queue.get(timeout=3)]
+            self.assertTrue(all(item["ok"] for item in results), results)
+            records, errors = read_correlation_observation_log(log_path)
+            self.assertEqual(errors, [])
+            self.assertEqual(len(records), 2)
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(checkpoint["retained_observation_ids"]), 2)
+
+    def test_checkpoint_replace_failure_cleans_temp_and_recovers_log_ahead(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            item = observation("return:replace-failure")
+            with patch("aoa_dashboard.cursor.os.replace", side_effect=OSError("replace failed")):
+                with self.assertRaises(OSError):
+                    materialize_goal_local_projection(
+                        goal_id=GOAL_ID,
+                        master_thread_id=THREAD_ID,
+                        observations=[item],
+                        observation_log_path=log_path,
+                        checkpoint_path=checkpoint_path,
+                    )
+            self.assertFalse(checkpoint_path.exists())
+            self.assertEqual(list(Path(directory).glob(".checkpoint.json.tmp-*")), [])
+            recovered = materialize_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[],
+                observation_log_path=log_path,
+                checkpoint_path=checkpoint_path,
+            )
+            self.assertEqual(recovered["status"], "current")
+            self.assertEqual(len(recovered["observations"]), 1)
+
+    def test_checkpoint_parent_fsync_failure_does_not_report_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            item = observation("return:fsync-failure")
+            with patch("aoa_dashboard.cursor._fsync_parent_directory", side_effect=OSError("directory fsync failed")):
+                with self.assertRaises(OSError):
+                    materialize_goal_local_projection(
+                        goal_id=GOAL_ID,
+                        master_thread_id=THREAD_ID,
+                        observations=[item],
+                        observation_log_path=log_path,
+                        checkpoint_path=checkpoint_path,
+                    )
+            recovered = materialize_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[],
+                observation_log_path=log_path,
+                checkpoint_path=checkpoint_path,
+            )
+            self.assertEqual(recovered["rebuild"]["mode"], "replay")
+
+    def test_partial_append_tail_is_recovered_on_next_locked_invocation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            first = observation("return:partial-first")
+            materialize_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[first],
+                observation_log_path=log_path,
+                checkpoint_path=checkpoint_path,
+            )
+            with log_path.open("ab") as stream:
+                stream.write(b'{"schema_version":"partial')
+            recovered = materialize_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[observation("return:partial-second")],
+                observation_log_path=log_path,
+                checkpoint_path=checkpoint_path,
+            )
+            self.assertEqual(recovered["status"], "current")
+            self.assertEqual(recovered["storage"]["recovered_tail"]["action"], "truncate_partial_tail")
+            records, errors = read_correlation_observation_log(log_path)
+            self.assertEqual(errors, [])
+            self.assertEqual(len(records), 2)
+
+    def test_stale_checkpoint_is_rebuilt_from_log(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            materialize_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[observation("return:stale-first")],
+                observation_log_path=log_path,
+                checkpoint_path=checkpoint_path,
+            )
+            checkpoint_path.unlink()
+            recovered = materialize_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[observation("return:stale-second")],
+                observation_log_path=log_path,
+                checkpoint_path=checkpoint_path,
+            )
+            self.assertEqual(recovered["status"], "current")
+            self.assertEqual(len(recovered["observations"]), 2)
+
+    def test_append_write_failure_leaves_no_success_and_recovers_partial_frame(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            original_write_all = __import__("aoa_dashboard.cursor", fromlist=["_write_all"])._write_all
+
+            def partial_write(stream: object, data: bytes) -> None:
+                stream.write(data[: max(1, len(data) // 2)])
+                raise OSError("append interrupted")
+
+            with patch("aoa_dashboard.cursor._write_all", side_effect=partial_write):
+                with self.assertRaises(OSError):
+                    materialize_goal_local_projection(
+                        goal_id=GOAL_ID,
+                        master_thread_id=THREAD_ID,
+                        observations=[observation("return:write-failure")],
+                        observation_log_path=log_path,
+                        checkpoint_path=checkpoint_path,
+                    )
+            with patch("aoa_dashboard.cursor._write_all", wraps=original_write_all):
+                recovered = materialize_goal_local_projection(
+                    goal_id=GOAL_ID,
+                    master_thread_id=THREAD_ID,
+                    observations=[observation("return:write-failure")],
+                    observation_log_path=log_path,
+                    checkpoint_path=checkpoint_path,
+                )
+            self.assertEqual(recovered["status"], "current")
             self.assertTrue(checkpoint_path.exists())
 
 
