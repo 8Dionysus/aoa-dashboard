@@ -45,7 +45,10 @@ function evidenceList(refs) {
   const list = document.createElement("div");
   list.className = "ref-list";
   for (const ref of refs || []) {
-    const code = text("code", `${ref.label || ref.kind || "ref"}: ${ref.ref || ref.path || "unresolved"}`);
+    if (!ref) continue;
+    const digest = ref.sha256 ? ` · sha256:${ref.sha256}` : "";
+    const observed = ref.observed_at ? ` · observed:${ref.observed_at}` : "";
+    const code = text("code", `${ref.label || ref.kind || "ref"}: ${ref.ref || ref.path || "unresolved"}${digest}${observed}`);
     list.append(code);
   }
   return list;
@@ -86,6 +89,79 @@ function renderDag(data) {
     row.append(body);
     target.append(row);
   }
+}
+
+function renderCorrelation(data) {
+  const target = byId("correlation");
+  clear(target);
+  const correlation = data.correlation || {};
+  const identity = document.createElement("div");
+  identity.className = "correlation-identity";
+  identity.append(text("div", `master thread: ${correlation.master_thread_id || "missing"}`, "mono"));
+  identity.append(text("div", `surface: ${correlation.state || "missing"} · freshness: ${correlation.freshness || "unknown"}`, "mono"));
+  identity.append(text("p", correlation.claim_limit || ""));
+  target.append(identity);
+
+  for (const envelope of correlation.envelopes || []) {
+    const card = document.createElement("article");
+    card.className = "correlation-card";
+    const head = document.createElement("div");
+    head.className = "correlation-head";
+    const returnId = envelope.return_observation?.return_id || envelope.correlation_id || "return";
+    head.append(text("strong", `Luna return · ${returnId}`));
+    head.append(badge(envelope.state || "invalid"));
+    card.append(head);
+
+    const chain = document.createElement("div");
+    chain.className = "correlation-chain";
+    const stages = [
+      ["Goal / thread", envelope.goal?.anchor_ref, envelope.goal?.master_thread_id],
+      ["Luna return", envelope.return_observation?.ref, envelope.return_observation?.filter_disposition],
+      ["Wake admission", envelope.wake_observation?.ref, envelope.wake_observation?.outcome],
+      ["Accepted turn", envelope.accepted_turn?.basis_ref, envelope.accepted_turn?.accepted_turn_id || "missing"],
+      ["Master filter", envelope.master_filter?.ref, envelope.master_filter?.disposition],
+      ["Re-entry", null, envelope.lifecycle?.reentered?.state || "missing"],
+    ];
+    for (const [label, ref, value] of stages) {
+      const stage = document.createElement("div");
+      stage.className = "correlation-stage";
+      stage.append(text("span", label, "correlation-stage-label"));
+      stage.append(text("strong", value || "missing", "mono"));
+      if (ref) stage.append(evidenceList([ref]));
+      chain.append(stage);
+    }
+    card.append(chain);
+    const limits = envelope.claim_limits || [];
+    if (limits.length) {
+      const details = document.createElement("details");
+      details.append(text("summary", "claim limits and DAG disposition"));
+      details.append(evidenceList([envelope.dag_disposition?.ref]));
+      const dag = envelope.dag_disposition?.nodes || [];
+      if (dag.length) {
+        const dagList = document.createElement("ul");
+        for (const node of dag) dagList.append(text("li", `${node.id}: ${node.state} → ${node.next}`));
+        details.append(dagList);
+      }
+      const list = document.createElement("ul");
+      for (const limit of limits) list.append(text("li", limit));
+      details.append(list);
+      card.append(details);
+    }
+    target.append(card);
+  }
+
+  const obligations = correlation.new_obligations || [];
+  const obligationBlock = document.createElement("div");
+  obligationBlock.className = "correlation-obligations";
+  obligationBlock.append(text("strong", "New obligations from master filter"));
+  if (obligations.length) {
+    const list = document.createElement("ul");
+    for (const obligation of obligations) list.append(text("li", obligation));
+    obligationBlock.append(list);
+  } else {
+    obligationBlock.append(text("p", "No new obligation is present in the current filter."));
+  }
+  target.append(obligationBlock);
 }
 
 function renderSources(data) {
@@ -169,6 +245,7 @@ async function refresh() {
     renderInventory(data);
     renderLifecycle(data);
     renderDag(data);
+    renderCorrelation(data);
     renderSources(data);
     renderOwners(data);
     renderRecords(data);

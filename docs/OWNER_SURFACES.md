@@ -16,8 +16,13 @@ owns only the thin translation and presentation layer.
   deployed root are separate bindings; a path check cannot establish runtime
   health.
 - `.aoa/session-memory`: raw transcript/session manifest and freshness owner.
-  The live rollout source and archived raw source are both referenced; an
-  advancing source marks the archive as deferred/stale.
+  The configured bootstrap session is explicitly historical; it is not the
+  current holder. The live rollout source and archived raw source are both
+  referenced; an advancing source marks the archive as deferred/stale.
+- Current Goal/thread return correlation is dashboard-owned derived metadata
+  over the bounded task-local handoff/wake directory and master filter. It
+  preserves exact refs/digests and does not take ownership of role, runtime,
+  proof, acceptance, or semantic continuation.
 - `aoa-evals`: proof and independent evaluation owner. Candidate artifacts are
   not displayed as verdicts.
 - `aoa-memo`: reviewed durable memory owner. Recall is context, not evidence

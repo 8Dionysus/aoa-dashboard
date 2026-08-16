@@ -1,10 +1,11 @@
 # aoa-dashboard
 
 The first working vertical slice of the AoA Goal Space/operator surface.
-It reads a current Goal Anchor, the live `.aoa` session binding for this
-creation session, the `aoa-stats` source-coverage projection, the optional
-`aoa-agents` responsibility feed, and bounded owner/KAG metadata. It produces
-a typed derived projection and a small operator UI with source drill-down.
+It reads a current Goal Anchor, a historical `.aoa` bootstrap binding, the
+current task-local Goal/thread handoff and wake directory, the `aoa-stats`
+source-coverage projection, the optional `aoa-agents` responsibility feed, and
+bounded owner/KAG metadata. It produces a typed derived projection and a small
+operator UI with source/ref/digest drill-down.
 
 The dashboard is not an authority plane. It does not create roles, run actors,
 execute runtime actions, issue eval verdicts, accept work, or rewrite owner
@@ -36,3 +37,8 @@ not proof of live runtime health or owner acceptance. The UI keeps
 `planned`, `bound`, `running`, `paused`, `returned`, `reviewed`, `accepted`,
 `wake requested`, `reentered`, `missing`, `stale`, `deferred`, and `invalid`
 as separate vocabulary values.
+
+The current correlation surface is task-local and read-only. Handoff delivery
+is not proof or acceptance; `reentered` requires exact `accepted_turn_id` plus
+the master filter and remains a bounded correlation claim. Annotations and
+action intents keep their local dashboard-owned, non-executing boundary.
