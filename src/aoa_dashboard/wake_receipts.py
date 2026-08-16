@@ -149,6 +149,14 @@ def _bounded_string(value: Any, *, maximum: int, label: str, errors: list[str]) 
         errors.append(f"codex v1 wake receipt {label} exceeds {maximum} characters")
 
 
+def normalize_codex_wake_attempts(value: Any) -> int | None:
+    """Retain only an owner-compatible v1 attempts integer for derivation."""
+
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3:
+        return None
+    return value
+
+
 def _validate_failure(value: Any, errors: list[str]) -> None:
     if not isinstance(value, dict):
         errors.append("codex v1 failure is not an object")
@@ -208,11 +216,7 @@ def validate_codex_wake_receipt_v1(value: Any) -> list[str]:
         errors.append("codex v1 wake receipt handoff_sha256 is not sha256:<hex>")
     if value.get("route") not in _CODEX_ROUTES:
         errors.append("codex v1 wake receipt route is not admitted")
-    if (
-        isinstance(value.get("attempts"), bool)
-        or not isinstance(value.get("attempts"), int)
-        or not 0 <= value.get("attempts") <= 3
-    ):
+    if normalize_codex_wake_attempts(value.get("attempts")) is None:
         errors.append("codex v1 wake receipt attempts must be an integer in 0..3")
     if not isinstance(value.get("before"), dict):
         errors.append("codex v1 wake receipt before is not an object")
@@ -355,6 +359,7 @@ __all__ = [
     "WAKE_RECEIPT_ADAPTER_VERSION",
     "is_sha256_hex",
     "make_wake_provenance",
+    "normalize_codex_wake_attempts",
     "normalize_handoff_sha256",
     "validate_codex_wake_receipt_v1",
     "validate_codex_wake_owner_binding",

@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aoa_dashboard.projection import _lifecycle, build_projection, load_config  # noqa: E402
@@ -29,6 +31,10 @@ KNOWN_UNLANDED_OWNER_CONTRACT_REF = (
     "src/aoa_sdk/runtime_adapters/codex_wake.py"
 )
 KNOWN_UNLANDED_OWNER_AUTHORITY = "aoa-sdk:runtime-neutral Codex wake receipt contract"
+CORRELATION_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "contracts" / "correlation_envelope.schema.json"
+CORRELATION_SCHEMA_VALIDATOR = Draft202012Validator(
+    json.loads(CORRELATION_SCHEMA_PATH.read_text(encoding="utf-8"))
+)
 
 
 class ProjectionFixture:
@@ -307,10 +313,19 @@ class CorrelationAdapterTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.fixture.close()
 
+    def _assert_schema_valid(self, envelope: dict) -> None:
+        errors = sorted(
+            CORRELATION_SCHEMA_VALIDATOR.iter_errors(envelope),
+            key=lambda error: str(list(error.path)),
+        )
+        messages = [f"{list(error.path)}: {error.message}" for error in errors]
+        self.assertEqual([], messages, "\n".join(messages))
+
     def test_positive_real_task_local_shape_is_reentered_only_by_turn_and_filter(self) -> None:
         result = observe_current_correlation(self.fixture.config())
         self.assertIn(result["state"], {"bound", "deferred"})
         envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
         self.assertEqual(envelope["state"], "reentered")
         self.assertEqual(envelope["lifecycle"]["returned"]["state"], "returned")
         self.assertEqual(envelope["lifecycle"]["wake_requested"]["state"], "wake requested")
@@ -318,6 +333,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
         self.assertTrue(envelope["wake_observation"]["handoff_message_submitted"])
         self.assertIs(envelope["wake_observation"]["goal_resume_requested"], False)
+        self.assertIsNone(envelope["wake_observation"]["attempts"])
         self.assertIn(
             TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
             envelope["lifecycle"]["wake_requested"]["observation"],
@@ -343,12 +359,14 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         self.assertEqual(result["metadata"]["envelopes"][0]["state"], "invalid")
+        self._assert_schema_valid(result["metadata"]["envelopes"][0])
 
     def test_mismatched_handoff_digest_is_invalid(self) -> None:
         self.fixture._write_valid()
         self.fixture._write_filter("0" * 64)
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
+        self._assert_schema_valid(result["metadata"]["envelopes"][0])
         self.assertIn("SHA-256", " ".join(result["metadata"]["envelopes"][0]["return_observation"]["errors"]))
 
     def test_non_exact_handoff_ref_is_invalid(self) -> None:
@@ -357,6 +375,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         self.assertEqual(result["metadata"]["envelopes"][0]["state"], "invalid")
+        self._assert_schema_valid(result["metadata"]["envelopes"][0])
 
     def test_delivery_outcome_mismatch_is_invalid(self) -> None:
         malformed = json.loads(self.fixture.wake.read_text(encoding="utf-8"))
@@ -365,6 +384,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         self.assertEqual(result["metadata"]["envelopes"][0]["state"], "invalid")
+        self._assert_schema_valid(result["metadata"]["envelopes"][0])
 
     def test_malformed_v2_wake_receipt_is_invalid(self) -> None:
         malformed = {
@@ -381,6 +401,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         self.assertEqual(result["metadata"]["envelopes"][0]["state"], "invalid")
+        self._assert_schema_valid(result["metadata"]["envelopes"][0])
 
     def test_missing_wake_receipt_stays_missing_and_not_success(self) -> None:
         self.fixture.wake.unlink()
@@ -391,6 +412,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(envelope["lifecycle"]["wake_requested"]["state"], "missing")
         self.assertEqual(envelope["lifecycle"]["reentered"]["state"], "missing")
         self.assertIsNone(envelope["wake_observation"]["goal_resume_requested"])
+        self._assert_schema_valid(envelope)
 
     def test_duplicate_filter_return_is_invalid(self) -> None:
         digest = hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest()
@@ -398,6 +420,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         self.assertTrue(any("duplicate" in item for item in result["metadata"]["degradation"]))
+        self._assert_schema_valid(result["metadata"]["envelopes"][0])
 
     def test_duplicate_wake_receipts_are_invalid(self) -> None:
         duplicate = self.fixture.task_local / "duplicate.wake-receipt.json"
@@ -405,6 +428,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         self.assertTrue(any("duplicate wake" in item for item in result["metadata"]["degradation"]))
+        self._assert_schema_valid(result["metadata"]["envelopes"][0])
 
     def test_unfiltered_return_is_deferred_without_erasing_filtered_reentry(self) -> None:
         extra_handoff = self.fixture.task_local / "unfiltered-luna-handoff.json"
@@ -429,6 +453,8 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(result["metadata"]["summary"]["reentered"], 1)
         self.assertEqual(result["metadata"]["summary"]["deferred_candidates"], 2)
         extra = next(item for item in result["metadata"]["envelopes"] if item["return_observation"]["return_id"] == "unfiltered")
+        for envelope in result["metadata"]["envelopes"]:
+            self._assert_schema_valid(envelope)
         self.assertEqual(extra["state"], "deferred")
         self.assertEqual(extra["lifecycle"]["reentered"]["state"], "missing")
 
@@ -452,6 +478,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertIsNone(envelope["wake_observation"]["goal_resume_requested"])
         self.assertEqual(envelope["accepted_turn"]["state"], "missing")
         self.assertNotEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
+        self._assert_schema_valid(envelope)
         return envelope
 
     def test_v1_default_path_is_raw_candidate_only_without_owner_admission(self) -> None:
@@ -552,6 +579,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(result["state"], "invalid")
         envelope = result["metadata"]["envelopes"][0]
         self.assertEqual(envelope["state"], "invalid")
+        self._assert_schema_valid(envelope)
         self.assertTrue(any("master_thread_id mismatch" in item for item in envelope["return_observation"]["errors"]))
 
     def test_v1_digest_mismatch_is_invalid(self) -> None:
@@ -561,6 +589,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
         self.assertTrue(any("normalized handoff_sha256 mismatch" in item for item in envelope["return_observation"]["errors"]))
 
     def test_v1_attempts_matches_owner_integer_contract(self) -> None:
@@ -572,6 +601,7 @@ class CorrelationAdapterTests(unittest.TestCase):
             ("missing", "__missing__"),
             ("null", None),
             ("bool", True),
+            ("float", 1.0),
             ("string", "1"),
             ("too_high", 4),
             ("negative", -1),
@@ -587,9 +617,84 @@ class CorrelationAdapterTests(unittest.TestCase):
                 self.fixture._write_codex_v1(wake_payload=payload)
                 result = observe_current_correlation(self.fixture.config())
                 envelope = result["metadata"]["envelopes"][0]
+                self._assert_schema_valid(envelope)
+                self.assertEqual(result["state"], "invalid")
+                wake = envelope["wake_observation"]
+                self.assertIsNone(wake["attempts"])
+                self.assertEqual(wake["source_family"], "owner_runtime_neutral")
+                self.assertEqual(wake["provenance"]["raw_owner_ref"], str(self.fixture.wake.resolve()))
+                self.assertEqual(
+                    wake["provenance"]["raw_owner_content_sha256"],
+                    hashlib.sha256(self.fixture.wake.read_bytes()).hexdigest(),
+                )
+                self.assertEqual(
+                    wake["raw_handoff_sha256"],
+                    "sha256:" + hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest(),
+                )
+                self.assertEqual(
+                    wake["normalized_handoff_sha256"],
+                    hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest(),
+                )
+                self.assertEqual(wake["freshness"], "invalid")
+                self.assertEqual(wake["missingness"], "present_but_invalid")
+                self.assertTrue(any("attempts" in item for item in envelope["return_observation"]["errors"]))
+                self.assertEqual(envelope["accepted_turn"]["state"], "missing")
+                self.assertNotEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
+
+    def test_v1_valid_attempts_are_derived_but_empty_admission_stays_fail_closed(self) -> None:
+        for attempts in (0, 3):
+            with self.subTest(attempts=attempts):
+                payload = self.fixture._write_codex_v1()
+                payload["attempts"] = attempts
+                self.assertFalse(
+                    any("attempts" in item for item in validate_codex_wake_receipt_v1(payload)),
+                )
+                self.fixture._write_codex_v1(wake_payload=payload)
+                result = observe_current_correlation(self.fixture.config())
+                envelope = result["metadata"]["envelopes"][0]
+                self._assert_schema_valid(envelope)
+                wake = envelope["wake_observation"]
+                self.assertEqual(wake["attempts"], attempts)
                 self.assertEqual(result["state"], "invalid")
                 self.assertEqual(envelope["accepted_turn"]["state"], "missing")
                 self.assertNotEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
+                self.assertIsNone(wake["provenance"]["owner_ref"])
+                self.assertIsNone(wake["provenance"]["contract_ref"])
+
+    def test_unsupported_arbitrary_attempts_are_schema_valid_null_evidence(self) -> None:
+        payload = self.fixture._write_codex_v1()
+        payload["schema_version"] = "aoa_codex_wake_receipt_v9"
+        payload["attempts"] = "untrusted"
+        self.fixture._write_codex_v1(wake_payload=payload)
+        result = observe_current_correlation(self.fixture.config())
+        envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
+        wake = envelope["wake_observation"]
+        self.assertEqual(result["state"], "invalid")
+        self.assertEqual(wake["source_family"], "unsupported")
+        self.assertIsNone(wake["attempts"])
+        self.assertEqual(wake["provenance"]["raw_owner_ref"], str(self.fixture.wake.resolve()))
+        self.assertEqual(
+            wake["provenance"]["raw_owner_content_sha256"],
+            hashlib.sha256(self.fixture.wake.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(wake["freshness"], "invalid")
+        self.assertEqual(wake["missingness"], "present_but_invalid")
+        self.assertEqual(envelope["accepted_turn"]["state"], "missing")
+        self.assertNotEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
+        self.assertTrue(envelope["return_observation"]["errors"])
+
+    def test_missing_receipt_constructed_envelope_is_schema_valid(self) -> None:
+        self.fixture.wake.unlink()
+        result = observe_current_correlation(self.fixture.config())
+        envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
+        self.assertEqual(result["state"], "deferred")
+        self.assertEqual(envelope["wake_observation"]["source_family"], "unsupported")
+        self.assertIsNone(envelope["wake_observation"]["attempts"])
+        self.assertIsNone(envelope["wake_observation"]["goal_resume_requested"])
+        self.assertEqual(envelope["accepted_turn"]["state"], "missing")
+        self.assertNotEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
 
     def test_v1_success_without_accepted_turn_is_invalid(self) -> None:
         payload = self.fixture._write_codex_v1()
@@ -598,6 +703,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
         self.assertEqual(envelope["accepted_turn"]["state"], "missing")
         self.assertEqual(envelope["wake_observation"]["missingness"], "present_but_invalid")
 
@@ -619,6 +725,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
         self.assertEqual(envelope["wake_observation"]["failure"]["error_type"], "identity_mismatch")
         self.assertEqual(envelope["wake_observation"]["handoff_delivery"], False)
         self.assertEqual(envelope["lifecycle"]["wake_requested"]["state"], "invalid")
@@ -644,6 +751,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
         self.assertTrue(any("wake receipt collision" in item for item in envelope["return_observation"]["errors"]))
         self.assertEqual(
             {item["schema_version"] for item in envelope["wake_observation"]["candidate_receipts"]},
@@ -657,6 +765,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
         self.assertTrue(any("unsupported fields" in item for item in envelope["return_observation"]["errors"]))
 
     def test_v1_owner_contract_rejects_relative_ref_and_oversized_identity(self) -> None:
@@ -667,6 +776,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
         errors = " ".join(envelope["return_observation"]["errors"])
         self.assertIn("handoff_ref is not absolute", errors)
         self.assertIn("request_id exceeds 256", errors)
@@ -678,6 +788,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
         self.assertIsNone(envelope["wake_observation"]["goal_resume_requested"])
         self.assertIn("unsupported wake receipt schema_version", " ".join(envelope["return_observation"]["errors"]))
 
