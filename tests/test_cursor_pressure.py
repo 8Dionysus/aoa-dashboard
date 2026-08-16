@@ -22,6 +22,7 @@ from aoa_dashboard.cursor import (  # noqa: E402
     make_observation,
     materialize_goal_local_projection,
     migrate_legacy_correlation_input,
+    observations_from_correlation,
     redact_legacy_metadata,
     read_correlation_observation_log,
     rebuild_goal_local_projection,
@@ -189,6 +190,60 @@ def pressure_record() -> dict:
 
 
 class CursorRetentionTests(unittest.TestCase):
+    def test_receipt_observation_rebuild_retains_invalid_envelope_as_redacted_evidence(self) -> None:
+        valid_envelope = {
+            "schema_version": "aoa_dashboard_correlation_envelope_v1",
+            "correlation_id": "receipt:v1",
+            "state": "deferred",
+            "goal": {},
+            "return_observation": {"return_id": "receipt:v1", "errors": [], "claim_limit": "bounded"},
+            "wake_observation": {
+                "source_schema_version": "aoa_codex_wake_receipt_v1",
+                "source_family": "codex_wake_receipt_v1",
+                "freshness": "current_at_read",
+                "claim_limit": "bounded",
+            },
+            "accepted_turn": {"state": "missing", "claim_limit": "bounded"},
+            "master_filter": {"disposition": "stale", "claim_limit": "bounded"},
+            "dag_disposition": {"claim_limit": "bounded"},
+            "lifecycle": {},
+            "authority": "aoa-dashboard:derived_task_local_correlation",
+            "claim_limits": ["bounded"],
+        }
+        malformed_envelope = {
+            "schema_version": "aoa_dashboard_correlation_envelope_v1",
+            "correlation_id": {"secret": "PRIVATE-CORRELATION-ID"},
+            "return_observation": {"unexpected_private_field": "PRIVATE-BODY"},
+        }
+        source = {
+            "state": "invalid",
+            "freshness": "invalid",
+            "evidence_refs": [SOURCE_REF],
+            "metadata": {"envelopes": [valid_envelope, malformed_envelope]},
+        }
+
+        observations = observations_from_correlation(
+            source,
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+        )
+        receipt = next(item for item in observations if item["kind"] == "correlation_envelope" and item["payload"]["state"] == "deferred")
+        invalid = next(item for item in observations if item["kind"] == "correlation_envelope" and item["payload"]["state"] == "invalid")
+        rendered_invalid = json.dumps(invalid, sort_keys=True)
+        self.assertEqual(receipt["payload"]["wake_observation"]["source_schema_version"], "aoa_codex_wake_receipt_v1")
+        self.assertNotIn("PRIVATE-CORRELATION-ID", rendered_invalid)
+        self.assertNotIn("PRIVATE-BODY", rendered_invalid)
+        self.assertEqual(invalid["observation_id"], "envelope:invalid-envelope-1")
+
+        rebuilt = rebuild_goal_local_projection(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observations=observations,
+        )
+        self.assertEqual(rebuilt["status"], "invalid")
+        self.assertTrue(any("observation source currentness is invalid" in error for error in rebuilt["rebuild"]["errors"]))
+        self.assertIn(invalid["record_id"], rebuilt["checkpoint"]["retained_observation_ids"])
+
     def test_cursor_is_order_independent_and_replay_is_idempotent(self) -> None:
         first = observation("return:one")
         second = observation("return:two")

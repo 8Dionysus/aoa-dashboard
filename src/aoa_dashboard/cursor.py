@@ -186,14 +186,37 @@ _PAYLOAD_NESTED_FIELDS = frozenset(
         "claim_limit",
         "return_id",
         "source_schema_version",
+        "source_family",
+        "adapter_version",
+        "owner_repo",
+        "owner_ref",
+        "contract_ref",
+        "raw_owner_ref",
+        "raw_owner_content_sha256",
+        "raw_owner_content_digest",
         "responsibility_state",
         "ref",
         "filter_disposition",
         "errors",
+        "error_type",
+        "message",
         "outcome",
         "delivery_route",
+        "route",
+        "stage",
+        "request_id",
+        "client_user_message_id",
         "handoff_delivery",
         "handoff_message_submitted",
+        "goal_resume_requested",
+        "attempts",
+        "failure",
+        "provenance",
+        "missingness",
+        "candidate_receipts",
+        "transport_accepted",
+        "raw_handoff_sha256",
+        "normalized_handoff_sha256",
         "observed_at",
         "accepted_turn_id",
         "basis_ref",
@@ -598,6 +621,60 @@ def _base_refs(correlation_source: dict[str, Any]) -> tuple[list[dict[str, Any]]
     return refs, errors
 
 
+def _invalid_correlation_payload(envelope: dict[str, Any], index: int) -> dict[str, Any]:
+    """Retain only a safe envelope shell when metadata admission fails.
+
+    The invalid source remains represented in the cursor stream, while
+    unadmitted publisher fields and malformed values stay out of the retained
+    payload and its digest.
+    """
+
+    correlation_id = envelope.get("correlation_id")
+    if not isinstance(correlation_id, str) or not correlation_id.strip() or len(correlation_id) > 256:
+        correlation_id = f"invalid-envelope-{index}"
+    schema_version = envelope.get("schema_version")
+    if not isinstance(schema_version, str) or not schema_version.strip() or len(schema_version) > 128:
+        schema_version = "aoa_dashboard_correlation_envelope_v1"
+    wake = envelope.get("wake_observation") if isinstance(envelope.get("wake_observation"), dict) else {}
+    source_schema = wake.get("source_schema_version") or wake.get("schema_version")
+    if not isinstance(source_schema, str) or len(source_schema) > 128:
+        source_schema = None
+    source_family = wake.get("source_family")
+    if not isinstance(source_family, str) or len(source_family) > 128:
+        source_family = "unsupported"
+    return {
+        "schema_version": schema_version,
+        "correlation_id": correlation_id,
+        "state": "invalid",
+        "goal": {},
+        "return_observation": {
+            "return_id": correlation_id,
+            "errors": ["metadata_admission_rejected"],
+            "claim_limit": CLAIM_LIMIT,
+        },
+        "wake_observation": {
+            "schema_version": source_schema,
+            "source_schema_version": source_schema,
+            "source_family": source_family,
+            "freshness": "invalid",
+            "missingness": "present_but_invalid",
+            "claim_limit": CLAIM_LIMIT,
+        },
+        "accepted_turn": {
+            "state": "missing",
+            "claim_limit": CLAIM_LIMIT,
+        },
+        "master_filter": {
+            "disposition": "invalid",
+            "claim_limit": CLAIM_LIMIT,
+        },
+        "dag_disposition": {"claim_limit": CLAIM_LIMIT},
+        "lifecycle": {},
+        "authority": "aoa-dashboard:derived_task_local_correlation",
+        "claim_limits": [CLAIM_LIMIT, "Invalid source metadata is retained as redacted evidence only."],
+    }
+
+
 def observations_from_correlation(
     correlation_source: dict[str, Any],
     *,
@@ -618,9 +695,48 @@ def observations_from_correlation(
     observations: list[dict[str, Any]] = []
     adapter_errors = list(base_errors)
     raw_envelopes = metadata.get("envelopes") if isinstance(metadata.get("envelopes"), list) else []
+
+    fallback_ref = {
+        "label": "correlation source",
+        "kind": "derived_correlation_source",
+        "ref": "correlation:unresolved",
+        "sha256": None,
+        "currentness": "invalid",
+        "owner": "aoa-dashboard",
+        "access_scope": "dashboard_local",
+        "authority": "dashboard_derived",
+        "claim_policy": "dashboard_derived_read_model",
+        "snapshot_role": "derived_binding",
+        "claim_limit": CLAIM_LIMIT,
+    }
+
+    def retain_invalid(index: int, envelope: dict[str, Any], refs: list[dict[str, Any]]) -> None:
+        source_refs = refs or base_refs or [fallback_ref]
+        raw_correlation_id = envelope.get("correlation_id")
+        correlation_id = (
+            raw_correlation_id
+            if isinstance(raw_correlation_id, str) and raw_correlation_id.strip() and len(raw_correlation_id) <= 256
+            else f"invalid-envelope-{index}"
+        )
+        try:
+            observations.append(
+                make_observation(
+                    goal_id=goal_id,
+                    master_thread_id=master_thread_id,
+                    observation_id=f"envelope:{correlation_id}",
+                    entity_key=f"return:{correlation_id}",
+                    kind="correlation_envelope",
+                    payload=_invalid_correlation_payload(envelope, index),
+                    source_refs=source_refs,
+                    currentness="invalid",
+                )
+            )
+        except ValueError:
+            # The bounded fallback below remains the only path when even the
+            # source refs cannot be admitted; never leak the rejected body.
+            adapter_errors.append("invalid_correlation_envelope_retention_failed")
+
     for index, envelope in enumerate(raw_envelopes):
-        if adapter_errors:
-            break
         if not isinstance(envelope, dict):
             adapter_errors.append("correlation_envelope_not_object")
             continue
@@ -631,6 +747,7 @@ def observations_from_correlation(
         refs.extend(local_refs)
         if local_errors:
             adapter_errors.extend(local_errors)
+            retain_invalid(index, envelope, refs)
             continue
         return_observation = envelope.get("return_observation") if isinstance(envelope.get("return_observation"), dict) else {}
         return_id = return_observation.get("return_id") or envelope.get("correlation_id") or f"index-{index}"
@@ -654,11 +771,12 @@ def observations_from_correlation(
                 )
             )
         except ValueError:
-            adapter_errors.extend(["correlation_envelope_metadata_admission_rejected", *local_errors])
+            adapter_errors.append("correlation_envelope_metadata_admission_rejected")
+            retain_invalid(index, envelope, refs)
 
     master_filter = metadata.get("master_filter") if isinstance(metadata.get("master_filter"), dict) else {}
     filter_ref = master_filter.get("ref") if isinstance(master_filter.get("ref"), dict) else None
-    if filter_ref is not None and not adapter_errors:
+    if filter_ref is not None:
         refs = copy.deepcopy(base_refs)
         local_errors: list[str] = []
         normalised = _normalise_ref(filter_ref)
