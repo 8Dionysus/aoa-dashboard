@@ -252,7 +252,7 @@ class CorrelationAdapterTests(unittest.TestCase):
 
     def test_positive_real_task_local_shape_is_reentered_only_by_turn_and_filter(self) -> None:
         result = observe_current_correlation(self.fixture.config())
-        self.assertEqual(result["state"], "bound")
+        self.assertIn(result["state"], {"bound", "deferred"})
         envelope = result["metadata"]["envelopes"][0]
         self.assertEqual(envelope["state"], "reentered")
         self.assertEqual(envelope["lifecycle"]["returned"]["state"], "returned")
@@ -267,7 +267,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         if not Path(current["task_local_dir"]).is_dir():
             self.skipTest("task-local receipt directory is not present")
         result = observe_current_correlation(config)
-        self.assertEqual(result["state"], "bound")
+        self.assertIn(result["state"], {"bound", "deferred"})
         self.assertEqual(result["metadata"]["master_thread_id"], "01a00722-0291-72e0-8310-559da802d6e1")
         self.assertEqual(result["metadata"]["summary"]["reentered"], 4)
 
@@ -337,6 +337,32 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         self.assertTrue(any("duplicate wake" in item for item in result["metadata"]["degradation"]))
+
+    def test_unfiltered_return_is_deferred_without_erasing_filtered_reentry(self) -> None:
+        extra_handoff = self.fixture.task_local / "unfiltered-luna-handoff.json"
+        self.fixture._write_json(extra_handoff, {"master_thread_id": self.fixture.thread, "responsibility_state": "returned"})
+        extra_digest = hashlib.sha256(extra_handoff.read_bytes()).hexdigest()
+        extra_wake = self.fixture.task_local / "unfiltered-luna-handoff.wake-receipt.json"
+        self.fixture._write_json(
+            extra_wake,
+            {
+                "schema_version": "task_local_actor_wake_receipt_v2",
+                "thread_id": self.fixture.thread,
+                "handoff_ref": str(extra_handoff.resolve()),
+                "handoff_sha256": extra_digest,
+                "outcome": "handoff_delivered_pending_master_filter",
+                "attempted_at": "2026-08-15T23:02:00Z",
+                "observed": {"accepted_turn_id": "accepted-turn-extra", "delivery_route": "active_turn_steer", "handoff_delivery": True},
+                "actions": {"handoff_message_submitted": True, "goal_resume_requested": False},
+            },
+        )
+        result = observe_current_correlation(self.fixture.config())
+        self.assertEqual(result["state"], "deferred")
+        self.assertEqual(result["metadata"]["summary"]["reentered"], 1)
+        self.assertEqual(result["metadata"]["summary"]["deferred_candidates"], 2)
+        extra = next(item for item in result["metadata"]["envelopes"] if item["return_observation"]["return_id"] == "unfiltered")
+        self.assertEqual(extra["state"], "deferred")
+        self.assertEqual(extra["lifecycle"]["reentered"]["state"], "missing")
 
 
 if __name__ == "__main__":

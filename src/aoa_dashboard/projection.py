@@ -30,7 +30,9 @@ def _ref_for(source: dict[str, Any]) -> list[dict[str, Any]]:
 def _node_state(node_id: str, config: dict[str, Any], source_index: dict[str, dict[str, Any]]) -> tuple[str, str]:
     root = Path(__file__).resolve().parents[2]
     correlation = source_index["task-local-correlation"]
-    correlation_bound = correlation.get("state") == "bound"
+    correlation_metadata = correlation.get("metadata", {})
+    correlation_summary = correlation_metadata.get("summary", {}) if isinstance(correlation_metadata, dict) else {}
+    correlation_bound = correlation.get("state") in {"bound", "deferred"} and bool(correlation_summary.get("reentered"))
     checks: dict[str, tuple[bool, str, str]] = {
         "G0": (source_index["goal-anchor"]["state"] == "bound", "Goal Anchor is bound", "goal-anchor"),
         "D1": ((root / "docs" / "BOUNDARIES.md").exists(), "dashboard ownership boundary is present", "dashboard:docs/BOUNDARIES.md"),
@@ -73,6 +75,7 @@ def _lifecycle(config: dict[str, Any], source_index: dict[str, dict[str, Any]]) 
     has_return = bool(summary.get("filtered_return_ids"))
     has_wake = bool(summary.get("reentered"))
     has_reentry = bool(summary.get("reentered"))
+    bound_state = "bound" if correlation_state in {"bound", "deferred"} and has_reentry else correlation_state
     if correlation_state == "invalid":
         returned_state = wake_state = reentry_state = "invalid"
     elif has_return:
@@ -90,8 +93,8 @@ def _lifecycle(config: dict[str, Any], source_index: dict[str, dict[str, Any]]) 
             _ref_for(source_index["goal-anchor"]),
         ),
         "bound": (
-            "bound" if correlation_state == "bound" else correlation_state,
-            "Current Goal/thread/task-local correlation is bound; the bootstrap incarnation remains historical." if correlation_state == "bound" else "Current Goal/thread correlation is not bound.",
+            bound_state,
+            "Current Goal/thread/task-local correlation is bound; one residual candidate remains deferred and the bootstrap incarnation remains historical." if bound_state == "bound" and correlation_state == "deferred" else ("Current Goal/thread/task-local correlation is bound; the bootstrap incarnation remains historical." if bound_state == "bound" else "Current Goal/thread correlation is not bound."),
             [_ref_for(source_index["goal-anchor"])[0], *correlation_refs],
         ),
         "running": (

@@ -455,6 +455,7 @@ def _envelope(
     wake_state = "wake requested"
     master_state = "reentered"
     reentry_state: str = "reentered"
+    is_filtered = filter_entry.get("disposition") != "not_listed_by_master_filter"
     if handoff_missing or wake_missing:
         return_state = "missing"
     if handoff is None and not handoff_missing:
@@ -471,6 +472,10 @@ def _envelope(
     elif wake_missing:
         return_state = "returned"
         wake_state = "missing"
+        master_state = "deferred"
+        reentry_state = "missing"
+    elif not is_filtered:
+        return_state = "deferred"
         master_state = "deferred"
         reentry_state = "missing"
 
@@ -552,10 +557,13 @@ def _envelope(
         claim_limits.append("Invalid or mismatched task-local evidence remains invalid and is not converted to success or zero.")
     elif wake is None:
         claim_limits.append("Missing wake evidence remains missing; a returned handoff is not promoted to re-entry.")
+    envelope_state: CorrelationState = reentry_state  # type: ignore[assignment]
+    if not errors and not is_filtered:
+        envelope_state = "deferred"
     return {
         "schema_version": CORRELATION_SCHEMA_VERSION,
         "correlation_id": f"goal:{goal_id}/thread:{expected_thread}/return:{filter_entry.get('id') or 'unresolved'}",
-        "state": reentry_state,
+        "state": envelope_state,
         "goal": {
             "goal_id": goal_id,
             "master_thread_id": expected_thread,
@@ -818,16 +826,24 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
             )
         )
     filter_ref_set = set(filter_entries)
+    deferred_candidates: list[str] = []
     for path, handoff_value, handoff_error in handoffs.values():
         if str(path) in filter_ref_set:
             continue
-        anomalies.append(f"unfiltered handoff candidate: {path}")
+        deferred_candidates.append(f"unfiltered handoff candidate: {path}")
         if handoff_value is not None and handoff_value.get("master_thread_id") == expected_thread:
+            extra_wakes = wakes.get(str(path), [])
+            if extra_wakes:
+                extra_wake_path, extra_wake_value, extra_wake_error = extra_wakes[0]
+                extra_wake_ref = str(extra_wake_path)
+            else:
+                extra_wake_path, extra_wake_value, extra_wake_error = None, None, "wake receipt is absent from the bounded directory"
+                extra_wake_ref = "unresolved:unfiltered"
             filter_entry = {
                 "id": path.stem.removesuffix("-luna-handoff"),
                 "handoff_ref": str(path),
                 "handoff_sha256": _sha256(path),
-                "wake_receipt_ref": "unresolved:unfiltered",
+                "wake_receipt_ref": extra_wake_ref,
                 "disposition": "not_listed_by_master_filter",
             }
             envelopes.append(
@@ -840,14 +856,14 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
                     handoff_path=path,
                     handoff=handoff_value,
                     handoff_error=handoff_error,
-                    wake_path=None,
-                    wake=None,
-                    wake_error="handoff is not listed by master filter",
+                    wake_path=extra_wake_path,
+                    wake=extra_wake_value,
+                    wake_error=extra_wake_error,
                 )
             )
     for wake_ref, candidates in wakes.items():
         if wake_ref not in filter_ref_set:
-            anomalies.append(f"unfiltered wake receipt: {wake_ref}")
+            deferred_candidates.append(f"unfiltered wake receipt: {wake_ref}")
 
     if filter_errors:
         state = "invalid"
@@ -855,9 +871,9 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
         state = "invalid"
     elif not envelopes:
         state = "missing"
-    elif any(item["state"] == "missing" for item in envelopes):
+    elif deferred_candidates or any(item["state"] == "deferred" for item in envelopes):
         state = "deferred"
-    elif any(item["state"] == "deferred" for item in envelopes):
+    elif any(item["state"] == "missing" for item in envelopes):
         state = "deferred"
     else:
         state = "bound"
@@ -865,6 +881,7 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
     if filter_errors:
         degradation.extend(filter_errors)
     degradation.extend(anomalies)
+    degradation.extend(deferred_candidates)
     if not anchor_digest:
         state = "invalid"
         degradation.append("goal_anchor_missing")
@@ -878,6 +895,7 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
         "missing": sum(item["state"] == "missing" for item in envelopes),
         "filtered_return_ids": len(filter_entries),
         "anomalies": len(anomalies) + len(filter_errors),
+        "deferred_candidates": len(deferred_candidates),
     }
     projection: CorrelationProjection = {
         "schema_version": CORRELATION_PROJECTION_VERSION,
