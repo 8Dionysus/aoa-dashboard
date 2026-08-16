@@ -83,6 +83,7 @@ class ProjectionFixture:
                     "handoff_glob": "*-luna-handoff.json",
                     "wake_glob": "*.wake-receipt.json",
                     "ignored_handoff_names": [],
+                    "ignored_wake_names": [],
                     "current_holder": "test holder",
                 },
                 "actor_receipt_path": str(self.actor),
@@ -233,6 +234,7 @@ class CorrelationFixture:
                 "handoff_glob": "*-luna-handoff.json",
                 "wake_glob": "*.wake-receipt.json",
                 "ignored_handoff_names": [],
+                "ignored_wake_names": [],
                 "current_holder": "test correlation holder",
             },
         }

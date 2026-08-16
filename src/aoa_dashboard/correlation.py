@@ -754,11 +754,15 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
     handoff_glob = current.get("handoff_glob", "*-luna-handoff.json")
     wake_glob = current.get("wake_glob", "*.wake-receipt.json")
     ignored_names = set(current.get("ignored_handoff_names", [])) if isinstance(current.get("ignored_handoff_names", []), list) else set()
+    ignored_wake_names = set(current.get("ignored_wake_names", [])) if isinstance(current.get("ignored_wake_names", []), list) else set()
     handoff_paths = sorted(
         (path.resolve(strict=False) for path in task_root.glob(handoff_glob) if path.is_file() and path.name not in ignored_names),
         key=str,
     )
-    wake_paths = sorted((path.resolve(strict=False) for path in task_root.glob(wake_glob) if path.is_file()), key=str)
+    wake_paths = sorted(
+        (path.resolve(strict=False) for path in task_root.glob(wake_glob) if path.is_file() and path.name not in ignored_wake_names),
+        key=str,
+    )
     handoffs: dict[str, tuple[Path, dict[str, Any] | None, str | None]] = {}
     for path in handoff_paths:
         value, error = _read_json(path)

@@ -20,6 +20,7 @@
     "handoff_glob": "*-luna-handoff.json",
     "wake_glob": "*.wake-receipt.json",
     "ignored_handoff_names": ["correlation-slice-luna-handoff.json"],
+    "ignored_wake_names": ["correlation-slice-luna-handoff.wake-receipt.json"],
     "current_holder": "Luna Max implementation holder D2/D3/D4/D5/D8",
     "claim_limit": "Current Goal/thread and task-local receipts are a dashboard correlation surface, not role, runtime, proof, acceptance, or human authority."
   },
