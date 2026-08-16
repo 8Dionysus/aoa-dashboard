@@ -35,7 +35,7 @@ CORRELATION_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "contracts" / "c
 CORRELATION_SCHEMA_VALIDATOR = Draft202012Validator(
     json.loads(CORRELATION_SCHEMA_PATH.read_text(encoding="utf-8"))
 )
-from aoa_dashboard.sources import observe_goal, observe_session  # noqa: E402
+from aoa_dashboard.sources import observe_goal  # noqa: E402
 from aoa_dashboard.source_binding import read_file_snapshot  # noqa: E402
 
 
