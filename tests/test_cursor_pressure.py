@@ -4,6 +4,7 @@ import copy
 import json
 import multiprocessing
 import os
+import pickle
 import sys
 import tempfile
 import threading
@@ -13,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import aoa_dashboard.cursor as cursor_module  # noqa: E402
 from aoa_dashboard.cursor import (  # noqa: E402
     append_correlation_observations,
     _checkpoint_lock_path,
@@ -33,6 +35,11 @@ from aoa_dashboard.pressure import (  # noqa: E402
     validate_pressure_record,
 )
 from aoa_dashboard.state_store import create_action_intent, create_annotation  # noqa: E402
+
+
+def _active_record(lock_context: object) -> object:
+    with cursor_module._ACTIVE_LEDGER_CAPABILITIES_GUARD:
+        return cursor_module._ACTIVE_LEDGER_CAPABILITIES[id(lock_context)]
 
 
 GOAL_ID = "goal:test"
@@ -667,6 +674,8 @@ class CursorRetentionTests(unittest.TestCase):
                     copy.copy(lock_context)
                 with self.assertRaises(TypeError):
                     copy.deepcopy(lock_context)
+                with self.assertRaises(TypeError):
+                    pickle.dumps(lock_context)
                 forged = object.__new__(type(lock_context))
                 with self.assertRaises(ValueError):
                     append_correlation_observations(log_path, [observation("forged")], lock_context=forged)
@@ -676,6 +685,155 @@ class CursorRetentionTests(unittest.TestCase):
                 write_correlation_checkpoint(checkpoint_path, {}, lock_context=lock_context)
             self.assertEqual(log_path.stat().st_size, 0)
             self.assertFalse(checkpoint_path.exists())
+            self.assertEqual(_active_record(lock_context).state, "released")
+
+    def test_exact_active_capability_retarget_probe_fails_closed_for_both_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first_log = root / "first.jsonl"
+            first_checkpoint = root / "first-checkpoint.json"
+            second_log = root / "second.jsonl"
+            second_checkpoint = root / "second-checkpoint.json"
+            valid_checkpoint = rebuild_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[observation("retarget-checkpoint")],
+            )["checkpoint"]
+            retarget_fields = (
+                "ledger_identity",
+                "log_path",
+                "checkpoint_path",
+                "lock_path",
+                "_lock_descriptor",
+                "_lock_descriptor_identity",
+                "_local_lock",
+                "_owner_pid",
+                "_owner_thread_id",
+                "_seal",
+                "__weakref__",
+            )
+            with _ledger_lock(first_log, first_checkpoint) as first_context:
+                with _ledger_lock(second_log, second_checkpoint) as second_context:
+                    self.assertEqual(type(first_context).__slots__, ("__weakref__",))
+                    self.assertIs(type(first_context), type(second_context))
+                    self.assertFalse(
+                        any(field in dir(first_context) for field in retarget_fields if field != "__weakref__")
+                    )
+                    for index, field in enumerate(retarget_fields):
+                        for setter in (setattr, object.__setattr__):
+                            try:
+                                setter(first_context, field, getattr(second_context, field, object()))
+                            except (AttributeError, TypeError):
+                                pass
+                            with self.assertRaises(ValueError):
+                                append_correlation_observations(
+                                    second_log,
+                                    [observation(f"retarget-append-{index}")],
+                                    lock_context=first_context,
+                                )
+                            with self.assertRaises(ValueError):
+                                write_correlation_checkpoint(
+                                    second_checkpoint,
+                                    valid_checkpoint,
+                                    lock_context=first_context,
+                                )
+                    self.assertEqual(second_log.stat().st_size, 0)
+                    self.assertFalse(second_checkpoint.exists())
+
+                self.assertEqual(
+                    append_correlation_observations(
+                        first_log, [observation("retarget-original")], lock_context=first_context
+                    ),
+                    1,
+                )
+                write_correlation_checkpoint(first_checkpoint, valid_checkpoint, lock_context=first_context)
+            self.assertGreater(first_log.stat().st_size, 0)
+            self.assertTrue(first_checkpoint.exists())
+
+    def test_descriptor_close_reuse_and_guard_retarget_fail_before_both_writes(self) -> None:
+        cases = ("close", "reuse", "same-inode-reuse", "guard-close")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                log_path = root / "correlation.jsonl"
+                checkpoint_path = root / "checkpoint.json"
+                replacement_path = root / "replacement.lock"
+                replacement_fd: int | None = None
+                with _ledger_lock(log_path, checkpoint_path) as lock_context:
+                    record = _active_record(lock_context)
+                    if case == "close":
+                        os.close(record.lock_descriptor)
+                    elif case == "reuse":
+                        os.close(record.lock_descriptor)
+                        replacement_fd = os.open(replacement_path, os.O_CREAT | os.O_RDWR, 0o600)
+                        self.assertEqual(replacement_fd, record.lock_descriptor)
+                    elif case == "same-inode-reuse":
+                        os.close(record.lock_descriptor)
+                        replacement_fd = os.open(record.lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+                        self.assertEqual(replacement_fd, record.lock_descriptor)
+                    else:
+                        os.close(record.lock_guard_descriptor)
+                    with self.assertRaises(ValueError):
+                        append_correlation_observations(
+                            log_path, [observation(f"descriptor-{case}")], lock_context=lock_context
+                        )
+                    with self.assertRaises(ValueError):
+                        write_correlation_checkpoint(
+                            checkpoint_path, {}, lock_context=lock_context
+                        )
+                    self.assertEqual(log_path.stat().st_size, 0)
+                    self.assertFalse(checkpoint_path.exists())
+                if replacement_fd is not None:
+                    os.close(replacement_fd)
+
+    def test_public_writes_classify_physical_and_canonical_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log_path = root / "correlation.jsonl"
+            checkpoint_path = root / "checkpoint.json"
+            hardlink_log = root / "correlation-hardlink.jsonl"
+            symlink_log = root / "correlation-symlink.jsonl"
+            wrong_log = root / "wrong.jsonl"
+            hardlink_checkpoint = root / "checkpoint-hardlink.json"
+            symlink_checkpoint = root / "checkpoint-symlink.json"
+            wrong_checkpoint = root / "wrong-checkpoint.json"
+            valid_checkpoint = rebuild_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[observation("alias-checkpoint")],
+            )["checkpoint"]
+            with _ledger_lock(log_path, checkpoint_path) as lock_context:
+                hardlink_log.hardlink_to(log_path)
+                symlink_log.symlink_to(log_path)
+                wrong_log.touch()
+                self.assertEqual(
+                    append_correlation_observations(
+                        hardlink_log, [observation("hardlink")], lock_context=lock_context
+                    ),
+                    1,
+                )
+                self.assertEqual(
+                    append_correlation_observations(
+                        symlink_log, [observation("symlink")], lock_context=lock_context
+                    ),
+                    1,
+                )
+                with self.assertRaises(ValueError):
+                    append_correlation_observations(
+                        wrong_log, [observation("different-inode")], lock_context=lock_context
+                    )
+                write_correlation_checkpoint(checkpoint_path, valid_checkpoint, lock_context=lock_context)
+                hardlink_checkpoint.hardlink_to(checkpoint_path)
+                symlink_checkpoint.symlink_to(checkpoint_path)
+                wrong_checkpoint.touch()
+                for alias in (hardlink_checkpoint, symlink_checkpoint, wrong_checkpoint):
+                    with self.assertRaises(ValueError):
+                        write_correlation_checkpoint(alias, valid_checkpoint, lock_context=lock_context)
+            records, errors = read_correlation_observation_log(log_path)
+            self.assertEqual(errors, [])
+            self.assertEqual(len(records), 2)
+            self.assertEqual(wrong_log.stat().st_size, 0)
+            self.assertEqual(wrong_checkpoint.stat().st_size, 0)
 
     def test_shared_context_fails_closed_across_thread_and_process(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

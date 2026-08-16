@@ -21,9 +21,10 @@ import os
 import stat
 import tempfile
 import threading
+import weakref
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, NamedTuple
 
 from .source_binding import (
     KNOWN_CURRENTNESS,
@@ -249,7 +250,7 @@ _VOLATILE_PAYLOAD_PATHS = frozenset(
 
 _LEDGER_LOCAL_LOCKS: dict[str, threading.Lock] = {}
 _LEDGER_LOCAL_LOCKS_GUARD = threading.Lock()
-_ACTIVE_LEDGER_CAPABILITIES: dict[int, object] = {}
+_ACTIVE_LEDGER_CAPABILITIES: dict[int, "_LedgerCapabilityRecord"] = {}
 _ACTIVE_LEDGER_CAPABILITIES_GUARD = threading.Lock()
 
 
@@ -1423,49 +1424,14 @@ def migrate_legacy_correlation_input(config: dict[str, Any], correlation_source:
     }
 
 
-_LEDGER_CAPABILITY_SEAL = object()
-
-
 class _VerifiedLedgerLock:
-    """An uncopyable capability whose lifetime is the enclosing lock scope."""
+    """Opaque identity-only capability whose lifetime is the lock scope."""
 
-    __slots__ = (
-        "ledger_identity",
-        "log_path",
-        "checkpoint_path",
-        "lock_path",
-        "_lock_descriptor",
-        "_lock_descriptor_identity",
-        "_local_lock",
-        "_owner_pid",
-        "_owner_thread_id",
-        "_seal",
-    )
+    __slots__ = ("__weakref__",)
 
-    def __init__(
-        self,
-        seal: object,
-        *,
-        ledger_identity: str,
-        log_path: Path,
-        checkpoint_path: Path,
-        lock_path: Path,
-        lock_descriptor: int,
-        lock_descriptor_identity: tuple[int, int],
-        local_lock: threading.Lock,
-    ) -> None:
-        if seal is not _LEDGER_CAPABILITY_SEAL:
-            raise TypeError("ledger lock capability cannot be forged")
-        self.ledger_identity = ledger_identity
-        self.log_path = log_path
-        self.checkpoint_path = checkpoint_path
-        self.lock_path = lock_path
-        self._lock_descriptor = lock_descriptor
-        self._lock_descriptor_identity = lock_descriptor_identity
-        self._local_lock = local_lock
-        self._owner_pid = os.getpid()
-        self._owner_thread_id = threading.get_ident()
-        self._seal = seal
+    def __new__(cls, *args: Any, **kwargs: Any) -> "_VerifiedLedgerLock":
+        del args, kwargs
+        raise TypeError("ledger lock capability can only be created by the lock owner")
 
     def __copy__(self) -> _VerifiedLedgerLock:
         raise TypeError("ledger lock capability cannot be copied")
@@ -1476,6 +1442,28 @@ class _VerifiedLedgerLock:
 
     def __reduce__(self) -> Any:
         raise TypeError("ledger lock capability cannot be serialized")
+
+    def __reduce_ex__(self, protocol: int) -> Any:
+        del protocol
+        raise TypeError("ledger lock capability cannot be serialized")
+
+
+class _LedgerCapabilityRecord(NamedTuple):
+    """Trusted binding state held outside the caller-visible capability."""
+
+    capability_ref: weakref.ReferenceType[_VerifiedLedgerLock]
+    capability_identity: int
+    ledger_identity: str
+    canonical_log_path: Path
+    canonical_checkpoint_path: Path
+    lock_path: Path
+    lock_descriptor: int
+    lock_guard_descriptor: int
+    lock_descriptor_identity: tuple[int, int]
+    local_lock: threading.Lock
+    owner_pid: int
+    owner_thread_id: int
+    state: str
 
 
 def _ledger_identity_from_stat(item: os.stat_result) -> str:
@@ -1504,7 +1492,9 @@ def _checkpoint_lock_path(observation_log_path: Path, checkpoint_path: Path) -> 
 
 
 def _checkpoint_binding_path(path: Path) -> str:
-    return str(path.resolve(strict=False))
+    # Do not follow symlinks here: atomic replacement targets the supplied
+    # pathname, so a symlink alias is not the canonical checkpoint binding.
+    return str(path.absolute())
 
 
 def _read_lock_binding(descriptor: int) -> dict[str, Any] | None:
@@ -1555,15 +1545,65 @@ def _local_ledger_lock(key: str) -> threading.Lock:
         return _LEDGER_LOCAL_LOCKS.setdefault(key, threading.Lock())
 
 
-def _register_ledger_capability(capability: _VerifiedLedgerLock) -> None:
+def _discard_ledger_capability(identity: int, capability_ref: weakref.ReferenceType[_VerifiedLedgerLock]) -> None:
     with _ACTIVE_LEDGER_CAPABILITIES_GUARD:
-        _ACTIVE_LEDGER_CAPABILITIES[id(capability)] = capability
+        record = _ACTIVE_LEDGER_CAPABILITIES.get(identity)
+        if record is not None and record.capability_ref is capability_ref:
+            del _ACTIVE_LEDGER_CAPABILITIES[identity]
+
+
+def _register_ledger_capability(record: _LedgerCapabilityRecord) -> None:
+    with _ACTIVE_LEDGER_CAPABILITIES_GUARD:
+        _ACTIVE_LEDGER_CAPABILITIES[record.capability_identity] = record
 
 
 def _unregister_ledger_capability(capability: _VerifiedLedgerLock) -> None:
     with _ACTIVE_LEDGER_CAPABILITIES_GUARD:
-        if _ACTIVE_LEDGER_CAPABILITIES.get(id(capability)) is capability:
-            del _ACTIVE_LEDGER_CAPABILITIES[id(capability)]
+        record = _ACTIVE_LEDGER_CAPABILITIES.get(id(capability))
+        if record is not None and record.capability_ref() is capability and record.state == "active":
+            _ACTIVE_LEDGER_CAPABILITIES[id(capability)] = record._replace(state="released")
+
+
+def _close_owned_lock_descriptors(
+    descriptor: int,
+    guard_descriptor: int,
+    descriptor_identity: tuple[int, int],
+) -> None:
+    """Close only descriptors still owned by this lock scope.
+
+    The guard descriptor keeps the flock alive while the primary descriptor is
+    checked.  If a descriptor number was externally closed and reused, the
+    identity or the non-blocking flock check prevents the cleanup path from
+    closing an unrelated descriptor.
+    """
+
+    if descriptor != -1:
+        close_primary = False
+        try:
+            if descriptor_identity == (-1, -1):
+                close_primary = True
+            else:
+                current = os.fstat(descriptor)
+                current_identity = (current.st_dev, current.st_ino)
+                if current_identity == descriptor_identity:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    close_primary = True
+        except OSError:
+            pass
+        if close_primary:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+    if guard_descriptor != -1:
+        try:
+            fcntl.flock(guard_descriptor, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        try:
+            os.close(guard_descriptor)
+        except OSError:
+            pass
 
 
 @contextmanager
@@ -1578,9 +1618,13 @@ def _ledger_lock(observation_log_path: Path, checkpoint_path: Path):
     local_lock = _local_ledger_lock(ledger_identity)
     local_lock.acquire()
     descriptor = -1
+    guard_descriptor = -1
+    descriptor_identity = (-1, -1)
     try:
         descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         fcntl.flock(descriptor, fcntl.LOCK_EX)
+        descriptor_stat = os.fstat(descriptor)
+        descriptor_identity = (descriptor_stat.st_dev, descriptor_stat.st_ino)
         binding = _read_lock_binding(descriptor)
         canonical_checkpoint = _checkpoint_binding_path(checkpoint_path)
         canonical_log = observation_log_path.resolve(strict=False)
@@ -1598,27 +1642,39 @@ def _ledger_lock(observation_log_path: Path, checkpoint_path: Path):
             raise ValueError(
                 "observation ledger is already bound to a different canonical checkpoint path"
             )
-        capability = _VerifiedLedgerLock(
-            _LEDGER_CAPABILITY_SEAL,
-            ledger_identity=ledger_identity,
-            log_path=observation_log_path.resolve(strict=False),
-            checkpoint_path=Path(canonical_checkpoint),
-            lock_path=lock_path,
-            lock_descriptor=descriptor,
-            lock_descriptor_identity=(os.fstat(descriptor).st_dev, os.fstat(descriptor).st_ino),
-            local_lock=local_lock,
+        guard_descriptor = os.dup(descriptor)
+        capability = object.__new__(_VerifiedLedgerLock)
+        capability_identity = id(capability)
+        capability_ref = weakref.ref(
+            capability,
+            lambda ref, identity=capability_identity: _discard_ledger_capability(identity, ref),
         )
-        _register_ledger_capability(capability)
+        record = _LedgerCapabilityRecord(
+            capability_ref=capability_ref,
+            capability_identity=capability_identity,
+            ledger_identity=ledger_identity,
+            canonical_log_path=canonical_log,
+            canonical_checkpoint_path=Path(canonical_checkpoint),
+            lock_path=lock_path.resolve(strict=False),
+            lock_descriptor=descriptor,
+            lock_guard_descriptor=guard_descriptor,
+            lock_descriptor_identity=descriptor_identity,
+            local_lock=local_lock,
+            owner_pid=os.getpid(),
+            owner_thread_id=threading.get_ident(),
+            state="active",
+        )
+        _register_ledger_capability(record)
         try:
             yield capability
         finally:
             _unregister_ledger_capability(capability)
     finally:
-        if descriptor != -1:
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-            finally:
-                os.close(descriptor)
+        _close_owned_lock_descriptors(
+            descriptor,
+            guard_descriptor,
+            descriptor_identity,
+        )
         local_lock.release()
         os.close(log_descriptor)
 
@@ -1627,38 +1683,44 @@ def _require_verified_lock(
     lock_context: _VerifiedLedgerLock | None,
     log_path: Path | None = None,
     checkpoint_path: Path | None = None,
-) -> None:
+) -> _LedgerCapabilityRecord:
     if type(lock_context) is not _VerifiedLedgerLock:
         raise ValueError("ledger write requires a verified lock context")
     with _ACTIVE_LEDGER_CAPABILITIES_GUARD:
-        active = _ACTIVE_LEDGER_CAPABILITIES.get(id(lock_context)) is lock_context
-    if not active:
+        record = _ACTIVE_LEDGER_CAPABILITIES.get(id(lock_context))
+    if record is None or record.capability_ref() is not lock_context or record.state != "active":
         raise ValueError("ledger write requires an actively held lock context")
     try:
-        if lock_context._seal is not _LEDGER_CAPABILITY_SEAL:
-            raise ValueError("ledger lock capability seal is invalid")
-        if lock_context._owner_pid != os.getpid() or lock_context._owner_thread_id != threading.get_ident():
+        if record.capability_identity != id(lock_context):
+            raise ValueError("ledger lock capability identity changed")
+        if record.owner_pid != os.getpid() or record.owner_thread_id != threading.get_ident():
             raise ValueError("ledger lock capability is owned by another process or thread")
-        if not lock_context._local_lock.locked():
+        if not record.local_lock.locked():
             raise ValueError("ledger local lock is not held")
-        descriptor_stat = os.fstat(lock_context._lock_descriptor)
+        descriptor_stat = os.fstat(record.lock_descriptor)
         descriptor_identity = (descriptor_stat.st_dev, descriptor_stat.st_ino)
-        if descriptor_identity != lock_context._lock_descriptor_identity:
+        if descriptor_identity != record.lock_descriptor_identity:
             raise ValueError("ledger OS lock descriptor identity changed")
-        lock_path_stat = lock_context.lock_path.stat()
+        guard_stat = os.fstat(record.lock_guard_descriptor)
+        guard_identity = (guard_stat.st_dev, guard_stat.st_ino)
+        if guard_identity != record.lock_descriptor_identity:
+            raise ValueError("ledger OS lock guard identity changed")
+        # The independent lease descriptor detects a closed-and-reused primary
+        # descriptor even when the replacement points at the same lock inode.
+        fcntl.flock(record.lock_guard_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(record.lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_path_stat = record.lock_path.stat()
         if (lock_path_stat.st_dev, lock_path_stat.st_ino) != descriptor_identity:
             raise ValueError("ledger OS lock path identity changed")
-        # Reassert the exclusive flock on the same live descriptor.  A closed,
-        # reused, or externally released descriptor fails before any write.
-        fcntl.flock(lock_context._lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if _ledger_identity_for_path(lock_context.log_path) != lock_context.ledger_identity:
+        if _ledger_identity_for_path(record.canonical_log_path) != record.ledger_identity:
             raise ValueError("verified ledger identity changed")
     except (OSError, AttributeError, TypeError) as exc:
         raise ValueError("ledger lock capability is no longer live") from exc
-    if log_path is not None and _ledger_identity_for_path(log_path) != lock_context.ledger_identity:
+    if log_path is not None and _ledger_identity_for_path(log_path) != record.ledger_identity:
         raise ValueError("ledger write path is outside the verified physical ledger")
-    if checkpoint_path is not None and _checkpoint_binding_path(checkpoint_path) != str(lock_context.checkpoint_path):
+    if checkpoint_path is not None and _checkpoint_binding_path(checkpoint_path) != str(record.canonical_checkpoint_path):
         raise ValueError("checkpoint write path is outside the verified canonical binding")
+    return record
 
 
 def _checkpoint_temp_paths(path: Path) -> list[Path]:
@@ -1865,7 +1927,8 @@ def materialize_goal_local_projection(
     checkpoint_file = Path(checkpoint_path)
     recovered_tail: dict[str, Any] | None = None
     with _ledger_lock(log_path, checkpoint_file) as lock_context:
-        lock_path = lock_context.lock_path
+        lock_record = _require_verified_lock(lock_context)
+        lock_path = lock_record.lock_path
         _cleanup_checkpoint_temps(checkpoint_file)
         existing, log_errors, recovery = _read_log_internal(log_path, recover_partial_tail=True)
         if log_errors:
