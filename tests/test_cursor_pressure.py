@@ -219,7 +219,7 @@ class CursorRetentionTests(unittest.TestCase):
             "state": "invalid",
             "freshness": "invalid",
             "evidence_refs": [SOURCE_REF],
-            "metadata": {"envelopes": [valid_envelope, malformed_envelope]},
+            "metadata": {"envelopes": [valid_envelope, malformed_envelope, "PRIVATE-TOP-LEVEL"]},
         }
 
         observations = observations_from_correlation(
@@ -234,6 +234,11 @@ class CursorRetentionTests(unittest.TestCase):
         self.assertNotIn("PRIVATE-CORRELATION-ID", rendered_invalid)
         self.assertNotIn("PRIVATE-BODY", rendered_invalid)
         self.assertEqual(invalid["observation_id"], "envelope:invalid-envelope-1")
+        invalid_top_level = next(
+            item for item in observations
+            if item["kind"] == "correlation_envelope" and item["observation_id"] == "envelope:invalid-envelope-2"
+        )
+        self.assertNotIn("PRIVATE-TOP-LEVEL", json.dumps(invalid_top_level, sort_keys=True))
 
         rebuilt = rebuild_goal_local_projection(
             goal_id=GOAL_ID,

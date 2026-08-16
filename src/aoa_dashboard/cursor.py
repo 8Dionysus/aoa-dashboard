@@ -739,6 +739,7 @@ def observations_from_correlation(
     for index, envelope in enumerate(raw_envelopes):
         if not isinstance(envelope, dict):
             adapter_errors.append("correlation_envelope_not_object")
+            retain_invalid(index, {}, [])
             continue
         refs = copy.deepcopy(base_refs)
         local_errors: list[str] = []
