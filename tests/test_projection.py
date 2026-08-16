@@ -13,6 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from aoa_dashboard.projection import build_projection, load_config  # noqa: E402
 from aoa_dashboard.correlation import observe_current_correlation  # noqa: E402
 from aoa_dashboard.sources import observe_session  # noqa: E402
+from aoa_dashboard.wake_receipts import (  # noqa: E402
+    CODEX_WAKE_OWNER_REF,
+    CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
+    TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
+    normalize_handoff_sha256,
+)
 
 
 class ProjectionFixture:
@@ -200,6 +206,44 @@ class CorrelationFixture:
         self._write_json(self.wake, wake)
         self._write_filter(handoff_digest)
 
+    def _write_codex_v1(
+        self,
+        *,
+        receipt_thread: str | None = None,
+        handoff_thread: str | None = None,
+        wake_payload: dict | None = None,
+    ) -> dict:
+        handoff = {
+            "schema_version": "test_handoff_v1",
+            "master_thread_id": handoff_thread or self.thread,
+            "responsibility_state": "returned",
+        }
+        self._write_json(self.handoff, handoff)
+        handoff_digest = hashlib.sha256(self.handoff.read_bytes()).hexdigest()
+        wake = wake_payload or {
+            "schema_version": CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
+            "request_id": "codex-request-1",
+            "master_thread_id": receipt_thread or self.thread,
+            "handoff_ref": str(self.handoff.resolve()),
+            "handoff_sha256": f"sha256:{handoff_digest}",
+            "attempted_at": "2026-08-15T23:00:00Z",
+            "generated_at": "2026-08-15T23:00:01Z",
+            "route": "app_server_remote_control",
+            "stage": "delivery",
+            "delivery_route": "active_turn_steer",
+            "client_user_message_id": "aoa-wake-client-1",
+            "accepted_turn_id": "accepted-turn-v1",
+            "attempts": 1,
+            "before": {"goal_status": "paused"},
+            "after": {"goal_status": "active"},
+            "outcome": "handoff_delivered_pending_master_filter",
+            "responsibility_state": "delivered_to_master_pending_master_filter",
+            "failure": None,
+        }
+        self._write_json(self.wake, wake)
+        self._write_filter(handoff_digest)
+        return wake
+
     def _write_filter(self, handoff_digest: str, *, duplicate: bool = False, handoff_ref: str | None = None) -> None:
         entry = {
             "id": "positive",
@@ -367,6 +411,146 @@ class CorrelationAdapterTests(unittest.TestCase):
         extra = next(item for item in result["metadata"]["envelopes"] if item["return_observation"]["return_id"] == "unfiltered")
         self.assertEqual(extra["state"], "deferred")
         self.assertEqual(extra["lifecycle"]["reentered"]["state"], "missing")
+
+    def test_v1_owner_receipt_is_admitted_with_raw_and_normalized_digest(self) -> None:
+        self.fixture._write_codex_v1()
+        result = observe_current_correlation(self.fixture.config())
+        envelope = result["metadata"]["envelopes"][0]
+        wake = envelope["wake_observation"]
+        self.assertEqual(envelope["state"], "reentered")
+        self.assertEqual(wake["source_schema_version"], CODEX_WAKE_RECEIPT_SCHEMA_VERSION)
+        self.assertEqual(wake["source_family"], "owner_runtime_neutral")
+        self.assertEqual(wake["raw_handoff_sha256"], "sha256:" + hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest())
+        self.assertEqual(wake["normalized_handoff_sha256"], hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest())
+        self.assertEqual(wake["provenance"]["owner_ref"], CODEX_WAKE_OWNER_REF)
+        self.assertEqual(wake["provenance"]["raw_owner_ref"], str(self.fixture.wake.resolve()))
+        self.assertEqual(wake["provenance"]["raw_owner_content_sha256"], hashlib.sha256(self.fixture.wake.read_bytes()).hexdigest())
+        self.assertEqual(wake["freshness"], "current_at_read")
+        self.assertEqual(wake["missingness"], "present")
+        self.assertNotIn("semantic continuation", wake["provenance"]["claim_limit"])
+
+    def test_digest_normalization_is_explicitly_schema_versioned(self) -> None:
+        digest = "a" * 64
+        self.assertEqual(
+            normalize_handoff_sha256(
+                "sha256:" + digest,
+                schema_version=CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
+            ),
+            digest,
+        )
+        self.assertIsNone(
+            normalize_handoff_sha256(
+                "sha256:" + digest,
+                schema_version=TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
+            )
+        )
+        self.assertIsNone(normalize_handoff_sha256("sha256:" + digest, schema_version="unknown"))
+
+    def test_v1_wrong_master_thread_is_invalid(self) -> None:
+        self.fixture._write_codex_v1(receipt_thread="other-master-thread")
+        result = observe_current_correlation(self.fixture.config())
+        self.assertEqual(result["state"], "invalid")
+        envelope = result["metadata"]["envelopes"][0]
+        self.assertEqual(envelope["state"], "invalid")
+        self.assertTrue(any("master_thread_id mismatch" in item for item in envelope["return_observation"]["errors"]))
+
+    def test_v1_digest_mismatch_is_invalid(self) -> None:
+        payload = self.fixture._write_codex_v1()
+        payload["handoff_sha256"] = "sha256:" + ("0" * 64)
+        self.fixture._write_codex_v1(wake_payload=payload)
+        result = observe_current_correlation(self.fixture.config())
+        self.assertEqual(result["state"], "invalid")
+        envelope = result["metadata"]["envelopes"][0]
+        self.assertTrue(any("normalized handoff_sha256 mismatch" in item for item in envelope["return_observation"]["errors"]))
+
+    def test_v1_success_without_accepted_turn_is_invalid(self) -> None:
+        payload = self.fixture._write_codex_v1()
+        payload["accepted_turn_id"] = None
+        self.fixture._write_codex_v1(wake_payload=payload)
+        result = observe_current_correlation(self.fixture.config())
+        self.assertEqual(result["state"], "invalid")
+        envelope = result["metadata"]["envelopes"][0]
+        self.assertEqual(envelope["accepted_turn"]["state"], "missing")
+        self.assertEqual(envelope["wake_observation"]["missingness"], "present_but_invalid")
+
+    def test_v1_failure_receipt_is_preserved_but_not_admitted(self) -> None:
+        payload = self.fixture._write_codex_v1()
+        payload.update(
+            {
+                "accepted_turn_id": None,
+                "outcome": "wake_failed_with_receipt",
+                "responsibility_state": "return_ready_wake_failed",
+                "failure": {
+                    "stage": "thread_read",
+                    "error_type": "identity_mismatch",
+                    "message": "thread identity was not confirmed",
+                },
+            }
+        )
+        self.fixture._write_codex_v1(wake_payload=payload)
+        result = observe_current_correlation(self.fixture.config())
+        self.assertEqual(result["state"], "invalid")
+        envelope = result["metadata"]["envelopes"][0]
+        self.assertEqual(envelope["wake_observation"]["failure"]["error_type"], "identity_mismatch")
+        self.assertEqual(envelope["wake_observation"]["handoff_delivery"], False)
+        self.assertEqual(envelope["lifecycle"]["wake_requested"]["state"], "invalid")
+        self.assertNotEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
+
+    def test_v1_v2_collision_is_invalid_and_keeps_both_schema_candidates(self) -> None:
+        self.fixture._write_codex_v1()
+        handoff_digest = hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest()
+        duplicate = self.fixture.task_local / "v2-collision.wake-receipt.json"
+        self.fixture._write_json(
+            duplicate,
+            {
+                "schema_version": TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
+                "thread_id": self.fixture.thread,
+                "handoff_ref": str(self.fixture.handoff.resolve()),
+                "handoff_sha256": handoff_digest,
+                "outcome": "handoff_delivered_pending_master_filter",
+                "attempted_at": "2026-08-15T23:00:02Z",
+                "observed": {"accepted_turn_id": "accepted-turn-v2", "handoff_delivery": True},
+                "actions": {"handoff_message_submitted": True},
+            },
+        )
+        result = observe_current_correlation(self.fixture.config())
+        self.assertEqual(result["state"], "invalid")
+        envelope = result["metadata"]["envelopes"][0]
+        self.assertTrue(any("wake receipt collision" in item for item in envelope["return_observation"]["errors"]))
+        self.assertEqual(
+            {item["schema_version"] for item in envelope["wake_observation"]["candidate_receipts"]},
+            {CODEX_WAKE_RECEIPT_SCHEMA_VERSION, TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION},
+        )
+
+    def test_malformed_v1_owner_receipt_is_invalid(self) -> None:
+        payload = self.fixture._write_codex_v1()
+        payload["unexpected_owner_field"] = True
+        self.fixture._write_codex_v1(wake_payload=payload)
+        result = observe_current_correlation(self.fixture.config())
+        self.assertEqual(result["state"], "invalid")
+        envelope = result["metadata"]["envelopes"][0]
+        self.assertTrue(any("unsupported fields" in item for item in envelope["return_observation"]["errors"]))
+
+    def test_v1_owner_contract_rejects_relative_ref_and_oversized_identity(self) -> None:
+        payload = self.fixture._write_codex_v1()
+        payload["handoff_ref"] = "relative/handoff.json"
+        payload["request_id"] = "x" * 257
+        self.fixture._write_codex_v1(wake_payload=payload)
+        result = observe_current_correlation(self.fixture.config())
+        self.assertEqual(result["state"], "invalid")
+        envelope = result["metadata"]["envelopes"][0]
+        errors = " ".join(envelope["return_observation"]["errors"])
+        self.assertIn("handoff_ref is not absolute", errors)
+        self.assertIn("request_id exceeds 256", errors)
+
+    def test_unsupported_wake_receipt_version_is_invalid(self) -> None:
+        payload = self.fixture._write_codex_v1()
+        payload["schema_version"] = "aoa_codex_wake_receipt_v9"
+        self.fixture._write_codex_v1(wake_payload=payload)
+        result = observe_current_correlation(self.fixture.config())
+        self.assertEqual(result["state"], "invalid")
+        envelope = result["metadata"]["envelopes"][0]
+        self.assertIn("unsupported wake receipt schema_version", " ".join(envelope["return_observation"]["errors"]))
 
 
 if __name__ == "__main__":

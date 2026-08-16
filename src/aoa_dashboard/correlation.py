@@ -5,10 +5,20 @@ import json
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
+from .wake_receipts import (
+    CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
+    TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
+    make_wake_provenance,
+    normalize_handoff_sha256,
+    validate_codex_wake_receipt_v1,
+    wake_source_family,
+    wake_source_kind,
+)
+
 
 CORRELATION_SCHEMA_VERSION = "aoa_dashboard_correlation_envelope_v1"
 CORRELATION_PROJECTION_VERSION = "aoa_dashboard_correlation_projection_v1"
-WAKE_RECEIPT_SCHEMA_VERSION = "task_local_actor_wake_receipt_v2"
+WAKE_RECEIPT_SCHEMA_VERSION = TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION
 DELIVERY_OUTCOMES = frozenset({"handoff_delivered_pending_master_filter"})
 SHA256_LENGTH = 64
 
@@ -287,37 +297,114 @@ def _validate_wake(
     expected_handoff_digest: str | None,
 ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
-    observed = wake.get("observed") if isinstance(wake.get("observed"), dict) else {}
-    actions = wake.get("actions") if isinstance(wake.get("actions"), dict) else {}
-    if wake.get("schema_version") != WAKE_RECEIPT_SCHEMA_VERSION:
-        errors.append("wake receipt is not task_local_actor_wake_receipt_v2")
-    if wake.get("thread_id") != expected_thread:
-        errors.append("wake receipt thread_id mismatch")
+    schema_version = wake.get("schema_version")
+    raw_handoff_digest = wake.get("handoff_sha256")
+    normalized_handoff_digest = normalize_handoff_sha256(
+        raw_handoff_digest, schema_version=schema_version
+    )
+
+    if schema_version == CODEX_WAKE_RECEIPT_SCHEMA_VERSION:
+        errors.extend(validate_codex_wake_receipt_v1(wake))
+        if wake.get("master_thread_id") != expected_thread:
+            errors.append("codex v1 wake receipt master_thread_id mismatch")
+        if wake.get("handoff_ref") != expected_handoff_ref:
+            errors.append("codex v1 wake receipt handoff_ref mismatch")
+        if normalized_handoff_digest is None:
+            errors.append("codex v1 wake receipt handoff_sha256 is not normalizable")
+        elif normalized_handoff_digest != expected_handoff_digest:
+            errors.append("codex v1 wake receipt normalized handoff_sha256 mismatch")
+        if wake.get("outcome") != "handoff_delivered_pending_master_filter":
+            errors.append("codex v1 wake receipt delivery failed; no wake admission claim")
+        delivery = {
+            "schema_version": schema_version,
+            "source_family": wake_source_family(schema_version),
+            "outcome": wake.get("outcome"),
+            "delivery_route": wake.get("delivery_route"),
+            "route": wake.get("route"),
+            "stage": wake.get("stage"),
+            "request_id": wake.get("request_id"),
+            "client_user_message_id": wake.get("client_user_message_id"),
+            "handoff_delivery": wake.get("outcome") == "handoff_delivered_pending_master_filter",
+            "handoff_message_submitted": wake.get("outcome") == "handoff_delivered_pending_master_filter",
+            "accepted_turn_id": wake.get("accepted_turn_id"),
+            "goal_resume_requested": False,
+            "observed_at": wake.get("attempted_at") or wake.get("generated_at"),
+            "attempts": wake.get("attempts"),
+            "responsibility_state": wake.get("responsibility_state"),
+            "failure": wake.get("failure"),
+            "raw_handoff_sha256": raw_handoff_digest,
+            "normalized_handoff_sha256": normalized_handoff_digest,
+        }
+        return errors, delivery
+
+    if schema_version == WAKE_RECEIPT_SCHEMA_VERSION:
+        observed = wake.get("observed") if isinstance(wake.get("observed"), dict) else {}
+        actions = wake.get("actions") if isinstance(wake.get("actions"), dict) else {}
+        if wake.get("thread_id") != expected_thread:
+            errors.append("wake receipt thread_id mismatch")
+        if wake.get("handoff_ref") != expected_handoff_ref:
+            errors.append("wake receipt handoff_ref mismatch")
+        if normalized_handoff_digest != expected_handoff_digest:
+            errors.append("wake receipt handoff_sha256 mismatch")
+        if wake.get("outcome") not in DELIVERY_OUTCOMES:
+            errors.append("wake receipt delivery outcome is not admitted")
+        if observed.get("handoff_delivery") is not True:
+            errors.append("wake receipt observed.handoff_delivery is not true")
+        if actions.get("handoff_message_submitted") is not True:
+            errors.append("wake receipt actions.handoff_message_submitted is not true")
+        if not _non_empty_string(observed.get("accepted_turn_id")):
+            errors.append("wake receipt accepted_turn_id is missing")
+        if not _non_empty_string(wake.get("attempted_at")) and not _non_empty_string(wake.get("generated_at")):
+            errors.append("wake receipt observed_at is missing")
+        delivery = {
+            "schema_version": schema_version,
+            "source_family": wake_source_family(schema_version),
+            "outcome": wake.get("outcome"),
+            "delivery_route": observed.get("delivery_route"),
+            "route": None,
+            "stage": None,
+            "request_id": None,
+            "client_user_message_id": None,
+            "handoff_delivery": observed.get("handoff_delivery") is True,
+            "handoff_message_submitted": actions.get("handoff_message_submitted") is True,
+            "accepted_turn_id": observed.get("accepted_turn_id"),
+            "goal_resume_requested": actions.get("goal_resume_requested") is True,
+            "observed_at": wake.get("attempted_at") or wake.get("generated_at"),
+            "attempts": None,
+            "responsibility_state": None,
+            "failure": None,
+            "raw_handoff_sha256": raw_handoff_digest,
+            "normalized_handoff_sha256": normalized_handoff_digest,
+        }
+        return errors, delivery
+
+    errors.append(f"unsupported wake receipt schema_version: {schema_version!r}")
+    if wake.get("master_thread_id", wake.get("thread_id")) != expected_thread:
+        errors.append("unsupported wake receipt master/thread id mismatch")
     if wake.get("handoff_ref") != expected_handoff_ref:
-        errors.append("wake receipt handoff_ref mismatch")
-    if wake.get("handoff_sha256") != expected_handoff_digest:
-        errors.append("wake receipt handoff_sha256 mismatch")
-    if wake.get("outcome") not in DELIVERY_OUTCOMES:
-        errors.append("wake receipt delivery outcome is not admitted")
-    if observed.get("handoff_delivery") is not True:
-        errors.append("wake receipt observed.handoff_delivery is not true")
-    if actions.get("handoff_message_submitted") is not True:
-        errors.append("wake receipt actions.handoff_message_submitted is not true")
-    if not _non_empty_string(observed.get("accepted_turn_id")):
-        errors.append("wake receipt accepted_turn_id is missing")
-    if not _non_empty_string(wake.get("attempted_at")) and not _non_empty_string(wake.get("generated_at")):
-        errors.append("wake receipt observed_at is missing")
-    delivery = {
-        "schema_version": wake.get("schema_version"),
+        errors.append("unsupported wake receipt handoff_ref mismatch")
+    if normalized_handoff_digest != expected_handoff_digest:
+        errors.append("unsupported wake receipt handoff_sha256 mismatch")
+    return errors, {
+        "schema_version": schema_version,
+        "source_family": wake_source_family(schema_version),
         "outcome": wake.get("outcome"),
-        "delivery_route": observed.get("delivery_route"),
-        "handoff_delivery": observed.get("handoff_delivery") is True,
-        "handoff_message_submitted": actions.get("handoff_message_submitted") is True,
-        "accepted_turn_id": observed.get("accepted_turn_id"),
-        "goal_resume_requested": actions.get("goal_resume_requested") is True,
+        "delivery_route": wake.get("delivery_route"),
+        "route": wake.get("route"),
+        "stage": wake.get("stage"),
+        "request_id": wake.get("request_id"),
+        "client_user_message_id": wake.get("client_user_message_id"),
+        "handoff_delivery": False,
+        "handoff_message_submitted": False,
+        "accepted_turn_id": None,
+        "goal_resume_requested": False,
         "observed_at": wake.get("attempted_at") or wake.get("generated_at"),
+        "attempts": wake.get("attempts"),
+        "responsibility_state": wake.get("responsibility_state"),
+        "failure": wake.get("failure"),
+        "raw_handoff_sha256": raw_handoff_digest,
+        "normalized_handoff_sha256": normalized_handoff_digest,
     }
-    return errors, delivery
 
 
 def _master_filter_summary(
@@ -368,6 +455,8 @@ def _envelope(
     wake_path: Path | None,
     wake: dict[str, Any] | None,
     wake_error: str | None,
+    wake_candidates: list[tuple[Path, dict[str, Any] | None, str | None]] | None = None,
+    owner_contract: dict[str, Any] | None = None,
 ) -> CorrelationEnvelope:
     claim_limit = _base_claim_limit()
     expected_handoff_ref = filter_entry.get("handoff_ref")
@@ -391,10 +480,12 @@ def _envelope(
             "The handoff ref is listed by the master filter but the file is absent or unreadable.",
         )
     )
+    wake_schema_version = wake.get("schema_version") if isinstance(wake, dict) else None
+    wake_kind = wake_source_kind(wake_schema_version)
     wake_ref = (
         _file_ref(
             "wake receipt",
-            "task_local_wake_receipt",
+            wake_kind,
             wake_path,
             observed_at=(wake or {}).get("attempted_at") or (wake or {}).get("generated_at"),
             freshness="current_at_read",
@@ -403,11 +494,37 @@ def _envelope(
         if wake_path is not None
         else _missing_ref(
             "wake receipt",
-            "task_local_wake_receipt",
+            wake_kind,
             filter_entry.get("wake_receipt_ref") or "unresolved:wake-receipt",
             "The master filter names a wake receipt that is absent or unreadable.",
         )
     )
+    candidate_values = list(wake_candidates or [])
+    if not candidate_values and wake_path is not None:
+        candidate_values = [(wake_path, wake, wake_error)]
+    candidate_refs: list[dict[str, Any]] = []
+    for candidate_path, candidate_value, candidate_error in candidate_values:
+        candidate_schema = candidate_value.get("schema_version") if isinstance(candidate_value, dict) else None
+        candidate_digest = _sha256(candidate_path)
+        candidate_ref = _file_ref(
+            "wake receipt candidate",
+            wake_source_kind(candidate_schema),
+            candidate_path,
+            observed_at=(candidate_value or {}).get("attempted_at") or (candidate_value or {}).get("generated_at"),
+            freshness="invalid" if candidate_error else "current_at_read",
+            degradation=["receipt_unreadable"] if candidate_error else [],
+            claim_limit="Candidate identity is preserved for collision review; it does not establish a delivery or re-entry claim.",
+        )
+        candidate_refs.append(
+            {
+                "schema_version": candidate_schema,
+                "source_family": wake_source_family(candidate_schema),
+                "raw_owner_ref": str(candidate_path),
+                "raw_owner_content_sha256": candidate_digest,
+                "ref": candidate_ref,
+                "error": candidate_error,
+            }
+        )
     errors: list[str] = []
     handoff_missing = handoff is None and handoff_error == "handoff file is absent from the bounded directory"
     if handoff_error and not handoff_missing:
@@ -424,17 +541,37 @@ def _envelope(
     wake_missing = wake is None and wake_error == "wake receipt is absent from the bounded directory"
     if wake_error and not wake_missing:
         errors.append(f"wake receipt: {wake_error}")
+    if len(candidate_values) > 1:
+        candidate_schemas = [
+            candidate_value.get("schema_version") if isinstance(candidate_value, dict) else None
+            for _, candidate_value, _ in candidate_values
+        ]
+        errors.append(
+            "wake receipt collision: multiple receipts for one handoff "
+            + ", ".join(str(schema) for schema in candidate_schemas)
+        )
 
     delivery: dict[str, Any] = {
         "schema_version": None,
+        "source_family": wake_source_family(None),
         "outcome": None,
         "delivery_route": None,
+        "route": None,
+        "stage": None,
+        "request_id": None,
+        "client_user_message_id": None,
         "handoff_delivery": False,
         "handoff_message_submitted": False,
         "accepted_turn_id": None,
         "goal_resume_requested": False,
         "observed_at": None,
+        "attempts": None,
+        "responsibility_state": None,
+        "failure": None,
+        "raw_handoff_sha256": None,
+        "normalized_handoff_sha256": None,
     }
+    wake_errors: list[str] = []
     if wake is None:
         if not wake_missing:
             errors.append("wake receipt payload is missing")
@@ -450,6 +587,26 @@ def _envelope(
             errors.append("wake receipt digest is unavailable")
         if wake_path is not None and str(wake_path) != str(filter_entry.get("wake_receipt_ref")):
             errors.append("wake receipt path does not match master filter wake_receipt_ref")
+    wake_source_errors = list(wake_errors)
+    if len(candidate_values) > 1:
+        wake_source_errors.append("wake receipt collision")
+    wake_freshness = "missing" if wake_missing else ("invalid" if wake_source_errors or wake_error else "current_at_read")
+    wake_missingness = "missing" if wake_missing else ("present_but_invalid" if wake_source_errors or wake_error else "present")
+    wake_ref["freshness"] = wake_freshness
+    if wake_source_errors:
+        wake_ref["degradation"] = list(wake_ref.get("degradation", [])) + wake_source_errors
+    provenance = make_wake_provenance(
+        schema_version=delivery["schema_version"],
+        raw_ref=(
+            str(wake_path)
+            if wake_path is not None
+            else (filter_entry.get("wake_receipt_ref") if _non_empty_string(filter_entry.get("wake_receipt_ref")) else None)
+        ),
+        raw_content_sha256=wake_ref.get("sha256"),
+        freshness=wake_freshness,
+        missingness=wake_missingness,
+        owner_contract=owner_contract,
+    )
 
     return_state: str = "returned"
     wake_state = "wake requested"
@@ -492,11 +649,28 @@ def _envelope(
     wake_metadata = {
         "ref": wake_ref,
         "schema_version": delivery["schema_version"],
+        "source_schema_version": delivery["schema_version"],
+        "source_family": delivery["source_family"],
+        "adapter_version": provenance["adapter_version"],
+        "provenance": provenance,
+        "freshness": wake_freshness,
+        "missingness": wake_missingness,
+        "authority": "aoa-dashboard:derived_task_local_correlation",
         "outcome": delivery["outcome"],
         "delivery_route": delivery["delivery_route"],
+        "route": delivery["route"],
+        "stage": delivery["stage"],
+        "request_id": delivery["request_id"],
+        "client_user_message_id": delivery["client_user_message_id"],
         "handoff_delivery": delivery["handoff_delivery"],
         "handoff_message_submitted": delivery["handoff_message_submitted"],
         "observed_at": delivery["observed_at"],
+        "attempts": delivery["attempts"],
+        "responsibility_state": delivery["responsibility_state"],
+        "failure": delivery["failure"],
+        "raw_handoff_sha256": delivery["raw_handoff_sha256"],
+        "normalized_handoff_sha256": delivery["normalized_handoff_sha256"],
+        "candidate_receipts": candidate_refs,
         "claim_limit": "Delivery is not proof, acceptance, or semantic continuation.",
     }
     accepted_turn = {
@@ -761,6 +935,9 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
         filter_summary["ref"]["observed_at"] = filter_value.get("reviewed_at")
     handoff_glob = current.get("handoff_glob", "*-luna-handoff.json")
     wake_glob = current.get("wake_glob", "*.wake-receipt.json")
+    owner_contract = current.get("codex_wake_receipt_owner")
+    if not isinstance(owner_contract, dict):
+        owner_contract = None
     ignored_names = set(current.get("ignored_handoff_names", [])) if isinstance(current.get("ignored_handoff_names", []), list) else set()
     ignored_wake_names = set(current.get("ignored_wake_names", [])) if isinstance(current.get("ignored_wake_names", []), list) else set()
     handoff_paths = sorted(
@@ -795,10 +972,14 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
         wake_candidates = wakes.get(handoff_ref, [])
         if len(wake_candidates) > 1:
             anomalies.append(f"duplicate wake receipts for {handoff_ref}")
-        if wake_candidates:
-            wake_path, wake_value, wake_error = wake_candidates[0]
+        expected_wake_path, expected_wake_ref_error = _direct_child(task_root, entry.get("wake_receipt_ref"))
+        selected_candidate = next(
+            (candidate for candidate in wake_candidates if expected_wake_path is not None and candidate[0] == expected_wake_path),
+            wake_candidates[0] if wake_candidates else None,
+        )
+        if selected_candidate is not None:
+            wake_path, wake_value, wake_error = selected_candidate
         else:
-            expected_wake_path, expected_wake_ref_error = _direct_child(task_root, entry.get("wake_receipt_ref"))
             if expected_wake_path is not None and expected_wake_path.is_file():
                 wake_path = expected_wake_path
                 wake_value, wake_error = _read_json(expected_wake_path)
@@ -823,6 +1004,8 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
                 wake_path=wake_path,
                 wake=wake_value,
                 wake_error=wake_error if len(wake_candidates) <= 1 else "duplicate wake receipts",
+                wake_candidates=wake_candidates or ([(wake_path, wake_value, wake_error)] if wake_path is not None else []),
+                owner_contract=owner_contract,
             )
         )
     filter_ref_set = set(filter_entries)
@@ -859,6 +1042,8 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
                     wake_path=extra_wake_path,
                     wake=extra_wake_value,
                     wake_error=extra_wake_error,
+                    wake_candidates=extra_wakes or ([(extra_wake_path, extra_wake_value, extra_wake_error)] if extra_wake_path is not None else []),
+                    owner_contract=owner_contract,
                 )
             )
     for wake_ref, candidates in wakes.items():

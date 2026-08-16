@@ -50,16 +50,33 @@
     },
     "wake_observation": {
       "type": "object",
-      "required": ["ref", "schema_version", "outcome", "delivery_route", "handoff_delivery", "handoff_message_submitted", "observed_at", "claim_limit"],
+      "required": ["ref", "schema_version", "source_schema_version", "source_family", "adapter_version", "provenance", "freshness", "missingness", "authority", "outcome", "delivery_route", "route", "stage", "request_id", "client_user_message_id", "handoff_delivery", "handoff_message_submitted", "observed_at", "attempts", "responsibility_state", "failure", "raw_handoff_sha256", "normalized_handoff_sha256", "candidate_receipts", "claim_limit"],
       "additionalProperties": false,
       "properties": {
         "ref": {"$ref": "#/$defs/correlationRef"},
         "schema_version": {"type": ["string", "null"]},
+        "source_schema_version": {"type": ["string", "null"]},
+        "source_family": {"type": "string", "minLength": 1},
+        "adapter_version": {"type": "string", "minLength": 1},
+        "provenance": {"$ref": "#/$defs/wakeProvenance"},
+        "freshness": {"type": "string", "minLength": 1},
+        "missingness": {"enum": ["missing", "present", "present_but_invalid"]},
+        "authority": {"type": "string", "minLength": 1},
         "outcome": {"type": ["string", "null"]},
         "delivery_route": {"type": ["string", "null"]},
+        "route": {"type": ["string", "null"]},
+        "stage": {"type": ["string", "null"]},
+        "request_id": {"type": ["string", "null"]},
+        "client_user_message_id": {"type": ["string", "null"]},
         "handoff_delivery": {"type": "boolean"},
         "handoff_message_submitted": {"type": "boolean"},
         "observed_at": {"type": ["string", "null"]},
+        "attempts": {"type": ["integer", "null"]},
+        "responsibility_state": {"type": ["string", "null"]},
+        "failure": {"type": ["object", "null"]},
+        "raw_handoff_sha256": {"type": ["string", "null"]},
+        "normalized_handoff_sha256": {"type": ["string", "null"]},
+        "candidate_receipts": {"type": "array", "items": {"$ref": "#/$defs/wakeCandidate"}},
         "claim_limit": {"type": "string", "minLength": 1}
       }
     },
@@ -150,6 +167,39 @@
         "id": {"type": "string", "minLength": 1},
         "state": {"type": "string", "minLength": 1},
         "next": {"type": "string", "minLength": 1}
+      }
+    },
+    "wakeProvenance": {
+      "type": "object",
+      "required": ["owner_repo", "owner_ref", "contract_ref", "source_schema_version", "source_family", "adapter_version", "raw_owner_ref", "raw_owner_content_sha256", "raw_owner_content_digest", "freshness", "missingness", "authority", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "owner_repo": {"type": "string", "minLength": 1},
+        "owner_ref": {"type": ["string", "null"]},
+        "contract_ref": {"type": ["string", "null"]},
+        "source_schema_version": {"type": ["string", "null"]},
+        "source_family": {"type": "string", "minLength": 1},
+        "adapter_version": {"type": "string", "minLength": 1},
+        "raw_owner_ref": {"type": ["string", "null"]},
+        "raw_owner_content_sha256": {"type": ["string", "null"]},
+        "raw_owner_content_digest": {"type": ["string", "null"]},
+        "freshness": {"type": "string", "minLength": 1},
+        "missingness": {"enum": ["missing", "present", "present_but_invalid"]},
+        "authority": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "wakeCandidate": {
+      "type": "object",
+      "required": ["schema_version", "source_family", "raw_owner_ref", "raw_owner_content_sha256", "ref", "error"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"type": ["string", "null"]},
+        "source_family": {"type": "string", "minLength": 1},
+        "raw_owner_ref": {"type": "string", "minLength": 1},
+        "raw_owner_content_sha256": {"type": ["string", "null"]},
+        "ref": {"$ref": "#/$defs/correlationRef"},
+        "error": {"type": ["string", "null"]}
       }
     },
     "projection": {

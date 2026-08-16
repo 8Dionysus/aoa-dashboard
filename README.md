@@ -38,7 +38,12 @@ not proof of live runtime health or owner acceptance. The UI keeps
 `wake requested`, `reentered`, `missing`, `stale`, `deferred`, and `invalid`
 as separate vocabulary values.
 
-The current correlation surface is task-local and read-only. Handoff delivery
-is not proof or acceptance; `reentered` requires exact `accepted_turn_id` plus
-the master filter and remains a bounded correlation claim. Annotations and
+The current correlation surface is task-local and read-only. It accepts the
+historical `task_local_actor_wake_receipt_v2` witness and the explicitly
+versioned owner `aoa_codex_wake_receipt_v1` adapter without merging their
+schemas. The v1 adapter preserves the exact owner ref/content digest and raw
+`sha256:<hex>` handoff field while comparing only an explicit normalized value.
+Handoff delivery is not proof, acceptance, semantic re-entry, runtime health,
+or parent resume; `reentered` requires exact `accepted_turn_id` plus the
+master filter and remains a bounded correlation claim. Annotations and
 action intents keep their local dashboard-owned, non-executing boundary.
