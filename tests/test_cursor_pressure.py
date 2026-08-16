@@ -613,6 +613,38 @@ class CursorRetentionTests(unittest.TestCase):
                 payload={"goal": {"nested_secret": "PRIVATE"}},
                 source_refs=[SOURCE_REF],
             )
+
+        admitted = make_observation(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observation_id="safe-wake-metadata",
+            entity_key="safe-wake-metadata",
+            kind="correlation_envelope",
+            payload={
+                "wake_observation": {
+                    "provenance": {
+                        "raw_owner_ref": "/bounded/wake.json",
+                        "raw_owner_content_sha256": "b" * 64,
+                        "raw_owner_content_digest": "sha256:" + "b" * 64,
+                    },
+                    "raw_handoff_sha256": "c" * 64,
+                    "candidate_receipts": [
+                        {
+                            "raw_owner_ref": "/bounded/candidate.json",
+                            "raw_owner_content_sha256": "d" * 64,
+                            "error": "PRIVATE parser detail",
+                        }
+                    ],
+                }
+            },
+            source_refs=[SOURCE_REF],
+        )
+        safe_wake = admitted["payload"]["wake_observation"]
+        self.assertEqual(safe_wake["provenance"]["raw_owner_ref"], "/bounded/wake.json")
+        self.assertEqual(safe_wake["raw_handoff_sha256"], "c" * 64)
+        self.assertTrue(safe_wake["candidate_receipts"][0]["error"].startswith("diagnostic_digest:"))
+        self.assertNotIn("PRIVATE parser detail", json.dumps(admitted, sort_keys=True))
+
         missing_scope = copy.deepcopy(SOURCE_REF)
         missing_scope.pop("access_scope")
         with self.assertRaises(ValueError):

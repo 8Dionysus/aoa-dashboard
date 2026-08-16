@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aoa_dashboard.projection import _lifecycle, build_projection, load_config  # noqa: E402
 from aoa_dashboard.correlation import observe_current_correlation  # noqa: E402
+from aoa_dashboard.cursor import observations_from_correlation, rebuild_goal_local_projection  # noqa: E402
 from aoa_dashboard.sources import observe_session  # noqa: E402
 from aoa_dashboard.wake_receipts import (  # noqa: E402
     CODEX_WAKE_CANDIDATE_ONLY_AUTHORITY,
@@ -369,6 +370,42 @@ class CorrelationAdapterTests(unittest.TestCase):
             envelope["lifecycle"]["wake_requested"]["observation"],
         )
         self.assertEqual(envelope["return_observation"]["ref"]["sha256"], envelope["master_filter"]["handoff_sha256"])
+
+    def test_source_valid_v2_envelope_survives_cursor_metadata_admission(self) -> None:
+        source = observe_current_correlation(self.fixture.config())
+        self.assertEqual(source["state"], "bound")
+        observations = observations_from_correlation(
+            source,
+            goal_id="goal-test",
+            master_thread_id=self.fixture.thread,
+        )
+        envelope_observation = next(
+            item for item in observations if item["kind"] == "correlation_envelope"
+        )
+        wake = envelope_observation["payload"]["wake_observation"]
+        candidate = wake["candidate_receipts"][0]
+        self.assertEqual(envelope_observation["provenance"]["currentness"], "current_at_read")
+        self.assertEqual(wake["goal_resume_requested"], False)
+        self.assertEqual(wake["raw_handoff_sha256"], hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest())
+        self.assertEqual(
+            wake["provenance"]["raw_owner_ref"],
+            str(self.fixture.wake.resolve()),
+        )
+        self.assertEqual(
+            wake["provenance"]["raw_owner_content_sha256"],
+            hashlib.sha256(self.fixture.wake.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(candidate["raw_owner_ref"], str(self.fixture.wake.resolve()))
+        self.assertEqual(candidate["error"], None)
+
+        rebuilt = rebuild_goal_local_projection(
+            goal_id="goal-test",
+            master_thread_id=self.fixture.thread,
+            observations=observations,
+        )
+        self.assertEqual(rebuilt["status"], "conflicted")
+        self.assertEqual(rebuilt["rebuild"]["errors"], [])
+        self.assertIsNone(rebuilt["cursor"]["source_collisions"][0]["winner"])
 
     def test_current_real_receipt_directory_is_bound_when_available(self) -> None:
         config = load_config()

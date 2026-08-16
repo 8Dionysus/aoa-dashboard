@@ -32,6 +32,7 @@ from .source_binding import (
     is_known_claim_policy,
     is_known_owner,
     is_sha256,
+    safe_diagnostic,
 )
 
 
@@ -264,6 +265,16 @@ _FORBIDDEN_METADATA_KEY_PARTS = (
     "private",
     "payload",
 )
+_SAFE_METADATA_FIELD_CONTEXTS = {
+    "raw_owner_ref": frozenset({"wake_observation.provenance", "wake_observation.candidate_receipts"}),
+    "raw_owner_content_sha256": frozenset(
+        {"wake_observation.provenance", "wake_observation.candidate_receipts"}
+    ),
+    "raw_owner_content_digest": frozenset({"wake_observation.provenance"}),
+    "raw_handoff_sha256": frozenset({"wake_observation"}),
+    "error": frozenset({"wake_observation.candidate_receipts"}),
+}
+_SAFE_METADATA_REF_MAX_LENGTH = 4096
 _VOLATILE_PAYLOAD_PATHS = frozenset(
     {
         ("wake_observation", "observed_at"),
@@ -380,6 +391,10 @@ def _metadata_shape_errors(value: Any, kind: str) -> list[str]:
             if not isinstance(key, str):
                 errors.append(f"metadata key at {path or '<root>'} is not a string")
                 continue
+            safe_field = _safe_metadata_field_context(key, path)
+            if safe_field:
+                errors.extend(_safe_metadata_field_errors(key, item, path))
+                continue
             if has_forbidden_key(key, _FORBIDDEN_METADATA_KEY_PARTS):
                 errors.append(f"metadata key is not allowed: {path + '.' if path else ''}{key}")
                 continue
@@ -405,7 +420,7 @@ def _admit_metadata_payload(kind: str, payload: Any) -> dict[str, Any]:
     errors = _metadata_shape_errors(payload, kind)
     if errors:
         raise ValueError("payload is not admitted metadata-only shape: " + "; ".join(errors[:8]))
-    return copy.deepcopy(payload)
+    return _normalise_admitted_metadata(copy.deepcopy(payload))
 
 
 def _normalise_ref(raw: Any) -> dict[str, Any] | None:
@@ -530,6 +545,88 @@ def _source_digest(refs: list[dict[str, Any]]) -> str:
     stable_refs = [_stable_source_ref(item) for item in refs]
     stable_refs.sort(key=canonical_json)
     return content_digest(stable_refs)
+
+
+def _metadata_context_matches(path: str, context: str) -> bool:
+    return path == context or path.startswith(context + "[")
+
+
+def _safe_metadata_field_context(key: str, path: str) -> bool:
+    return any(
+        _metadata_context_matches(path, context)
+        for context in _SAFE_METADATA_FIELD_CONTEXTS.get(key, ())
+    )
+
+
+def _safe_metadata_field_errors(key: str, value: Any, path: str) -> list[str]:
+    """Validate the few schema-defined metadata fields whose names are raw-like.
+
+    These are source references and digests, not receipt bodies.  They are
+    admitted only at their typed wake locations; candidate diagnostics are
+    normalized to a bounded code/digest before retention.
+    """
+
+    if not _safe_metadata_field_context(key, path):
+        return []
+    field_path = f"{path}.{key}" if path else key
+    if key == "error":
+        if value is not None and not isinstance(value, str):
+            return [f"metadata candidate error is not a string or null: {field_path}"]
+        return []
+    if key == "raw_owner_ref":
+        if value is not None and (
+            not isinstance(value, str)
+            or not value
+            or len(value) > _SAFE_METADATA_REF_MAX_LENGTH
+            or any(ord(char) < 32 for char in value)
+        ):
+            return [f"metadata owner ref is malformed: {field_path}"]
+        if _metadata_context_matches(path, "wake_observation.candidate_receipts") and value is None:
+            return [f"metadata candidate owner ref is missing: {field_path}"]
+        return []
+    if key == "raw_owner_content_sha256":
+        if value is not None and not is_sha256(value):
+            return [f"metadata owner content digest is malformed: {field_path}"]
+        return []
+    if key == "raw_owner_content_digest":
+        if value is not None and (
+            not isinstance(value, str)
+            or not value.startswith("sha256:")
+            or not is_sha256(value.removeprefix("sha256:"))
+        ):
+            return [f"metadata owner content digest wrapper is malformed: {field_path}"]
+        return []
+    if key == "raw_handoff_sha256":
+        if value is not None and (
+            not is_sha256(value)
+            and not (
+                isinstance(value, str)
+                and value.startswith("sha256:")
+                and is_sha256(value.removeprefix("sha256:"))
+            )
+        ):
+            return [f"metadata raw handoff digest is malformed: {field_path}"]
+    return []
+
+
+def _normalise_admitted_metadata(value: Any, *, path: str = "") -> Any:
+    """Normalize admitted candidate diagnostics without retaining source text."""
+
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            child_path = f"{path}.{key}" if path else key
+            if key == "error" and _safe_metadata_field_context(key, path):
+                result[key] = None if item is None else safe_diagnostic(item)
+            else:
+                result[key] = _normalise_admitted_metadata(item, path=child_path)
+        return result
+    if isinstance(value, list):
+        return [
+            _normalise_admitted_metadata(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    return value
 
 
 def _observation_identity(observation: dict[str, Any]) -> dict[str, Any]:
