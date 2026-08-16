@@ -114,10 +114,12 @@ function renderCorrelation(data) {
 
     const chain = document.createElement("div");
     chain.className = "correlation-chain";
+    const wake = envelope.wake_observation || {};
+    const wakeLabel = [wake.source_schema_version || "wake schema missing", wake.outcome || "outcome missing"].join(" · ");
     const stages = [
       ["Goal / thread", envelope.goal?.anchor_ref, envelope.goal?.master_thread_id],
       ["Luna return", envelope.return_observation?.ref, envelope.return_observation?.filter_disposition],
-      ["Wake admission", envelope.wake_observation?.ref, envelope.wake_observation?.outcome],
+      ["Wake admission", wake.ref, wakeLabel],
       ["Accepted turn", envelope.accepted_turn?.basis_ref, envelope.accepted_turn?.accepted_turn_id || "missing"],
       ["Master filter", envelope.master_filter?.ref, envelope.master_filter?.disposition],
       ["Re-entry", null, envelope.lifecycle?.reentered?.state || "missing"],
@@ -131,6 +133,31 @@ function renderCorrelation(data) {
       chain.append(stage);
     }
     card.append(chain);
+    const wakeDetails = document.createElement("details");
+    wakeDetails.append(text("summary", "wake source, provenance, freshness and failure"));
+    wakeDetails.append(text("p", `${wake.source_family || "unknown source"} · freshness: ${wake.freshness || "unknown"} · missingness: ${wake.missingness || "unknown"}`, "claim"));
+    const provenance = wake.provenance || {};
+    wakeDetails.append(evidenceList([wake.ref, {
+      label: "raw owner receipt",
+      kind: wake.source_schema_version || "wake receipt",
+      ref: provenance.raw_owner_ref || wake.ref?.ref,
+      sha256: provenance.raw_owner_content_sha256 || wake.ref?.sha256,
+      observed_at: wake.observed_at,
+    }]));
+    if (wake.failure) wakeDetails.append(text("pre", JSON.stringify({ failure: wake.failure }, null, 2)));
+    if ((wake.candidate_receipts || []).length > 1) wakeDetails.append(text("pre", JSON.stringify({ candidate_receipts: wake.candidate_receipts }, null, 2)));
+    const sourceSummary = {
+      schema_version: wake.source_schema_version,
+      owner_repo: provenance.owner_repo,
+      owner_ref: provenance.owner_ref,
+      contract_ref: provenance.contract_ref,
+      adapter_version: wake.adapter_version,
+      raw_handoff_sha256: wake.raw_handoff_sha256,
+      normalized_handoff_sha256: wake.normalized_handoff_sha256,
+      authority: wake.authority,
+    };
+    wakeDetails.append(text("pre", JSON.stringify(sourceSummary, null, 2)));
+    card.append(wakeDetails);
     const limits = envelope.claim_limits || [];
     if (limits.length) {
       const details = document.createElement("details");

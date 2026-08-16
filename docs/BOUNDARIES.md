@@ -11,9 +11,9 @@ The dashboard owns three local surfaces:
 3. action intents, which describe a requested future owner route. The first
    slice records them with `deferred` state and has no execution path.
 4. a task-local correlation projection, which retains exact Goal/thread,
-   handoff, wake, accepted-turn, master-filter, and DAG disposition refs. It
-   is derived read-model evidence, not a new actor, runtime, proof, or
-   acceptance owner.
+   handoff, versioned wake, accepted-turn, master-filter, and DAG disposition
+   refs. It is derived read-model evidence, not a new actor, runtime, proof,
+   return-acceptance, semantic-re-entry, or parent-resume owner.
 
 ## What remains outside the organ
 
@@ -38,7 +38,17 @@ known to be a step while its expected evidence is missing or deferred.
 The current holder is bound through the Goal/thread and task-local receipt
 directory in `current_correlation`. The old session/edeac bootstrap remains a
 separate `historical_bootstrap` binding and is never used as current-holder
-identity. Wake delivery is transport evidence only; master-filtered re-entry
-is emitted only from exact `accepted_turn_id` plus the validated master filter
-and still does not prove semantic continuation, owner acceptance, or runtime
-health.
+identity. Wake delivery is transport evidence only. The dashboard keeps the
+task-local v2 witness and owner-shaped SDK v1 source as distinct families; the
+current independently admitted v1 binding set is empty, so v1 remains raw
+candidate evidence with null canonical owner refs, invalid state, and no
+re-entry. An unlanded, forged, or merely shaped config string cannot create
+owner authority. A future owner-qualified route must come from the stronger
+owner surface. The v1 `sha256:<hex>` is normalized only by the versioned v1
+adapter while its raw field remains visible. The owner ABI does not publish
+`handoff_message_submitted`; v1 keeps that observation unknown. The nullable
+`goal_resume_requested` observation is null for v1, unsupported, and missing,
+and is an exact v2 boolean when present; it never participates in v1 admission.
+Master-filtered re-entry is emitted only from exact `accepted_turn_id` plus the
+validated master filter and still does not prove semantic continuation, owner
+acceptance, runtime health, return acceptance, or parent resume.
