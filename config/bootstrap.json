@@ -4,6 +4,7 @@
   "goal_id": "aoa-dashboard-goal-01a00722-20260815",
   "title": "Create aoa-dashboard first working vertical slice",
   "goal_anchor_path": "/home/dionysus/.codex/attachments/11f36fe1-23db-4a4f-bce5-cbbdc77a9033/pasted-text-1.txt",
+  "goal_anchor_expected_sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
   "historical_bootstrap": {
     "binding_id": "bootstrap-session-065-edeac-historical",
     "session_manifest_path": "/srv/AbyssOS/.aoa/sessions/2026-08-15__065__ты-принимаешь-первую-самостоятельную/session.manifest.json",
@@ -17,6 +18,7 @@
     "master_thread_id": "01a00722-0291-72e0-8310-559da802d6e1",
     "task_local_dir": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815",
     "master_filter_path": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
+    "master_filter_expected_sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
     "handoff_glob": "*-luna-handoff.json",
     "wake_glob": "*.wake-receipt.json",
     "ignored_handoff_names": [],
@@ -43,6 +45,8 @@
         "owner": "aoa-dashboard",
         "access_scope": "dashboard_local",
         "authority": "dashboard_derived",
+        "claim_policy": "dashboard_derived_read_model",
+        "snapshot_role": "derived_pressure_identity",
         "claim_limit": "The pressure identity is dashboard-derived metadata, not source-owner authority."
       },
       "evidence": [
@@ -51,9 +55,12 @@
           "owner": "goal-anchor",
           "kind": "goal_anchor",
           "sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
-          "currentness": "current_at_read",
+          "currentness": "unknown",
           "access_scope": "owner_bounded",
           "authority": "source_owner",
+          "claim_policy": "source_owner_metadata",
+          "expected_sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
+          "snapshot_role": "configured_snapshot",
           "claim_limit": "The Goal Anchor is task-local input, not dashboard authority."
         },
         {
@@ -61,9 +68,12 @@
           "owner": "master-thread",
           "kind": "task_local_master_filter",
           "sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
-          "currentness": "current_at_read",
+          "currentness": "unknown",
           "access_scope": "owner_bounded",
           "authority": "master_decision",
+          "claim_policy": "master_decision_disposition",
+          "expected_sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
+          "snapshot_role": "configured_snapshot",
           "claim_limit": "The master filter is task-local disposition evidence, not proof or acceptance."
         }
       ],
@@ -73,7 +83,8 @@
         "owner": "aoa-dashboard",
         "owner_ref": "dashboard:correlation_read_model",
         "authority": "dashboard_derived",
-        "access_scope": "dashboard_local"
+        "access_scope": "dashboard_local",
+        "claim_policy": "dashboard_derived_read_model"
       },
       "checked_existing_surfaces": [
         {
@@ -83,6 +94,7 @@
           "ref": "dashboard:src/aoa_dashboard/correlation.py",
           "access_scope": "dashboard_local",
           "authority": "dashboard_derived",
+          "claim_policy": "derived_navigation",
           "claim_limit": "The existing adapter validates task-local correlation but has no durable cursor/checkpoint ledger."
         },
         {
@@ -92,12 +104,14 @@
           "ref": "/srv/AbyssOS/aoa-agents",
           "access_scope": "owner_bounded",
           "authority": "source_owner",
+          "claim_policy": "source_owner_metadata",
           "claim_limit": "The dashboard consumes owner metadata and does not redefine actor meaning."
         }
       ],
       "independence_signals": {
         "status": "present",
         "signals": ["D4 is a separately addressed Luna implementation holder.", "Independent review remains a later master gate."],
+        "claim_policy": "historical_context",
         "claim_limit": "Independence signals identify routing posture; they are not proof or acceptance."
       },
       "recommended_trigger_strength": "required_branch",
@@ -112,13 +126,16 @@
         "authority": "master_decision",
         "access_scope": "owner_bounded",
         "effect": "none",
+        "claim_policy": "master_decision_disposition",
         "claim_limit": "This is a display-only next route; the dashboard cannot wake or execute it."
       },
       "outcome": {
         "state": "new_required_obligation",
         "owner": "master-thread",
+        "claim_policy": "master_decision_disposition",
         "claim_limit": "The outcome records task-local routing, not owner acceptance."
       },
+      "claim_policy": "dashboard_derived_read_model",
       "claim_limit": "This pressure record is a dashboard-owned derived intake; source owners retain all semantic authority."
     },
     {
@@ -133,6 +150,8 @@
         "owner": "aoa-dashboard",
         "access_scope": "dashboard_local",
         "authority": "dashboard_derived",
+        "claim_policy": "dashboard_derived_read_model",
+        "snapshot_role": "derived_pressure_identity",
         "claim_limit": "The pressure identity is dashboard-derived metadata, not source-owner authority."
       },
       "evidence": [
@@ -141,9 +160,12 @@
           "owner": "goal-anchor",
           "kind": "goal_anchor",
           "sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
-          "currentness": "current_at_read",
+          "currentness": "unknown",
           "access_scope": "owner_bounded",
           "authority": "source_owner",
+          "claim_policy": "source_owner_metadata",
+          "expected_sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
+          "snapshot_role": "configured_snapshot",
           "claim_limit": "The Goal Anchor defines the pressure intake fields and routing boundary."
         },
         {
@@ -151,9 +173,12 @@
           "owner": "master-thread",
           "kind": "task_local_master_filter",
           "sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
-          "currentness": "current_at_read",
+          "currentness": "unknown",
           "access_scope": "owner_bounded",
           "authority": "master_decision",
+          "claim_policy": "master_decision_disposition",
+          "expected_sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
+          "snapshot_role": "configured_snapshot",
           "claim_limit": "The master filter carries candidate obligations and does not become dashboard action authority."
         }
       ],
@@ -163,7 +188,8 @@
         "owner": "aoa-dashboard",
         "owner_ref": "dashboard:pressure_inbox",
         "authority": "dashboard_derived",
-        "access_scope": "dashboard_local"
+        "access_scope": "dashboard_local",
+        "claim_policy": "dashboard_derived_read_model"
       },
       "checked_existing_surfaces": [
         {
@@ -173,6 +199,7 @@
           "ref": "dashboard:correlation_read_model/migration",
           "access_scope": "dashboard_local",
           "authority": "dashboard_derived",
+          "claim_policy": "derived_navigation",
           "claim_limit": "Legacy text is redacted to a digest; deferred candidates remain until structured fields are present."
         },
         {
@@ -182,12 +209,14 @@
           "ref": "/srv/AbyssOS/aoa-agents/skills/aoa-agents-skills",
           "access_scope": "owner_bounded",
           "authority": "source_owner",
+          "claim_policy": "source_owner_metadata",
           "claim_limit": "Trigger strength is a recommendation; the dashboard cannot form or wake an actor."
         }
       ],
       "independence_signals": {
         "status": "present",
         "signals": ["Pressure intake is a separate P-infinity concern from wake receipt compatibility.", "Critical route is returned to the master for filtering."],
+        "claim_policy": "historical_context",
         "claim_limit": "Independence signals do not establish evaluator independence or owner acceptance."
       },
       "recommended_trigger_strength": "required_branch",
@@ -202,13 +231,16 @@
         "authority": "master_decision",
         "access_scope": "owner_bounded",
         "effect": "none",
+        "claim_policy": "master_decision_disposition",
         "claim_limit": "The dashboard only displays this route and cannot perform the wake or branch decision."
       },
       "outcome": {
         "state": "new_required_obligation",
         "owner": "master-thread",
+        "claim_policy": "master_decision_disposition",
         "claim_limit": "The outcome is a bounded task-local disposition candidate, not a verdict."
       },
+      "claim_policy": "dashboard_derived_read_model",
       "claim_limit": "This pressure record is an owner-bounded derived observation with no operational authority."
     }
   ],

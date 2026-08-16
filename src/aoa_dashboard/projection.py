@@ -36,6 +36,48 @@ def _ref_for(source: dict[str, Any]) -> list[dict[str, Any]]:
     return source.get("evidence_refs", [])
 
 
+def _typed_source_refs(value: Any, result: dict[tuple[str, str], dict[str, Any]]) -> None:
+    """Collect already-attested typed refs without inventing a second source label."""
+
+    if isinstance(value, dict):
+        ref = value.get("ref")
+        kind = value.get("kind")
+        if isinstance(ref, str) and isinstance(kind, str) and "currentness" in value and "owner" in value:
+            result.setdefault((ref, kind), value)
+        for item in value.values():
+            _typed_source_refs(item, result)
+    elif isinstance(value, list):
+        for item in value:
+            _typed_source_refs(item, result)
+
+
+def _attest_pressure_records(records: Any, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Replace configured source-shaped refs with the exact one-read source ref."""
+
+    if not isinstance(records, list):
+        return []
+    source_map: dict[tuple[str, str], dict[str, Any]] = {}
+    for source in sources:
+        _typed_source_refs(source, source_map)
+    result: list[dict[str, Any]] = []
+    for record in records:
+        item = json.loads(json.dumps(record))
+
+        def replace(value: Any) -> Any:
+            if isinstance(value, dict):
+                ref = value.get("ref")
+                kind = value.get("kind")
+                if isinstance(ref, str) and isinstance(kind, str) and (ref, kind) in source_map:
+                    return json.loads(json.dumps(source_map[(ref, kind)]))
+                return {key: replace(child) for key, child in value.items()}
+            if isinstance(value, list):
+                return [replace(child) for child in value]
+            return value
+
+        result.append(replace(item))
+    return result
+
+
 def _node_state(node_id: str, config: dict[str, Any], source_index: dict[str, dict[str, Any]]) -> tuple[str, str]:
     root = Path(__file__).resolve().parents[2]
     correlation = source_index["task-local-correlation"]
@@ -214,9 +256,13 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
         "claim_limit": "The dashboard never overwrites owner source; durable local retention requires an explicit bounded write route.",
     }
     legacy_pressure = migrate_legacy_pressure_candidates(config, correlation_source)
+    pressure_records = _attest_pressure_records(
+        config.get("pressure_inbox", []) if isinstance(config.get("pressure_inbox", []), list) else [],
+        [source_index["goal-anchor"], correlation_source],
+    )
     pressure_inbox = build_pressure_inbox(
         goal_id=str(config.get("goal_id", "unresolved-goal")),
-        records=config.get("pressure_inbox", []) if isinstance(config.get("pressure_inbox", []), list) else [],
+        records=pressure_records,
         legacy_candidates=legacy_pressure,
     )
     source_index["goal-local-correlation"] = {"status": goal_local_correlation.get("status")}
@@ -251,8 +297,16 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     ]
     goal_source = source_index["goal-anchor"]
     goal_metadata = goal_source.get("metadata", {})
-    correlation = source_index["task-local-correlation"].get("metadata", {})
-    safe_correlation = redact_legacy_metadata(correlation)
+    correlation_source = source_index["task-local-correlation"]
+    correlation = correlation_source.get("metadata", {})
+    safe_correlation = redact_legacy_metadata(
+        {
+            **correlation,
+            "state": correlation_source.get("state", "unknown"),
+            "freshness": correlation_source.get("freshness", "unknown"),
+            "degradation": correlation_source.get("degradation", []),
+        }
+    )
     safe_sources = redact_legacy_metadata(sources)
     return {
         "schema_version": "aoa_dashboard_projection_v1",

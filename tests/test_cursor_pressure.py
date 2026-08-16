@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aoa_dashboard.cursor import (  # noqa: E402
     append_correlation_observations,
+    _checkpoint_lock_path,
     content_digest,
     make_observation,
     materialize_goal_local_projection,
@@ -22,7 +23,9 @@ from aoa_dashboard.cursor import (  # noqa: E402
     redact_legacy_metadata,
     read_correlation_observation_log,
     rebuild_goal_local_projection,
+    write_correlation_checkpoint,
 )
+from aoa_dashboard.cursor import _ledger_lock  # noqa: E402
 from aoa_dashboard.projection import build_projection  # noqa: E402
 from aoa_dashboard.pressure import (  # noqa: E402
     build_pressure_inbox,
@@ -43,6 +46,8 @@ SOURCE_REF = {
     "owner": "test-owner",
     "authority": "source_owner",
     "access_scope": "owner_bounded",
+    "claim_policy": "test_metadata",
+    "snapshot_role": "test_fixture",
     "claim_limit": "Test source is not acceptance.",
 }
 
@@ -87,6 +92,8 @@ def pressure_record() -> dict:
             "owner": "aoa-dashboard",
             "access_scope": "dashboard_local",
             "authority": "dashboard_derived",
+            "claim_policy": "test_metadata",
+            "snapshot_role": "test_fixture",
             "claim_limit": "Pressure identity is derived metadata, not source authority.",
         },
         "evidence": [
@@ -98,6 +105,8 @@ def pressure_record() -> dict:
                 "currentness": "current_at_read",
                 "access_scope": "owner_bounded",
                 "authority": "source_owner",
+                "claim_policy": "test_metadata",
+                "snapshot_role": "test_fixture",
                 "claim_limit": "Test evidence is not acceptance.",
             }
         ],
@@ -108,6 +117,7 @@ def pressure_record() -> dict:
             "owner_ref": "owner:test-owner",
             "authority": "source_owner",
             "access_scope": "owner_bounded",
+            "claim_policy": "test_metadata",
         },
         "checked_existing_surfaces": [
             {
@@ -117,12 +127,14 @@ def pressure_record() -> dict:
                 "ref": "/bounded/test-surface",
                 "access_scope": "dashboard_local",
                 "authority": "dashboard_derived",
+                "claim_policy": "test_metadata",
                 "claim_limit": "Surface check is not proof.",
             }
         ],
         "independence_signals": {
             "status": "present",
             "signals": ["separate holder"],
+            "claim_policy": "test_metadata",
             "claim_limit": "Independence is not acceptance.",
         },
         "recommended_trigger_strength": "required_branch",
@@ -137,13 +149,16 @@ def pressure_record() -> dict:
             "authority": "source_owner",
             "access_scope": "owner_bounded",
             "effect": "none",
+            "claim_policy": "test_metadata",
             "claim_limit": "Route display is not execution.",
         },
         "outcome": {
             "state": "new_required_obligation",
             "owner": "test-owner",
+            "claim_policy": "test_metadata",
             "claim_limit": "Outcome is not acceptance.",
         },
+        "claim_policy": "test_metadata",
         "claim_limit": "Pressure is a derived test record.",
     }
 
@@ -502,6 +517,7 @@ class CursorRetentionTests(unittest.TestCase):
                 payload={"raw_body": "PRIVATE-BODY"},
                 source_refs=[SOURCE_REF],
             )
+
         with self.assertRaises(ValueError):
             make_observation(
                 goal_id=GOAL_ID,
@@ -525,6 +541,63 @@ class CursorRetentionTests(unittest.TestCase):
                 source_refs=[missing_scope],
             )
 
+    def test_nested_source_shaped_payload_observed_at_is_identity_bearing(self) -> None:
+        first = make_observation(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observation_id="reviewer-payload-one",
+            entity_key="reviewer-payload",
+            kind="test_observation",
+            payload={
+                "state": "returned",
+                "owner_fact": "retained",
+                "goal": {
+                    "ref": "reviewer:source",
+                    "kind": "reviewer_source",
+                    "claim_limit": "Reviewer payload remains meaningful.",
+                    "observed_at": "2026-08-15T23:00:00Z",
+                },
+            },
+            source_refs=[SOURCE_REF],
+        )
+        second_payload = copy.deepcopy(first["payload"])
+        second_payload["goal"]["observed_at"] = "2026-08-15T23:01:00Z"
+        second = make_observation(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observation_id="reviewer-payload-two",
+            entity_key="reviewer-payload",
+            kind="test_observation",
+            payload=second_payload,
+            source_refs=[SOURCE_REF],
+        )
+        self.assertNotEqual(first["payload_digest"], second["payload_digest"])
+        self.assertNotEqual(first["record_id"], second["record_id"])
+
+    def test_source_ref_owner_and_claim_policy_are_bounded(self) -> None:
+        unknown_owner = {**SOURCE_REF, "owner": "not-a-known-owner"}
+        with self.assertRaises(ValueError):
+            make_observation(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observation_id="unknown-owner",
+                entity_key="unknown-owner",
+                kind="test_observation",
+                payload={"state": "returned", "owner_fact": "retained"},
+                source_refs=[unknown_owner],
+            )
+        unknown_policy = {**SOURCE_REF, "claim_policy": "not-a-known-claim-policy"}
+        with self.assertRaises(ValueError):
+            make_observation(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observation_id="unknown-policy",
+                entity_key="unknown-policy",
+                kind="test_observation",
+                payload={"state": "returned", "owner_fact": "retained"},
+                source_refs=[unknown_policy],
+            )
+
     def test_legacy_obligation_api_view_is_digest_only(self) -> None:
         safe = redact_legacy_metadata(
             {
@@ -537,12 +610,17 @@ class CursorRetentionTests(unittest.TestCase):
         self.assertNotIn("NESTED-PRIVATE-TEXT", rendered)
         self.assertTrue(safe["new_obligations"][0]["sha256"])
         self.assertTrue(safe["master_filter"]["new_required_obligations"][0]["redacted"].startswith("[redacted"))
+        hostile = redact_legacy_metadata(
+            {"new_obligations": [{"sha256": "a" * 64, "redacted": "PRIVATE-LEGACY-BODY", "claim_limit": "x"}]}
+        )
+        self.assertNotIn("PRIVATE-LEGACY-BODY", json.dumps(hostile))
 
     def test_append_only_log_is_durable_and_malformed_lines_are_not_discarded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "correlation.jsonl"
             item = observation()
-            self.assertEqual(append_correlation_observations(path, [item]), 1)
+            with _ledger_lock(path, Path(directory) / "checkpoint.json") as lock_context:
+                self.assertEqual(append_correlation_observations(path, [item], lock_context=lock_context), 1)
             records, errors = read_correlation_observation_log(path)
             self.assertEqual(records, [item])
             self.assertEqual(errors, [])
@@ -550,6 +628,78 @@ class CursorRetentionTests(unittest.TestCase):
             records, errors = read_correlation_observation_log(path)
             self.assertEqual(len(records), 1)
             self.assertTrue(errors)
+
+    def test_public_ledger_writes_require_the_verified_context(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            with self.assertRaises(ValueError):
+                append_correlation_observations(log_path, [observation()])
+            with self.assertRaises(ValueError):
+                write_correlation_checkpoint(checkpoint_path, {})
+            self.assertFalse(log_path.exists())
+            self.assertFalse(checkpoint_path.exists())
+
+    def test_one_physical_ledger_rejects_divergent_checkpoint_bindings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            first_checkpoint = Path(directory) / "checkpoint-a.json"
+            second_checkpoint = Path(directory) / "checkpoint-b.json"
+            materialize_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[observation("ledger-binding")],
+                observation_log_path=log_path,
+                checkpoint_path=first_checkpoint,
+            )
+            self.assertEqual(_checkpoint_lock_path(log_path, first_checkpoint), _checkpoint_lock_path(log_path, second_checkpoint))
+            with self.assertRaises(ValueError):
+                materialize_goal_local_projection(
+                    goal_id=GOAL_ID,
+                    master_thread_id=THREAD_ID,
+                    observations=[],
+                    observation_log_path=log_path,
+                    checkpoint_path=second_checkpoint,
+                )
+            self.assertFalse(second_checkpoint.exists())
+
+    def test_hardlink_and_symlink_aliases_share_the_same_ledger_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log_path = root / "correlation.jsonl"
+            hardlink = root / "correlation-hardlink.jsonl"
+            symlink = root / "correlation-symlink.jsonl"
+            checkpoint = root / "checkpoint.json"
+            materialize_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[observation("alias-one")],
+                observation_log_path=log_path,
+                checkpoint_path=checkpoint,
+            )
+            hardlink.hardlink_to(log_path)
+            symlink.symlink_to(log_path)
+            self.assertEqual(_checkpoint_lock_path(log_path, checkpoint), _checkpoint_lock_path(hardlink, checkpoint))
+            self.assertEqual(_checkpoint_lock_path(log_path, checkpoint), _checkpoint_lock_path(symlink, checkpoint))
+            hard_result = materialize_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[observation("alias-two")],
+                observation_log_path=hardlink,
+                checkpoint_path=checkpoint,
+            )
+            symlink_result = materialize_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[],
+                observation_log_path=symlink,
+                checkpoint_path=checkpoint,
+            )
+            self.assertIn(hard_result["status"], {"current", "conflicted"})
+            self.assertEqual(symlink_result["rebuild"]["mode"], "replay")
+            records, errors = read_correlation_observation_log(log_path)
+            self.assertEqual(errors, [])
+            self.assertEqual(len(records), 2)
 
     def test_explicit_materialization_retains_a_later_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -832,6 +982,32 @@ class PressureInboxTests(unittest.TestCase):
         self.assertEqual(inbox["items"], [])
         self.assertNotIn("PRIVATE-BODY", str(inbox))
 
+    def test_pressure_admission_rejects_unknown_owner_claim_and_unicode_private_keys(self) -> None:
+        record = pressure_record()
+        record["natural_owner"]["owner"] = "not-a-known-owner"
+        self.assertTrue(any("natural_owner.owner" in error for error in validate_pressure_record(record)))
+
+        record = pressure_record()
+        record["next_route"]["claim_policy"] = "not-a-known-claim-policy"
+        self.assertTrue(any("next_route.claim_policy" in error for error in validate_pressure_record(record)))
+
+        for field_path in (
+            ("natural_owner",),
+            ("independence_signals",),
+            ("next_route",),
+            ("outcome",),
+            ("checked_existing_surfaces", 0),
+            ("evidence", 0),
+        ):
+            record = pressure_record()
+            target: dict = record
+            for part in field_path:
+                target = target[part]
+            target["рrivate"] = "PRIVATE-VALUE"
+            inbox = build_pressure_inbox(goal_id=GOAL_ID, records=[record])
+            self.assertEqual(inbox["items"], [], field_path)
+            self.assertNotIn("PRIVATE-VALUE", json.dumps(inbox, ensure_ascii=False), field_path)
+
     def test_malformed_pressure_is_rejected_and_conflicts_have_no_winner(self) -> None:
         malformed = pressure_record()
         malformed["stop_line"] = "unknown"
@@ -863,6 +1039,8 @@ class PressureInboxTests(unittest.TestCase):
                         "currentness": "current_at_read",
                         "freshness": "current_at_read",
                         "observed_at": "2026-08-15T23:10:00Z",
+                        "claim_policy": "master_decision_disposition",
+                        "snapshot_role": "live_observed",
                         "claim_limit": "Master filter is not acceptance.",
                     }
                 },
@@ -881,6 +1059,9 @@ class PressureInboxTests(unittest.TestCase):
         self.assertEqual(legacy["source_evidence_ref"]["authority"], "master_decision")
         self.assertEqual(legacy["source_evidence_ref"]["access_scope"], "owner_bounded")
         self.assertEqual(legacy["source_evidence_ref"]["observed_at"], "2026-08-15T23:10:00Z")
+        self.assertEqual(legacy["source_evidence_ref"], candidates[0]["source_evidence_ref"])
+        self.assertEqual(legacy["source_evidence_ref"]["claim_policy"], "master_decision_disposition")
+        self.assertEqual(legacy["outcome"], "deferred")
 
     def test_legacy_bootstrap_and_master_filter_migration_is_explicit(self) -> None:
         migration = migrate_legacy_correlation_input(

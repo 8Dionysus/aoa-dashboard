@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 from collections import Counter
@@ -9,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .correlation import observe_current_correlation
+from .source_binding import FileSnapshot, read_file_snapshot, snapshot_ref
 
 
 def utc_now() -> str:
@@ -67,47 +67,55 @@ def _read_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     return value, None
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def observe_goal(config: dict[str, Any]) -> dict[str, Any]:
+def observe_goal(config: dict[str, Any], snapshot: FileSnapshot | None = None) -> dict[str, Any]:
     path = Path(config["goal_anchor_path"])
     stats = _stat(path)
     claim_limit = "Anchor binding and digest are source evidence; they do not prove execution, review, or acceptance."
-    if not stats["exists"]:
-        return {
-            "id": "goal-anchor",
-            "owner": "goal-anchor",
-            "state": "missing",
-            "freshness": "missing",
-            "observation": "Configured Goal Anchor path is absent.",
-            "metadata": {"goal_id": config["goal_id"], "title": config["title"]},
-            "evidence_refs": [_ref("configured Goal Anchor", str(path), claim_limit)],
-            "claim_limit": claim_limit,
-        }
-    try:
-        digest = _sha256(path)
-    except OSError as exc:
-        return _error_source("goal-anchor", "goal-anchor", str(path), str(exc))
+    snapshot = snapshot or read_file_snapshot(
+        path,
+        expected_digest=config.get("goal_anchor_expected_sha256"),
+        parser="text",
+    )
+    anchor_ref = snapshot_ref(
+        snapshot,
+        label="Goal Anchor",
+        kind="goal_anchor",
+        owner="goal-anchor",
+        access_scope="owner_bounded",
+        authority="source_owner",
+        claim_policy="source_owner_metadata",
+        claim_limit="Goal Anchor ref and digest bind this projection; they do not prove execution, review, or acceptance.",
+    )
+    state = {
+        "current_at_read": "bound",
+        "stale": "stale",
+        "deferred": "deferred",
+        "unknown": "unknown",
+        "missing": "missing",
+        "invalid": "invalid",
+    }.get(snapshot.currentness, "unknown")
+    observation = {
+        "current_at_read": "The configured Goal Anchor is readable at projection time.",
+        "stale": "The configured Goal Anchor bytes were read, but the configured expected digest does not match.",
+        "missing": "Configured Goal Anchor path is absent.",
+        "invalid": "Configured Goal Anchor cannot be treated as a valid current source snapshot.",
+    }.get(snapshot.currentness, "Goal Anchor currentness is not attested.")
     return {
         "id": "goal-anchor",
         "owner": "goal-anchor",
-        "state": "bound",
-        "freshness": "current_at_read",
-        "observation": "The configured Goal Anchor is readable at projection time.",
+        "state": state,
+        "freshness": snapshot.currentness,
+        "observation": observation,
         "metadata": {
             "goal_id": config["goal_id"],
             "title": config["title"],
-            "anchor_digest": digest,
-            "size_bytes": stats["size_bytes"],
-            "mtime": stats["mtime"],
+            "anchor_digest": snapshot.digest,
+            "anchor_expected_sha256": snapshot.expected_digest,
+            "anchor_currentness": snapshot.currentness,
+            "size_bytes": stats.get("size_bytes"),
+            "mtime": stats.get("mtime"),
         },
-        "evidence_refs": [_ref("Goal Anchor", str(path), claim_limit)],
+        "evidence_refs": [anchor_ref],
         "claim_limit": claim_limit,
     }
 
@@ -496,9 +504,14 @@ def observe_owner_surfaces(config: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def observe_all(config: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    goal = observe_goal(config)
+    goal_snapshot = read_file_snapshot(
+        Path(config["goal_anchor_path"]),
+        expected_digest=config.get("goal_anchor_expected_sha256"),
+        parser="text",
+    )
+    goal = observe_goal(config, goal_snapshot)
     session = observe_session(config)
-    correlation = observe_current_correlation(config)
+    correlation = observe_current_correlation(config, goal_anchor_snapshot=goal_snapshot)
     actor = observe_actor_receipts(config)
     stats = observe_stats(config, actor)
     sources = [

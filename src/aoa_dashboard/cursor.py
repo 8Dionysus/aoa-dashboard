@@ -18,11 +18,21 @@ import fcntl
 import hashlib
 import json
 import os
+import stat
 import tempfile
 import threading
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
+
+from .source_binding import (
+    KNOWN_CURRENTNESS,
+    has_forbidden_key,
+    is_known_claim_policy,
+    is_known_owner,
+    is_sha256,
+)
 
 
 OBSERVATION_SCHEMA_VERSION = "aoa_dashboard_correlation_observation_v1"
@@ -31,9 +41,6 @@ CHECKPOINT_SCHEMA_VERSION = "aoa_dashboard_correlation_checkpoint_v1"
 PROJECTION_SCHEMA_VERSION = "aoa_dashboard_goal_local_correlation_projection_v1"
 MIGRATION_SCHEMA_VERSION = "aoa_dashboard_correlation_migration_v1"
 
-KNOWN_CURRENTNESS = frozenset(
-    {"current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"}
-)
 KNOWN_ACCESS_SCOPES = frozenset({"dashboard_local", "owner_bounded", "public_metadata"})
 ACCESS_SCOPE_RANK = {"public_metadata": 0, "dashboard_local": 1, "owner_bounded": 2}
 KNOWN_AUTHORITIES = frozenset(
@@ -94,6 +101,10 @@ _SOURCE_REF_FIELDS = {
     "claim_limit",
     "degradation",
     "observed_at",
+    "claim_policy",
+    "expected_sha256",
+    "snapshot_role",
+    "missing_fields",
 }
 _CURSOR_FIELDS = frozenset(
     {
@@ -162,7 +173,7 @@ _PAYLOAD_ROOT_FIELDS = {
         }
     ),
     "correlation_surface": frozenset({"state", "freshness", "degradation", "observation"}),
-    "test_observation": frozenset({"state", "owner_fact"}),
+    "test_observation": frozenset({"state", "owner_fact", "goal"}),
 }
 _PAYLOAD_NESTED_FIELDS = frozenset(
     {
@@ -214,6 +225,10 @@ _PAYLOAD_NESTED_FIELDS = frozenset(
         "rejected_or_deferred_claims",
         "owner_fact",
         "redacted",
+        "claim_policy",
+        "expected_sha256",
+        "snapshot_role",
+        "missing_fields",
     }
 )
 _FORBIDDEN_METADATA_KEY_PARTS = (
@@ -259,7 +274,9 @@ LEGACY_OBLIGATION_CLAIM_LIMIT = (
 def redacted_legacy_obligation(value: Any) -> dict[str, Any]:
     """Return the only legacy obligation representation admitted to the read model."""
 
-    digest = content_digest(value) if isinstance(value, str) else None
+    digest = value.get("sha256") if isinstance(value, dict) and _is_sha256(value.get("sha256")) else None
+    if digest is None and isinstance(value, str):
+        digest = content_digest(value)
     if digest is None:
         redacted = "[redacted legacy obligation; digest unavailable]"
     else:
@@ -274,9 +291,7 @@ def redact_legacy_metadata(value: Any) -> Any:
         return {
             key: (
                 [
-                    copy.deepcopy(item)
-                    if isinstance(item, dict) and "redacted" in item and "claim_limit" in item
-                    else redacted_legacy_obligation(item)
+                    redacted_legacy_obligation(item)
                     for item in item_value
                 ]
                 if key in {"new_obligations", "new_required_obligations"} and isinstance(item_value, list)
@@ -294,16 +309,10 @@ def _is_non_empty(value: Any) -> bool:
 
 
 def _is_sha256(value: Any) -> bool:
-    if not isinstance(value, str) or len(value) != SHA256_LENGTH:
-        return False
-    try:
-        int(value, 16)
-    except ValueError:
-        return False
-    return True
+    return is_sha256(value)
 
 
-def _stable_payload(value: Any, *, path: tuple[str, ...] = (), in_source_ref: bool = False) -> Any:
+def _stable_payload(value: Any, *, path: tuple[str, ...] = (), source_ref: bool = False) -> Any:
     """Canonicalize only declared volatile read-time fields.
 
     Observation-level ``observed_at`` and typed source-ref ``observed_at`` are
@@ -314,22 +323,22 @@ def _stable_payload(value: Any, *, path: tuple[str, ...] = (), in_source_ref: bo
     """
 
     if isinstance(value, dict):
-        is_observation = value.get("schema_version") == OBSERVATION_SCHEMA_VERSION
-        is_source_ref = in_source_ref or (
-            "ref" in value and "kind" in value and "claim_limit" in value
-        )
+        is_observation = value.get("schema_version") == OBSERVATION_SCHEMA_VERSION and path in {(), ("observations",)}
         result: dict[str, Any] = {}
         for key, item in value.items():
             if is_observation and key == "observed_at":
                 continue
-            if is_source_ref and key == "observed_at":
+            if source_ref and key == "observed_at":
                 continue
             if path + (key,) in _VOLATILE_PAYLOAD_PATHS:
                 continue
-            result[key] = _stable_payload(item, path=path + (key,), in_source_ref=is_source_ref)
+            child_source_ref = source_ref or (
+                key == "source_refs" and path in {("provenance",), ("observations", "provenance")}
+            )
+            result[key] = _stable_payload(item, path=path + (key,), source_ref=child_source_ref)
         return result
     if isinstance(value, list):
-        return [_stable_payload(item, path=path, in_source_ref=in_source_ref) for item in value]
+        return [_stable_payload(item, path=path, source_ref=source_ref) for item in value]
     return value
 
 
@@ -346,8 +355,7 @@ def _metadata_shape_errors(value: Any, kind: str) -> list[str]:
             if not isinstance(key, str):
                 errors.append(f"metadata key at {path or '<root>'} is not a string")
                 continue
-            lowered = key.lower()
-            if any(part in lowered for part in _FORBIDDEN_METADATA_KEY_PARTS):
+            if has_forbidden_key(key, _FORBIDDEN_METADATA_KEY_PARTS):
                 errors.append(f"metadata key is not allowed: {path + '.' if path else ''}{key}")
                 continue
             if key not in allowed:
@@ -393,8 +401,11 @@ def _normalise_ref(raw: Any) -> dict[str, Any] | None:
     currentness = raw.get("currentness") or raw.get("freshness")
     if currentness not in KNOWN_CURRENTNESS:
         return None
+    if "freshness" in raw and raw.get("freshness") != currentness:
+        return None
     owner = raw.get("owner")
-    if not _is_non_empty(owner):
+    claim_policy = raw.get("claim_policy")
+    if not is_known_owner(owner) or not is_known_claim_policy(claim_policy):
         return None
     access_scope = raw.get("access_scope")
     authority = raw.get("authority")
@@ -402,6 +413,12 @@ def _normalise_ref(raw: Any) -> dict[str, Any] | None:
     if access_scope not in KNOWN_ACCESS_SCOPES or authority not in KNOWN_AUTHORITIES:
         return None
     if not _is_non_empty(claim_limit):
+        return None
+    expected_digest = raw.get("expected_sha256")
+    if expected_digest is not None and not _is_sha256(expected_digest):
+        return None
+    snapshot_role = raw.get("snapshot_role")
+    if not _is_non_empty(snapshot_role):
         return None
     observed_at = raw.get("observed_at")
     if observed_at is not None and not isinstance(observed_at, str):
@@ -418,12 +435,23 @@ def _normalise_ref(raw: Any) -> dict[str, Any] | None:
         "owner": str(owner),
         "access_scope": access_scope,
         "authority": authority,
+        "claim_policy": claim_policy,
         "claim_limit": claim_limit,
+        "snapshot_role": snapshot_role,
     }
+    if expected_digest is not None:
+        result["expected_sha256"] = expected_digest
+    if "freshness" in raw:
+        result["freshness"] = raw["freshness"]
     if degradation is not None:
         result["degradation"] = list(degradation)
     if observed_at is not None:
         result["observed_at"] = observed_at
+    missing_fields = raw.get("missing_fields")
+    if missing_fields is not None:
+        if not isinstance(missing_fields, list) or any(not isinstance(item, str) for item in missing_fields):
+            return None
+        result["missing_fields"] = list(missing_fields)
     return result
 
 
@@ -619,7 +647,7 @@ def observations_from_correlation(
                     kind="correlation_envelope",
                     payload=redact_legacy_metadata(envelope),
                     source_refs=refs,
-                    currentness=correlation_source.get("freshness") or "unknown",
+                    currentness=_currentness(refs),
                     observed_at=observed_at,
                 )
             )
@@ -645,7 +673,7 @@ def observations_from_correlation(
             "new_required_obligations": [
                 redacted_legacy_obligation(item)
                 for item in master_filter.get("new_required_obligations", [])
-                if isinstance(item, str)
+                if (isinstance(item, str) and item.strip()) or (isinstance(item, dict) and "redacted" in item)
             ],
             "rejected_or_deferred_claims": master_filter.get("rejected_or_deferred_claims", []),
         }
@@ -683,6 +711,8 @@ def observations_from_correlation(
                 "owner": "aoa-dashboard",
                 "access_scope": "dashboard_local",
                 "authority": "dashboard_derived",
+                "claim_policy": "dashboard_derived_read_model",
+                "snapshot_role": "derived_binding",
                 "claim_limit": CLAIM_LIMIT,
             }
         ]
@@ -1392,10 +1422,84 @@ def migrate_legacy_correlation_input(config: dict[str, Any], correlation_source:
     }
 
 
+@dataclass(frozen=True)
+class _VerifiedLedgerLock:
+    ledger_identity: str
+    log_path: Path
+    checkpoint_path: Path
+    lock_path: Path
+
+
+def _ledger_identity_from_stat(item: os.stat_result) -> str:
+    if not stat.S_ISREG(item.st_mode):
+        raise ValueError("observation ledger must be a regular file")
+    return f"inode:{item.st_dev}:{item.st_ino}"
+
+
+def _ledger_identity_for_path(path: Path) -> str:
+    try:
+        return _ledger_identity_from_stat(path.stat())
+    except FileNotFoundError:
+        raise ValueError("cannot prove physical observation-ledger identity for a missing path") from None
+
+
+def _ledger_lock_path_for_identity(identity: str) -> Path:
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
+    return Path(tempfile.gettempdir()) / f".aoa-dashboard-ledger-{digest}.lock"
+
+
 def _checkpoint_lock_path(observation_log_path: Path, checkpoint_path: Path) -> Path:
-    key = f"{observation_log_path.resolve()}::{checkpoint_path.resolve()}"
-    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
-    return checkpoint_path.parent / f".aoa-dashboard-ledger-{digest}.lock"
+    """Return a lock for the physical/logical log identity, never the checkpoint path."""
+
+    del checkpoint_path
+    return _ledger_lock_path_for_identity(_ledger_identity_for_path(observation_log_path))
+
+
+def _checkpoint_binding_path(path: Path) -> str:
+    return str(path.resolve(strict=False))
+
+
+def _read_lock_binding(descriptor: int) -> dict[str, Any] | None:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    raw = os.read(descriptor, 16 * 1024)
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"ledger lock binding is malformed: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError("ledger lock binding is not an object")
+    return value
+
+
+def _write_lock_binding(descriptor: int, value: dict[str, Any]) -> None:
+    data = (canonical_json(value) + "\n").encode("utf-8")
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    os.ftruncate(descriptor, 0)
+    view = memoryview(data)
+    while view:
+        written = os.write(descriptor, view)
+        if written <= 0:
+            raise OSError("short ledger lock binding write")
+        view = view[written:]
+    os.fsync(descriptor)
+
+
+def _binding_matches_ledger(binding: dict[str, Any], ledger_identity: str) -> bool:
+    if binding.get("ledger_identity") != ledger_identity:
+        return False
+    bound_path_value = binding.get("canonical_log_path")
+    if not isinstance(bound_path_value, str) or not bound_path_value:
+        return False
+    bound_path = Path(bound_path_value)
+    try:
+        return _ledger_identity_from_stat(bound_path.stat()) == ledger_identity
+    except (FileNotFoundError, OSError, ValueError):
+        # Inode numbers can be reused after a temporary ledger is deleted.  A
+        # lock-file binding whose original path disappeared is not allowed to
+        # bind a new ledger merely because the kernel reused the inode tuple.
+        return False
 
 
 def _local_ledger_lock(key: str) -> threading.Lock:
@@ -1405,19 +1509,42 @@ def _local_ledger_lock(key: str) -> threading.Lock:
 
 @contextmanager
 def _ledger_lock(observation_log_path: Path, checkpoint_path: Path):
-    """Serialize a complete materialization across threads and processes."""
+    """Serialize one physical log and bind it to one canonical checkpoint."""
 
     observation_log_path.parent.mkdir(parents=True, exist_ok=True)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = _checkpoint_lock_path(observation_log_path, checkpoint_path)
-    local_key = str(lock_path.resolve())
-    local_lock = _local_ledger_lock(local_key)
+    log_descriptor = os.open(observation_log_path, os.O_CREAT | os.O_RDWR, 0o600)
+    ledger_identity = _ledger_identity_from_stat(os.fstat(log_descriptor))
+    lock_path = _ledger_lock_path_for_identity(ledger_identity)
+    local_lock = _local_ledger_lock(ledger_identity)
     local_lock.acquire()
     descriptor = -1
     try:
         descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         fcntl.flock(descriptor, fcntl.LOCK_EX)
-        yield lock_path
+        binding = _read_lock_binding(descriptor)
+        canonical_checkpoint = _checkpoint_binding_path(checkpoint_path)
+        canonical_log = observation_log_path.resolve(strict=False)
+        if binding is None or not _binding_matches_ledger(binding, ledger_identity):
+            _write_lock_binding(
+                descriptor,
+                {
+                    "schema_version": "aoa_dashboard_ledger_binding_v1",
+                    "ledger_identity": ledger_identity,
+                    "canonical_log_path": str(canonical_log),
+                    "canonical_checkpoint_path": canonical_checkpoint,
+                },
+            )
+        elif binding.get("canonical_checkpoint_path") != canonical_checkpoint:
+            raise ValueError(
+                "observation ledger is already bound to a different canonical checkpoint path"
+            )
+        yield _VerifiedLedgerLock(
+            ledger_identity=ledger_identity,
+            log_path=observation_log_path.resolve(strict=False),
+            checkpoint_path=Path(canonical_checkpoint),
+            lock_path=lock_path,
+        )
     finally:
         if descriptor != -1:
             try:
@@ -1425,6 +1552,20 @@ def _ledger_lock(observation_log_path: Path, checkpoint_path: Path):
             finally:
                 os.close(descriptor)
         local_lock.release()
+        os.close(log_descriptor)
+
+
+def _require_verified_lock(
+    lock_context: _VerifiedLedgerLock | None,
+    log_path: Path | None = None,
+    checkpoint_path: Path | None = None,
+) -> None:
+    if not isinstance(lock_context, _VerifiedLedgerLock):
+        raise ValueError("ledger write requires a verified lock context")
+    if log_path is not None and _ledger_identity_for_path(log_path) != lock_context.ledger_identity:
+        raise ValueError("ledger write path is outside the verified physical ledger")
+    if checkpoint_path is not None and _checkpoint_binding_path(checkpoint_path) != str(lock_context.checkpoint_path):
+        raise ValueError("checkpoint write path is outside the verified canonical binding")
 
 
 def _checkpoint_temp_paths(path: Path) -> list[Path]:
@@ -1556,8 +1697,16 @@ def read_correlation_observation_log(path: str | os.PathLike[str]) -> tuple[list
     return records, errors
 
 
-def append_correlation_observations(path: str | os.PathLike[str], observations: list[dict[str, Any]]) -> int:
-    """Append framed JSONL records and report success only after fsync."""
+def append_correlation_observations(
+    path: str | os.PathLike[str],
+    observations: list[dict[str, Any]],
+    *,
+    lock_context: _VerifiedLedgerLock | None = None,
+) -> int:
+    """Append framed JSONL records only under the verified materializer lock."""
+
+    target = Path(path)
+    _require_verified_lock(lock_context, target)
 
     for index, observation in enumerate(observations):
         errors = validate_observation(observation)
@@ -1565,7 +1714,6 @@ def append_correlation_observations(path: str | os.PathLike[str], observations: 
             raise ValueError(f"observation[{index}] is not admissible: {'; '.join(errors)}")
     if not observations:
         return 0
-    target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("ab", buffering=0) as stream:
         for observation in observations:
@@ -1589,11 +1737,18 @@ def read_correlation_checkpoint(path: str | os.PathLike[str]) -> tuple[dict[str,
     return value, []
 
 
-def write_correlation_checkpoint(path: str | os.PathLike[str], checkpoint: dict[str, Any]) -> None:
+def write_correlation_checkpoint(
+    path: str | os.PathLike[str],
+    checkpoint: dict[str, Any],
+    *,
+    lock_context: _VerifiedLedgerLock | None = None,
+) -> None:
+    target = Path(path)
+    _require_verified_lock(lock_context, checkpoint_path=target)
     errors = validate_checkpoint(checkpoint)
     if errors:
         raise ValueError(f"checkpoint is not admissible: {'; '.join(errors)}")
-    _write_json_atomic(Path(path), checkpoint)
+    _write_json_atomic(target, checkpoint)
 
 
 def materialize_goal_local_projection(
@@ -1616,7 +1771,8 @@ def materialize_goal_local_projection(
     log_path = Path(observation_log_path)
     checkpoint_file = Path(checkpoint_path)
     recovered_tail: dict[str, Any] | None = None
-    with _ledger_lock(log_path, checkpoint_file) as lock_path:
+    with _ledger_lock(log_path, checkpoint_file) as lock_context:
+        lock_path = lock_context.lock_path
         _cleanup_checkpoint_temps(checkpoint_file)
         existing, log_errors, recovery = _read_log_internal(log_path, recover_partial_tail=True)
         if log_errors:
@@ -1644,8 +1800,8 @@ def materialize_goal_local_projection(
                 new_observations.append(item)
                 existing_raw_digests.add(raw_digest)
         if new_observations:
-            append_correlation_observations(log_path, new_observations)
-        write_correlation_checkpoint(checkpoint_file, candidate["checkpoint"])
+            append_correlation_observations(log_path, new_observations, lock_context=lock_context)
+        write_correlation_checkpoint(checkpoint_file, candidate["checkpoint"], lock_context=lock_context)
         candidate["storage"] = {
             "observation_log_path": str(observation_log_path),
             "checkpoint_path": str(checkpoint_path),

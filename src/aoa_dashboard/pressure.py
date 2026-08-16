@@ -12,6 +12,12 @@ from .cursor import (
     content_digest,
     redacted_legacy_obligation,
 )
+from .source_binding import (
+    has_forbidden_key,
+    is_known_owner,
+    is_known_claim_policy,
+    is_sha256,
+)
 
 
 PRESSURE_RECORD_SCHEMA_VERSION = "aoa_dashboard_pressure_record_v1"
@@ -46,24 +52,41 @@ _RECORD_FIELDS = frozenset(
         "next_route",
         "outcome",
         "record_digest",
+        "claim_policy",
         "claim_limit",
     }
 )
 _TYPED_REF_FIELDS = frozenset(
     {
         "id",
+        "label",
         "ref",
         "owner",
         "kind",
         "sha256",
         "currentness",
+        "freshness",
         "access_scope",
         "authority",
+        "claim_policy",
+        "expected_sha256",
+        "snapshot_role",
+        "missing_fields",
+        "degradation",
         "claim_limit",
         "observed_at",
     }
 )
-_SURFACE_FIELDS = frozenset({"surface", "owner", "result", "ref", "access_scope", "authority", "claim_limit", "observed_at"})
+_SURFACE_FIELDS = frozenset(
+    {"surface", "owner", "result", "ref", "access_scope", "authority", "claim_policy", "claim_limit", "observed_at"}
+)
+_NATURAL_OWNER_FIELDS = frozenset({"owner", "owner_ref", "authority", "access_scope", "claim_policy"})
+_INDEPENDENCE_FIELDS = frozenset({"status", "signals", "claim_policy", "claim_limit"})
+_ROUTE_FIELDS = frozenset(
+    {"owner", "owner_ref", "route", "reason", "critical", "authority", "access_scope", "effect", "claim_policy", "claim_limit"}
+)
+_OUTCOME_FIELDS = frozenset({"state", "owner", "claim_policy", "claim_limit"})
+_FORBIDDEN_NESTED_KEY_PARTS = ("raw", "body", "private", "secret", "token", "password", "prompt")
 
 
 def _non_empty(value: Any) -> bool:
@@ -75,15 +98,19 @@ def _unknown(value: Any) -> bool:
 
 
 def _sha256(value: Any) -> bool:
-    if value is None:
-        return True
-    if not isinstance(value, str) or len(value) != 64:
-        return False
-    try:
-        int(value, 16)
-    except ValueError:
-        return False
-    return True
+    return value is None or is_sha256(value)
+
+
+def _object_field_errors(value: Any, prefix: str, allowed: frozenset[str]) -> list[str]:
+    if not isinstance(value, dict):
+        return [f"{prefix} is missing or not an object"]
+    errors: list[str] = []
+    for field in sorted(value):
+        if has_forbidden_key(field, _FORBIDDEN_NESTED_KEY_PARTS):
+            errors.append(f"{prefix}.{field} is forbidden")
+        elif field not in allowed:
+            errors.append(f"{prefix}.{field} is not an admitted metadata field")
+    return errors
 
 
 def _typed_ref_errors(value: Any, prefix: str, *, require_id: bool) -> list[str]:
@@ -91,8 +118,11 @@ def _typed_ref_errors(value: Any, prefix: str, *, require_id: bool) -> list[str]
     if not isinstance(value, dict):
         return [f"{prefix} is missing or not an object"]
     for field in sorted(set(value) - _TYPED_REF_FIELDS):
-        errors.append(f"{prefix}.{field} is not an admitted metadata field")
-    required = ("id", "ref", "owner", "kind", "currentness", "access_scope", "authority", "claim_limit")
+        if has_forbidden_key(field, _FORBIDDEN_NESTED_KEY_PARTS):
+            errors.append(f"{prefix}.{field} is forbidden")
+        else:
+            errors.append(f"{prefix}.{field} is not an admitted metadata field")
+    required = ("id", "ref", "owner", "kind", "currentness", "access_scope", "authority", "claim_policy", "snapshot_role", "claim_limit")
     if not require_id:
         required = tuple(field for field in required if field != "id")
     for field in required:
@@ -106,6 +136,22 @@ def _typed_ref_errors(value: Any, prefix: str, *, require_id: bool) -> list[str]
         errors.append(f"{prefix}.access_scope is unknown")
     if value.get("authority") not in KNOWN_PRESSURE_AUTHORITIES:
         errors.append(f"{prefix}.authority is unknown")
+    if not is_known_owner(value.get("owner")):
+        errors.append(f"{prefix}.owner is unknown")
+    if not is_known_claim_policy(value.get("claim_policy")):
+        errors.append(f"{prefix}.claim_policy is unknown")
+    if not _non_empty(value.get("snapshot_role")):
+        errors.append(f"{prefix}.snapshot_role is missing")
+    if value.get("freshness") is not None:
+        if value.get("freshness") not in KNOWN_CURRENTNESS:
+            errors.append(f"{prefix}.freshness is unknown")
+        elif value.get("freshness") != value.get("currentness"):
+            errors.append(f"{prefix}.freshness contradicts currentness")
+    if value.get("expected_sha256") is not None and not _sha256(value.get("expected_sha256")):
+        errors.append(f"{prefix}.expected_sha256 is malformed")
+    for field in ("missing_fields", "degradation"):
+        if field in value and (not isinstance(value[field], list) or any(not isinstance(item, str) for item in value[field])):
+            errors.append(f"{prefix}.{field} is malformed")
     if "observed_at" in value and value["observed_at"] is not None and not isinstance(value["observed_at"], str):
         errors.append(f"{prefix}.observed_at is malformed")
     return errors
@@ -145,15 +191,18 @@ def validate_pressure_record(record: Any, *, expected_goal_id: str | None = None
     if not isinstance(owner, dict):
         errors.append("natural_owner is missing")
     else:
-        for field in ("owner", "owner_ref", "authority", "access_scope"):
+        errors.extend(_object_field_errors(owner, "natural_owner", _NATURAL_OWNER_FIELDS))
+        for field in ("owner", "owner_ref", "authority", "access_scope", "claim_policy"):
             if not _non_empty(owner.get(field)):
                 errors.append(f"natural_owner.{field} is missing")
-        if _unknown(owner.get("owner")):
+        if _unknown(owner.get("owner")) or not is_known_owner(owner.get("owner")):
             errors.append("natural_owner.owner is unknown")
         if owner.get("authority") not in KNOWN_PRESSURE_AUTHORITIES:
             errors.append("natural_owner.authority is unknown")
         if owner.get("access_scope") not in KNOWN_ACCESS_SCOPES:
             errors.append("natural_owner.access_scope is unknown")
+        if not is_known_claim_policy(owner.get("claim_policy")):
+            errors.append("natural_owner.claim_policy is unknown")
 
     surfaces = record.get("checked_existing_surfaces")
     if not isinstance(surfaces, list) or not surfaces:
@@ -164,26 +213,34 @@ def validate_pressure_record(record: Any, *, expected_goal_id: str | None = None
             if not isinstance(item, dict):
                 errors.append(f"{prefix} is not an object")
                 continue
-            for field in sorted(set(item) - _SURFACE_FIELDS):
-                errors.append(f"{prefix}.{field} is not an admitted metadata field")
-            for field in ("surface", "owner", "result", "ref", "access_scope", "authority", "claim_limit"):
+            errors.extend(_object_field_errors(item, prefix, _SURFACE_FIELDS))
+            for field in ("surface", "owner", "result", "ref", "access_scope", "authority", "claim_policy", "claim_limit"):
                 if not _non_empty(item.get(field)):
                     errors.append(f"{prefix}.{field} is missing")
             if item.get("result") not in KNOWN_SURFACE_RESULTS:
                 errors.append(f"{prefix}.result is unknown")
+            if not is_known_owner(item.get("owner")):
+                errors.append(f"{prefix}.owner is unknown")
             if item.get("access_scope") not in KNOWN_ACCESS_SCOPES:
                 errors.append(f"{prefix}.access_scope is unknown")
             if item.get("authority") not in KNOWN_PRESSURE_AUTHORITIES:
                 errors.append(f"{prefix}.authority is unknown")
+            if not is_known_claim_policy(item.get("claim_policy")):
+                errors.append(f"{prefix}.claim_policy is unknown")
 
     independence = record.get("independence_signals")
     if not isinstance(independence, dict):
         errors.append("independence_signals is missing")
     else:
+        errors.extend(_object_field_errors(independence, "independence_signals", _INDEPENDENCE_FIELDS))
         if independence.get("status") not in KNOWN_INDEPENDENCE_STATES:
             errors.append("independence_signals.status is unknown")
         if not isinstance(independence.get("signals"), list):
             errors.append("independence_signals.signals is missing")
+        elif any(not isinstance(item, str) for item in independence["signals"]):
+            errors.append("independence_signals.signals contains a non-string")
+        if not is_known_claim_policy(independence.get("claim_policy")):
+            errors.append("independence_signals.claim_policy is unknown")
         if not _non_empty(independence.get("claim_limit")):
             errors.append("independence_signals.claim_limit is missing")
 
@@ -198,10 +255,11 @@ def validate_pressure_record(record: Any, *, expected_goal_id: str | None = None
     if not isinstance(route, dict):
         errors.append("next_route is missing")
     else:
-        for field in ("owner", "owner_ref", "route", "reason", "authority", "access_scope", "effect", "claim_limit"):
+        errors.extend(_object_field_errors(route, "next_route", _ROUTE_FIELDS))
+        for field in ("owner", "owner_ref", "route", "reason", "authority", "access_scope", "effect", "claim_policy", "claim_limit"):
             if not _non_empty(route.get(field)):
                 errors.append(f"next_route.{field} is missing")
-        if _unknown(route.get("owner")) or _unknown(route.get("route")):
+        if _unknown(route.get("owner")) or not is_known_owner(route.get("owner")) or _unknown(route.get("route")):
             errors.append("next_route owner/route is unknown")
         if route.get("authority") not in KNOWN_PRESSURE_AUTHORITIES:
             errors.append("next_route.authority is unknown")
@@ -211,33 +269,43 @@ def validate_pressure_record(record: Any, *, expected_goal_id: str | None = None
             errors.append("next_route.effect must be none")
         if not isinstance(route.get("critical"), bool):
             errors.append("next_route.critical is missing")
+        if not is_known_claim_policy(route.get("claim_policy")):
+            errors.append("next_route.claim_policy is unknown")
 
     outcome = record.get("outcome")
     if not isinstance(outcome, dict):
         errors.append("outcome is missing")
     else:
+        errors.extend(_object_field_errors(outcome, "outcome", _OUTCOME_FIELDS))
         if outcome.get("state") not in KNOWN_OUTCOMES:
             errors.append("outcome.state is unknown")
+        if not is_known_owner(outcome.get("owner")):
+            errors.append("outcome.owner is unknown")
+        if not is_known_claim_policy(outcome.get("claim_policy")):
+            errors.append("outcome.claim_policy is unknown")
         if not _non_empty(outcome.get("claim_limit")):
             errors.append("outcome.claim_limit is missing")
 
     if not _non_empty(record.get("claim_limit")):
         errors.append("pressure record claim_limit is missing")
+    if not is_known_claim_policy(record.get("claim_policy")):
+        errors.append("pressure record claim_policy is unknown")
     return errors
 
 
-def _stable_pressure(value: Any, *, typed_ref: bool = False) -> Any:
-    """Remove only declared read-time timestamps from typed pressure refs."""
+def _stable_pressure(value: Any, *, path: tuple[str, ...] = (), source_ref: bool = False) -> Any:
+    """Strip timestamps only along explicitly declared pressure source-ref paths."""
 
     if isinstance(value, dict):
-        is_typed_ref = typed_ref or {"ref", "kind", "currentness", "claim_limit"}.issubset(value)
-        return {
-            key: _stable_pressure(item, typed_ref=is_typed_ref)
-            for key, item in sorted(value.items())
-            if not (is_typed_ref and key == "observed_at")
-        }
+        result: dict[str, Any] = {}
+        for key, item in sorted(value.items()):
+            if source_ref and key == "observed_at":
+                continue
+            child_source_ref = source_ref or (not path and key in {"pressure_ref", "evidence", "source_evidence_ref"})
+            result[key] = _stable_pressure(item, path=path + (key,), source_ref=child_source_ref)
+        return result
     if isinstance(value, list):
-        return [_stable_pressure(item) for item in value]
+        return [_stable_pressure(item, path=path, source_ref=source_ref) for item in value]
     return value
 
 
@@ -250,22 +318,20 @@ def pressure_digest(record: dict[str, Any]) -> str:
 def _legacy_ref(correlation_source: dict[str, Any]) -> tuple[dict[str, Any], list[str], str | None]:
     metadata = correlation_source.get("metadata") if isinstance(correlation_source.get("metadata"), dict) else {}
     master_filter = metadata.get("master_filter") if isinstance(metadata.get("master_filter"), dict) else {}
-    raw_ref = master_filter.get("ref") if isinstance(master_filter.get("ref"), dict) else {}
-    currentness = raw_ref.get("currentness") or raw_ref.get("freshness") or "unknown"
-    pressure_ref = {
-        "id": "legacy:master-filter:pressure",
-        "kind": raw_ref.get("kind") or "legacy_master_filter_pressure",
-        "ref": raw_ref.get("ref") or "master-filter:unresolved",
-        "sha256": raw_ref.get("sha256"),
-        "currentness": currentness,
-        "owner": raw_ref.get("owner") or "unknown",
-        "access_scope": raw_ref.get("access_scope") or "unknown",
-        "authority": raw_ref.get("authority") or "unknown",
-        "claim_limit": raw_ref.get("claim_limit") or "Legacy source claim limit is unavailable.",
-    }
-    if "observed_at" in raw_ref:
-        pressure_ref["observed_at"] = raw_ref["observed_at"]
-    required = ("ref", "sha256", "owner", "authority", "currentness", "access_scope", "claim_limit")
+    raw_ref = copy.deepcopy(master_filter.get("ref")) if isinstance(master_filter.get("ref"), dict) else {}
+    pressure_ref = copy.deepcopy(raw_ref)
+    pressure_ref["id"] = "legacy:master-filter:pressure"
+    required = (
+        "ref",
+        "sha256",
+        "owner",
+        "authority",
+        "currentness",
+        "access_scope",
+        "claim_policy",
+        "snapshot_role",
+        "claim_limit",
+    )
     missing = [field for field in required if field not in raw_ref or raw_ref.get(field) in (None, "")]
     legacy_freshness = raw_ref.get("freshness") if "freshness" in raw_ref else None
     return pressure_ref, missing, legacy_freshness
@@ -281,14 +347,21 @@ def migrate_legacy_pressure_candidates(
     metadata = correlation_source.get("metadata") if isinstance(correlation_source.get("metadata"), dict) else {}
     obligations = metadata.get("new_obligations") if isinstance(metadata.get("new_obligations"), list) else []
     candidates: list[dict[str, Any]] = []
-    for index, obligation in enumerate(item for item in obligations if isinstance(item, str) and item.strip()):
+    admitted_obligations = [
+        item
+        for item in obligations
+        if (isinstance(item, str) and item.strip()) or (isinstance(item, dict) and isinstance(item.get("sha256"), str) and _sha256(item.get("sha256")))
+    ]
+    for index, obligation in enumerate(admitted_obligations):
         pressure_ref, source_missing, legacy_freshness = _legacy_ref(correlation_source)
         redacted = redacted_legacy_obligation(obligation)
         digest = redacted["sha256"]
         pressure_ref["id"] = f"legacy:master-filter:pressure:{index}:{digest[:12]}"
         candidate: dict[str, Any] = {
             "pressure_ref": pressure_ref,
-            "source_evidence_ref": copy.deepcopy(pressure_ref),
+            "source_evidence_ref": copy.deepcopy(
+                correlation_source.get("metadata", {}).get("master_filter", {}).get("ref", {})
+            ),
             "legacy_obligation_digest": digest,
             "legacy_obligation_redacted": redacted["redacted"],
             "missing_fields": [
@@ -317,7 +390,14 @@ def migrate_legacy_pressure_candidates(
 def _safe_ref_summary(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {"id": "unresolved"}
-    return {key: copy.deepcopy(value[key]) for key in sorted(set(value) & _TYPED_REF_FIELDS) if isinstance(value[key], (str, type(None)))}
+    safe: dict[str, Any] = {}
+    for key in sorted(set(value) & _TYPED_REF_FIELDS):
+        item = value[key]
+        if isinstance(item, (str, type(None))):
+            safe[key] = copy.deepcopy(item)
+        elif key in {"missing_fields", "degradation"} and isinstance(item, list) and all(isinstance(entry, str) for entry in item):
+            safe[key] = copy.deepcopy(item)
+    return safe or {"id": "unresolved"}
 
 
 def _redacted_invalid(record: Any, errors: list[str], *, migration: str | None = None) -> dict[str, Any]:
