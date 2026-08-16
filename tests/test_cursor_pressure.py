@@ -158,6 +158,24 @@ class CursorRetentionTests(unittest.TestCase):
         self.assertFalse(result["rebuild"]["deterministic"])
         self.assertTrue(any("cursor_drift" in error for error in result["rebuild"]["errors"]))
 
+    def test_replay_digest_ignores_volatile_provenance_observed_at(self) -> None:
+        first = observation()
+        first["provenance"]["source_refs"][0]["observed_at"] = "2026-08-15T23:00:00Z"
+        baseline = rebuild_goal_local_projection(
+            goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[first]
+        )
+        second = copy.deepcopy(first)
+        second["provenance"]["source_refs"][0]["observed_at"] = "2026-08-15T23:01:00Z"
+        replay = rebuild_goal_local_projection(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observations=[second],
+            checkpoint=baseline["checkpoint"],
+        )
+        self.assertEqual(replay["status"], "current")
+        self.assertEqual(replay["rebuild"]["mode"], "replay")
+        self.assertEqual(replay["checkpoint"]["projection_digest"], baseline["checkpoint"]["projection_digest"])
+
     def test_malformed_checkpoint_fails_closed(self) -> None:
         baseline = rebuild_goal_local_projection(
             goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[observation()]

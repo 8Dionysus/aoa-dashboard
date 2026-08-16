@@ -740,7 +740,7 @@ def _checkpoint(
 
 
 def _projection_digest(model: dict[str, Any]) -> str:
-    value = copy.deepcopy(model)
+    value = _stable_payload(copy.deepcopy(model))
     value.pop("checkpoint", None)
     value.pop("generated_at", None)
     rebuild = value.get("rebuild")
