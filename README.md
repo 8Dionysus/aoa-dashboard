@@ -39,15 +39,21 @@ not proof of live runtime health or owner acceptance. The UI keeps
 as separate vocabulary values.
 
 The current correlation surface is task-local and read-only. It accepts the
-historical `task_local_actor_wake_receipt_v2` witness and the explicitly
-versioned owner `aoa_codex_wake_receipt_v1` adapter without merging their
-schemas. The v1 adapter preserves the exact owner ref/content digest and raw
+historical `task_local_actor_wake_receipt_v2` witness and recognizes the
+versioned owner-shaped `aoa_codex_wake_receipt_v1` source without merging their
+schemas. The v1 adapter preserves the raw receipt ref/content digest and raw
 `sha256:<hex>` handoff field while comparing only an explicit normalized value.
-An explicit compatible owner binding is required for v1 admission; missing or
-incompatible binding remains candidate-only and invalid. The owner ABI does not
-publish `handoff_message_submitted`, so the dashboard keeps it unknown (`null`)
-for v1 instead of reconstructing it from the outcome. Handoff delivery is not
-proof, acceptance, semantic re-entry, runtime health, or parent resume;
-`reentered` requires exact `accepted_turn_id` plus the master filter and remains
-a bounded correlation claim. Annotations and action intents keep their local
-dashboard-owned, non-executing boundary.
+No owner-qualified v1 binding is currently admitted: the default bootstrap has
+no candidate binding, and a missing, unlanded, forged, or merely shaped config
+value remains raw candidate evidence with null canonical owner refs, invalid
+state, and no re-entry. A future route must provide independently admitted
+owner evidence from the stronger owner surface; dashboard config strings cannot
+create that authority. The owner ABI does not publish
+`handoff_message_submitted`, so the dashboard keeps it unknown (`null`) for v1
+instead of reconstructing it from the outcome. `goal_resume_requested` is
+explicitly `null` for v1, unsupported, and missing receipts, and preserves the
+task-local v2 boolean when present; it never admits v1 or proves semantic
+resume. Handoff delivery is not proof, acceptance, semantic re-entry, runtime
+health, or parent resume; `reentered` requires exact `accepted_turn_id` plus
+the master filter and remains a bounded correlation claim. Annotations and
+action intents keep their local dashboard-owned, non-executing boundary.

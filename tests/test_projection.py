@@ -14,14 +14,21 @@ from aoa_dashboard.projection import _lifecycle, build_projection, load_config  
 from aoa_dashboard.correlation import observe_current_correlation  # noqa: E402
 from aoa_dashboard.sources import observe_session  # noqa: E402
 from aoa_dashboard.wake_receipts import (  # noqa: E402
-    CODEX_WAKE_OWNER_AUTHORITY,
-    CODEX_WAKE_OWNER_CONTRACT_REF,
-    CODEX_WAKE_OWNER_REF,
+    CODEX_WAKE_CANDIDATE_ONLY_AUTHORITY,
     CODEX_WAKE_OWNER_REPO,
     CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
     TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
     normalize_handoff_sha256,
+    validate_codex_wake_receipt_v1,
 )
+
+
+KNOWN_UNLANDED_OWNER_REF = "d574ffea1f9dbe2aa08ca83a106be72996584934"
+KNOWN_UNLANDED_OWNER_CONTRACT_REF = (
+    "aoa-sdk@d574ffea1f9dbe2aa08ca83a106be72996584934:"
+    "src/aoa_sdk/runtime_adapters/codex_wake.py"
+)
+KNOWN_UNLANDED_OWNER_AUTHORITY = "aoa-sdk:runtime-neutral Codex wake receipt contract"
 
 
 class ProjectionFixture:
@@ -270,7 +277,7 @@ class CorrelationFixture:
             },
         )
 
-    def config(self, *, include_codex_owner: bool = True) -> dict:
+    def config(self, *, owner_binding: dict | None = None) -> dict:
         current = {
             "master_thread_id": self.thread,
             "task_local_dir": str(self.task_local),
@@ -281,14 +288,8 @@ class CorrelationFixture:
             "ignored_wake_names": [],
             "current_holder": "test correlation holder",
         }
-        if include_codex_owner:
-            current["codex_wake_receipt_owner"] = {
-                "owner_repo": CODEX_WAKE_OWNER_REPO,
-                "owner_ref": CODEX_WAKE_OWNER_REF,
-                "contract_ref": CODEX_WAKE_OWNER_CONTRACT_REF,
-                "schema_version": CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
-                "authority": CODEX_WAKE_OWNER_AUTHORITY,
-            }
+        if owner_binding is not None:
+            current["codex_wake_receipt_owner"] = owner_binding
         return {
             "goal_id": "goal-test",
             "goal_anchor_path": str(self.anchor),
@@ -316,6 +317,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(envelope["accepted_turn"]["accepted_turn_id"], "accepted-turn-1")
         self.assertEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
         self.assertTrue(envelope["wake_observation"]["handoff_message_submitted"])
+        self.assertIs(envelope["wake_observation"]["goal_resume_requested"], False)
         self.assertIn(
             TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
             envelope["lifecycle"]["wake_requested"]["observation"],
@@ -388,6 +390,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(envelope["lifecycle"]["returned"]["state"], "returned")
         self.assertEqual(envelope["lifecycle"]["wake_requested"]["state"], "missing")
         self.assertEqual(envelope["lifecycle"]["reentered"]["state"], "missing")
+        self.assertIsNone(envelope["wake_observation"]["goal_resume_requested"])
 
     def test_duplicate_filter_return_is_invalid(self) -> None:
         digest = hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest()
@@ -429,44 +432,16 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(extra["state"], "deferred")
         self.assertEqual(extra["lifecycle"]["reentered"]["state"], "missing")
 
-    def test_v1_owner_receipt_is_admitted_with_raw_and_normalized_digest(self) -> None:
+    def _assert_v1_candidate_only(self, owner_binding: dict | None = None) -> dict:
         self.fixture._write_codex_v1()
-        result = observe_current_correlation(self.fixture.config())
-        envelope = result["metadata"]["envelopes"][0]
-        wake = envelope["wake_observation"]
-        self.assertEqual(envelope["state"], "reentered")
-        self.assertEqual(wake["source_schema_version"], CODEX_WAKE_RECEIPT_SCHEMA_VERSION)
-        self.assertEqual(wake["source_family"], "owner_runtime_neutral")
-        self.assertEqual(wake["raw_handoff_sha256"], "sha256:" + hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest())
-        self.assertEqual(wake["normalized_handoff_sha256"], hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest())
-        self.assertEqual(wake["provenance"]["owner_ref"], CODEX_WAKE_OWNER_REF)
-        self.assertEqual(wake["provenance"]["authority"], CODEX_WAKE_OWNER_AUTHORITY)
-        self.assertIsNone(wake["handoff_message_submitted"])
-        self.assertEqual(wake["provenance"]["raw_owner_ref"], str(self.fixture.wake.resolve()))
-        self.assertEqual(wake["provenance"]["raw_owner_content_sha256"], hashlib.sha256(self.fixture.wake.read_bytes()).hexdigest())
-        self.assertEqual(wake["freshness"], "current_at_read")
-        self.assertEqual(wake["missingness"], "present")
-        self.assertNotIn("semantic continuation", wake["provenance"]["claim_limit"])
-        self.assertIn(
-            CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
-            envelope["lifecycle"]["wake_requested"]["observation"],
-        )
-        self.assertNotIn(
-            TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
-            envelope["lifecycle"]["wake_requested"]["observation"],
-        )
-        self.assertIn(CODEX_WAKE_RECEIPT_SCHEMA_VERSION, result["observation"])
-
-    def test_v1_without_explicit_owner_binding_is_candidate_only_and_invalid(self) -> None:
-        self.fixture._write_codex_v1()
-        result = observe_current_correlation(self.fixture.config(include_codex_owner=False))
+        result = observe_current_correlation(self.fixture.config(owner_binding=owner_binding))
         envelope = result["metadata"]["envelopes"][0]
         provenance = envelope["wake_observation"]["provenance"]
         self.assertEqual(result["state"], "invalid")
         self.assertEqual(envelope["state"], "invalid")
         self.assertIsNone(provenance["owner_ref"])
         self.assertIsNone(provenance["contract_ref"])
-        self.assertNotEqual(provenance["authority"], CODEX_WAKE_OWNER_AUTHORITY)
+        self.assertEqual(provenance["authority"], CODEX_WAKE_CANDIDATE_ONLY_AUTHORITY)
         self.assertIn("candidate-only", provenance["claim_limit"])
         self.assertEqual(provenance["raw_owner_ref"], str(self.fixture.wake.resolve()))
         self.assertEqual(
@@ -474,33 +449,71 @@ class CorrelationAdapterTests(unittest.TestCase):
             hashlib.sha256(self.fixture.wake.read_bytes()).hexdigest(),
         )
         self.assertIsNone(envelope["wake_observation"]["handoff_message_submitted"])
+        self.assertIsNone(envelope["wake_observation"]["goal_resume_requested"])
         self.assertEqual(envelope["accepted_turn"]["state"], "missing")
+        self.assertNotEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
+        return envelope
+
+    def test_v1_default_path_is_raw_candidate_only_without_owner_admission(self) -> None:
+        envelope = self._assert_v1_candidate_only()
+        wake = envelope["wake_observation"]
+        self.assertEqual(wake["source_schema_version"], CODEX_WAKE_RECEIPT_SCHEMA_VERSION)
+        self.assertEqual(wake["source_family"], "owner_runtime_neutral")
+        self.assertEqual(wake["raw_handoff_sha256"], "sha256:" + hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest())
+        self.assertEqual(wake["normalized_handoff_sha256"], hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest())
+        self.assertIsNone(wake["handoff_message_submitted"])
+        self.assertEqual(wake["provenance"]["raw_owner_ref"], str(self.fixture.wake.resolve()))
+        self.assertEqual(wake["provenance"]["raw_owner_content_sha256"], hashlib.sha256(self.fixture.wake.read_bytes()).hexdigest())
+        self.assertEqual(wake["freshness"], "invalid")
+        self.assertEqual(wake["missingness"], "present_but_invalid")
+        self.assertNotIn("semantic continuation", wake["provenance"]["claim_limit"])
+
+    def test_known_unlanded_d574_candidate_binding_stays_candidate_only(self) -> None:
+        envelope = self._assert_v1_candidate_only(
+            {
+                "owner_repo": CODEX_WAKE_OWNER_REPO,
+                "owner_ref": KNOWN_UNLANDED_OWNER_REF,
+                "contract_ref": KNOWN_UNLANDED_OWNER_CONTRACT_REF,
+                "schema_version": CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
+                "authority": KNOWN_UNLANDED_OWNER_AUTHORITY,
+            }
+        )
         self.assertTrue(
             any(
-                "owner binding is missing" in item
+                "admitted" in item
                 for item in envelope["return_observation"]["errors"]
             )
         )
 
-    def test_v1_with_incompatible_owner_binding_is_candidate_only_and_invalid(self) -> None:
-        self.fixture._write_codex_v1()
-        config = self.fixture.config()
-        config["current_correlation"]["codex_wake_receipt_owner"]["owner_repo"] = "other-owner"
-        result = observe_current_correlation(config)
-        envelope = result["metadata"]["envelopes"][0]
-        provenance = envelope["wake_observation"]["provenance"]
-        self.assertEqual(result["state"], "invalid")
-        self.assertIsNone(provenance["owner_ref"])
-        self.assertNotEqual(provenance["authority"], CODEX_WAKE_OWNER_AUTHORITY)
-        self.assertIn("candidate-only", provenance["claim_limit"])
+    def test_forged_owner_binding_cannot_create_owner_authority(self) -> None:
+        envelope = self._assert_v1_candidate_only(
+            {
+                "owner_repo": CODEX_WAKE_OWNER_REPO,
+                "owner_ref": "not-a-commit",
+                "contract_ref": "not-a-source-ref",
+                "schema_version": CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
+                "authority": "forged-authority",
+            }
+        )
         self.assertTrue(
-            any(
-                "owner binding owner_repo is incompatible" in item
-                for item in envelope["return_observation"]["errors"]
-            )
+            any("admitted" in item for item in envelope["return_observation"]["errors"])
         )
 
-    def test_projection_lifecycle_uses_the_observed_v1_source_family(self) -> None:
+    def test_merely_shaped_owner_binding_cannot_create_owner_authority(self) -> None:
+        envelope = self._assert_v1_candidate_only(
+            {
+                "owner_repo": CODEX_WAKE_OWNER_REPO,
+                "owner_ref": "shaped-ref",
+                "contract_ref": "shaped-contract",
+                "schema_version": CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
+                "authority": "shaped-authority",
+            }
+        )
+        self.assertTrue(
+            any("admitted" in item for item in envelope["return_observation"]["errors"])
+        )
+
+    def test_projection_lifecycle_with_unadmitted_v1_stays_invalid(self) -> None:
         self.fixture._write_codex_v1()
         correlation = observe_current_correlation(self.fixture.config())
         lifecycle = _lifecycle(
@@ -513,7 +526,7 @@ class CorrelationAdapterTests(unittest.TestCase):
             },
         )
         wake_step = next(item for item in lifecycle if item["step"] == "wake requested")
-        self.assertIn(CODEX_WAKE_RECEIPT_SCHEMA_VERSION, wake_step["observation"])
+        self.assertEqual(wake_step["state"], "invalid")
         self.assertNotIn(TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION, wake_step["observation"])
 
     def test_digest_normalization_is_explicitly_schema_versioned(self) -> None:
@@ -549,6 +562,34 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(result["state"], "invalid")
         envelope = result["metadata"]["envelopes"][0]
         self.assertTrue(any("normalized handoff_sha256 mismatch" in item for item in envelope["return_observation"]["errors"]))
+
+    def test_v1_attempts_matches_owner_integer_contract(self) -> None:
+        valid = self.fixture._write_codex_v1()
+        self.assertFalse(
+            any("attempts" in item for item in validate_codex_wake_receipt_v1(valid))
+        )
+        for label, attempts in (
+            ("missing", "__missing__"),
+            ("null", None),
+            ("bool", True),
+            ("string", "1"),
+            ("too_high", 4),
+            ("negative", -1),
+        ):
+            with self.subTest(attempts=label):
+                payload = self.fixture._write_codex_v1()
+                if attempts == "__missing__":
+                    payload.pop("attempts")
+                else:
+                    payload["attempts"] = attempts
+                errors = validate_codex_wake_receipt_v1(payload)
+                self.assertTrue(any("attempts" in item for item in errors), errors)
+                self.fixture._write_codex_v1(wake_payload=payload)
+                result = observe_current_correlation(self.fixture.config())
+                envelope = result["metadata"]["envelopes"][0]
+                self.assertEqual(result["state"], "invalid")
+                self.assertEqual(envelope["accepted_turn"]["state"], "missing")
+                self.assertNotEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
 
     def test_v1_success_without_accepted_turn_is_invalid(self) -> None:
         payload = self.fixture._write_codex_v1()
@@ -637,6 +678,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(self.fixture.config())
         self.assertEqual(result["state"], "invalid")
         envelope = result["metadata"]["envelopes"][0]
+        self.assertIsNone(envelope["wake_observation"]["goal_resume_requested"])
         self.assertIn("unsupported wake receipt schema_version", " ".join(envelope["return_observation"]["errors"]))
 
 

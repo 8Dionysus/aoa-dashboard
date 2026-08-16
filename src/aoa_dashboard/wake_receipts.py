@@ -22,12 +22,6 @@ TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION = "task_local_actor_wake_receipt_v2"
 CODEX_WAKE_RECEIPT_SCHEMA_VERSION = "aoa_codex_wake_receipt_v1"
 WAKE_RECEIPT_ADAPTER_VERSION = "aoa_dashboard_wake_receipt_compat_v1"
 CODEX_WAKE_OWNER_REPO = "aoa-sdk"
-CODEX_WAKE_OWNER_REF = "d574ffea1f9dbe2aa08ca83a106be72996584934"
-CODEX_WAKE_OWNER_CONTRACT_REF = (
-    "aoa-sdk@d574ffea1f9dbe2aa08ca83a106be72996584934:"
-    "src/aoa_sdk/runtime_adapters/codex_wake.py"
-)
-CODEX_WAKE_OWNER_AUTHORITY = "aoa-sdk:runtime-neutral Codex wake receipt contract"
 
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 _SHA256_TOKEN = re.compile(r"^sha256:([0-9a-f]{64})$")
@@ -85,6 +79,19 @@ _CODEX_OWNER_BINDING_FIELDS = frozenset(
     {"owner_repo", "owner_ref", "contract_ref", "schema_version", "authority"}
 )
 _CODEX_OWNER_BINDING_REQUIRED_FIELDS = _CODEX_OWNER_BINDING_FIELDS
+_CODEX_OWNER_BINDING_KEY_FIELDS = (
+    "owner_repo",
+    "owner_ref",
+    "contract_ref",
+    "schema_version",
+    "authority",
+)
+
+# No owner-qualified aoa-sdk binding is currently admitted. This is an
+# intentionally empty fail-closed set, not dashboard-owned owner truth. A
+# future owner-qualified route must supply independently admitted owner
+# evidence before any v1 receipt can become canonical or eligible for reentry.
+_ADMITTED_CODEX_WAKE_OWNER_BINDINGS: frozenset[tuple[str, ...]] = frozenset()
 
 CODEX_WAKE_CANDIDATE_ONLY_AUTHORITY = (
     "aoa-dashboard:candidate_only_unbound_wake_source"
@@ -201,12 +208,12 @@ def validate_codex_wake_receipt_v1(value: Any) -> list[str]:
         errors.append("codex v1 wake receipt handoff_sha256 is not sha256:<hex>")
     if value.get("route") not in _CODEX_ROUTES:
         errors.append("codex v1 wake receipt route is not admitted")
-    if value.get("attempts") is not None and (
+    if (
         isinstance(value.get("attempts"), bool)
         or not isinstance(value.get("attempts"), int)
         or not 0 <= value.get("attempts") <= 3
     ):
-        errors.append("codex v1 wake receipt attempts is outside 0..3")
+        errors.append("codex v1 wake receipt attempts must be an integer in 0..3")
     if not isinstance(value.get("before"), dict):
         errors.append("codex v1 wake receipt before is not an object")
     if not isinstance(value.get("after"), dict):
@@ -245,7 +252,7 @@ def validate_codex_wake_receipt_v1(value: Any) -> list[str]:
 
 
 def validate_codex_wake_owner_binding(value: Any) -> list[str]:
-    """Validate the explicit config binding required for the v1 owner source."""
+    """Validate a candidate binding against the empty owner-admission set."""
 
     if not isinstance(value, dict):
         return [
@@ -267,6 +274,13 @@ def validate_codex_wake_owner_binding(value: Any) -> list[str]:
         errors.append("codex v1 owner binding owner_repo is incompatible")
     if value.get("schema_version") != CODEX_WAKE_RECEIPT_SCHEMA_VERSION:
         errors.append("codex v1 owner binding schema_version is incompatible")
+    if not errors:
+        binding_key = tuple(value[field] for field in _CODEX_OWNER_BINDING_KEY_FIELDS)
+        if binding_key not in _ADMITTED_CODEX_WAKE_OWNER_BINDINGS:
+            errors.append(
+                "codex v1 owner binding is not independently admitted; "
+                "dashboard admitted binding set is empty"
+            )
     return errors
 
 
@@ -334,10 +348,7 @@ def make_wake_provenance(
 
 
 __all__ = [
-    "CODEX_WAKE_OWNER_AUTHORITY",
     "CODEX_WAKE_CANDIDATE_ONLY_AUTHORITY",
-    "CODEX_WAKE_OWNER_CONTRACT_REF",
-    "CODEX_WAKE_OWNER_REF",
     "CODEX_WAKE_OWNER_REPO",
     "CODEX_WAKE_RECEIPT_SCHEMA_VERSION",
     "TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION",

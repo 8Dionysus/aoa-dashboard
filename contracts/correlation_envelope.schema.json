@@ -50,7 +50,7 @@
     },
     "wake_observation": {
       "type": "object",
-      "required": ["ref", "schema_version", "source_schema_version", "source_family", "adapter_version", "provenance", "freshness", "missingness", "authority", "outcome", "delivery_route", "route", "stage", "request_id", "client_user_message_id", "handoff_delivery", "handoff_message_submitted", "observed_at", "attempts", "responsibility_state", "failure", "raw_handoff_sha256", "normalized_handoff_sha256", "candidate_receipts", "claim_limit"],
+      "required": ["ref", "schema_version", "source_schema_version", "source_family", "adapter_version", "provenance", "freshness", "missingness", "authority", "outcome", "delivery_route", "route", "stage", "request_id", "client_user_message_id", "handoff_delivery", "handoff_message_submitted", "goal_resume_requested", "observed_at", "attempts", "responsibility_state", "failure", "raw_handoff_sha256", "normalized_handoff_sha256", "candidate_receipts", "claim_limit"],
       "additionalProperties": false,
       "properties": {
         "ref": {"$ref": "#/$defs/correlationRef"},
@@ -70,8 +70,9 @@
         "client_user_message_id": {"type": ["string", "null"]},
         "handoff_delivery": {"type": ["boolean", "null"]},
         "handoff_message_submitted": {"type": ["boolean", "null"]},
+        "goal_resume_requested": {"type": ["boolean", "null"], "description": "Explicit task-local v2 observation when present; null for v1, unsupported, or missing receipts. This field never admits v1 or proves semantic resume."},
         "observed_at": {"type": ["string", "null"]},
-        "attempts": {"type": ["integer", "null"]},
+        "attempts": {"type": ["integer", "null"], "description": "Null is an explicit derived value when no owner-compatible attempts value is available; a present v1 receipt with missing, null, boolean, non-integer, or out-of-range attempts is rejected before delivery correlation."},
         "responsibility_state": {"type": ["string", "null"]},
         "failure": {"type": ["object", "null"]},
         "raw_handoff_sha256": {"type": ["string", "null"]},

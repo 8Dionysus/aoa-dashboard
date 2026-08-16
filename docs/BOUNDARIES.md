@@ -39,11 +39,16 @@ The current holder is bound through the Goal/thread and task-local receipt
 directory in `current_correlation`. The old session/edeac bootstrap remains a
 separate `historical_bootstrap` binding and is never used as current-holder
 identity. Wake delivery is transport evidence only. The dashboard keeps the
-task-local v2 witness and owner-qualified SDK v1 receipt as distinct source
-families; v1 requires an explicit compatible owner binding, and its
-`sha256:<hex>` is normalized only by the versioned v1 adapter while its raw
-field remains visible. The owner ABI does not publish
-`handoff_message_submitted`; v1 keeps that observation unknown. Master-filtered
-re-entry is emitted only from exact `accepted_turn_id` plus the validated master
-filter and still does not prove semantic continuation, owner acceptance,
-runtime health, return acceptance, or parent resume.
+task-local v2 witness and owner-shaped SDK v1 source as distinct families; the
+current independently admitted v1 binding set is empty, so v1 remains raw
+candidate evidence with null canonical owner refs, invalid state, and no
+re-entry. An unlanded, forged, or merely shaped config string cannot create
+owner authority. A future owner-qualified route must come from the stronger
+owner surface. The v1 `sha256:<hex>` is normalized only by the versioned v1
+adapter while its raw field remains visible. The owner ABI does not publish
+`handoff_message_submitted`; v1 keeps that observation unknown. The nullable
+`goal_resume_requested` observation is null for v1, unsupported, and missing,
+and is an exact v2 boolean when present; it never participates in v1 admission.
+Master-filtered re-entry is emitted only from exact `accepted_turn_id` plus the
+validated master filter and still does not prove semantic continuation, owner
+acceptance, runtime health, return acceptance, or parent resume.

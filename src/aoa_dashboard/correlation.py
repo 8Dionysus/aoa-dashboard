@@ -674,6 +674,7 @@ def _envelope(
         "client_user_message_id": delivery["client_user_message_id"],
         "handoff_delivery": delivery["handoff_delivery"],
         "handoff_message_submitted": delivery["handoff_message_submitted"],
+        "goal_resume_requested": delivery["goal_resume_requested"],
         "observed_at": delivery["observed_at"],
         "attempts": delivery["attempts"],
         "responsibility_state": delivery["responsibility_state"],

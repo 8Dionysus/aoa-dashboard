@@ -21,11 +21,15 @@ owns only the thin translation and presentation layer.
   referenced; an advancing source marks the archive as deferred/stale.
 - Current Goal/thread return correlation is dashboard-owned derived metadata
   over the bounded task-local handoff/wake directory and master filter. It
-  supports the historical task-local v2 witness beside the exact owner
-  `aoa-sdk` v1 runtime-neutral receipt, preserving source schema, exact raw
+  supports the historical task-local v2 witness beside the versioned
+  owner-shaped `aoa-sdk` v1 source, preserving source schema, exact raw
   refs/content digests, explicit digest normalization provenance, freshness,
-  missingness, and failure. It does not take ownership of role, runtime,
-  proof, return acceptance, parent resume, or semantic continuation.
+  missingness, and failure. The v1 admitted binding set is currently empty;
+  config strings are candidate input only and cannot establish owner authority.
+  A future owner-qualified admission route must be supplied by the stronger
+  owner surface before v1 can be canonical or reenter. It does not take
+  ownership of role, runtime, proof, return acceptance, parent resume, or
+  semantic continuation.
 - `aoa-evals`: proof and independent evaluation owner. Candidate artifacts are
   not displayed as verdicts.
 - `aoa-memo`: reviewed durable memory owner. Recall is context, not evidence
