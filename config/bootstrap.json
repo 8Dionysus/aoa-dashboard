@@ -40,8 +40,10 @@
         "ref": "goal:aoa-dashboard-goal-01a00722-20260815#D4",
         "sha256": null,
         "currentness": "current_at_read",
+        "owner": "aoa-dashboard",
         "access_scope": "dashboard_local",
-        "authority": "dashboard_derived"
+        "authority": "dashboard_derived",
+        "claim_limit": "The pressure identity is dashboard-derived metadata, not source-owner authority."
       },
       "evidence": [
         {
@@ -79,6 +81,8 @@
           "owner": "aoa-dashboard",
           "result": "partial",
           "ref": "dashboard:src/aoa_dashboard/correlation.py",
+          "access_scope": "dashboard_local",
+          "authority": "dashboard_derived",
           "claim_limit": "The existing adapter validates task-local correlation but has no durable cursor/checkpoint ledger."
         },
         {
@@ -86,6 +90,8 @@
           "owner": "aoa-agents",
           "result": "reused",
           "ref": "/srv/AbyssOS/aoa-agents",
+          "access_scope": "owner_bounded",
+          "authority": "source_owner",
           "claim_limit": "The dashboard consumes owner metadata and does not redefine actor meaning."
         }
       ],
@@ -124,8 +130,10 @@
         "ref": "goal:aoa-dashboard-goal-01a00722-20260815#P-infinity",
         "sha256": null,
         "currentness": "current_at_read",
+        "owner": "aoa-dashboard",
         "access_scope": "dashboard_local",
-        "authority": "dashboard_derived"
+        "authority": "dashboard_derived",
+        "claim_limit": "The pressure identity is dashboard-derived metadata, not source-owner authority."
       },
       "evidence": [
         {
@@ -163,13 +171,17 @@
           "owner": "aoa-dashboard",
           "result": "partial",
           "ref": "dashboard:correlation_read_model/migration",
-          "claim_limit": "Legacy strings remain visible as deferred candidates until structured fields are present."
+          "access_scope": "dashboard_local",
+          "authority": "dashboard_derived",
+          "claim_limit": "Legacy text is redacted to a digest; deferred candidates remain until structured fields are present."
         },
         {
           "surface": "aoa-agents trigger strengths and stop-line semantics",
           "owner": "aoa-agents",
           "result": "reused",
           "ref": "/srv/AbyssOS/aoa-agents/skills/aoa-agents-skills",
+          "access_scope": "owner_bounded",
+          "authority": "source_owner",
           "claim_limit": "Trigger strength is a recommendation; the dashboard cannot form or wake an actor."
         }
       ],

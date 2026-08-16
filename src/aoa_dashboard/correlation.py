@@ -24,6 +24,8 @@ class CorrelationRef(TypedDict):
     observed_at: str | None
     freshness: str
     degradation: list[str]
+    owner: str
+    access_scope: str
     authority: str
     claim_limit: str
 
@@ -57,7 +59,7 @@ class CorrelationProjection(TypedDict):
     current_holder: dict[str, Any]
     master_filter: dict[str, Any]
     envelopes: list[CorrelationEnvelope]
-    new_obligations: list[str]
+    new_obligations: list[dict[str, Any]]
     rejected_or_deferred_claims: list[str]
     summary: dict[str, Any]
     observed_at: str | None
@@ -127,6 +129,8 @@ def _ref(
         "observed_at": observed_at,
         "freshness": freshness,
         "degradation": list(degradation or []),
+        "owner": "aoa-dashboard",
+        "access_scope": "dashboard_local",
         "authority": "aoa-dashboard:derived",
         "claim_limit": claim_limit,
     }

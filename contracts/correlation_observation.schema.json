@@ -40,7 +40,8 @@
         "authority": {"type": "string", "minLength": 1},
         "claim_limit": {"type": "string", "minLength": 1},
         "duplicate_count": {"type": "integer", "minimum": 0},
-        "duplicate_source_refs": {"type": "array", "items": {"$ref": "#/$defs/sourceRef"}}
+        "duplicate_source_refs": {"type": "array", "items": {"$ref": "#/$defs/sourceRef"}},
+        "admission_errors": {"type": "array", "items": {"type": "string", "minLength": 1}}
       }
     }
   },
@@ -59,6 +60,7 @@
         "access_scope": {"type": "string", "minLength": 1},
         "authority": {"type": "string", "minLength": 1},
         "claim_limit": {"type": "string", "minLength": 1},
+        "degradation": {"type": "array", "items": {"type": "string"}},
         "observed_at": {"type": ["string", "null"]}
       }
     }

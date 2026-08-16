@@ -92,8 +92,41 @@ _SOURCE_REF_FIELDS = {
     "access_scope",
     "authority",
     "claim_limit",
+    "degradation",
     "observed_at",
 }
+_CURSOR_FIELDS = frozenset(
+    {
+        "schema_version",
+        "projection_schema_version",
+        "stream_id",
+        "goal_id",
+        "master_thread_id",
+        "position",
+        "record_ids",
+        "observation_digests",
+        "source_watermarks",
+        "source_collisions",
+        "input_digest",
+        "cursor_digest",
+        "claim_limit",
+    }
+)
+_CHECKPOINT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "projection_schema_version",
+        "checkpoint_id",
+        "goal_id",
+        "master_thread_id",
+        "cursor",
+        "projection_digest",
+        "retained_observation_ids",
+        "conflict_ids",
+        "rebuild_mode",
+        "claim_limit",
+    }
+)
 
 # This is the explicit metadata admission boundary.  A publisher may not
 # invent a new observation kind or smuggle an arbitrary nested payload through
@@ -180,6 +213,7 @@ _PAYLOAD_NESTED_FIELDS = frozenset(
         "new_required_obligations",
         "rejected_or_deferred_claims",
         "owner_fact",
+        "redacted",
     }
 )
 _FORBIDDEN_METADATA_KEY_PARTS = (
@@ -214,6 +248,45 @@ def canonical_json(value: Any) -> str:
 
 def content_digest(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+LEGACY_OBLIGATION_CLAIM_LIMIT = (
+    "Legacy obligation text remains source-owned. The dashboard exposes only a digest-linked redaction "
+    "until an allowed owner scope supplies a structured pressure record."
+)
+
+
+def redacted_legacy_obligation(value: Any) -> dict[str, Any]:
+    """Return the only legacy obligation representation admitted to the read model."""
+
+    digest = content_digest(value) if isinstance(value, str) else None
+    if digest is None:
+        redacted = "[redacted legacy obligation; digest unavailable]"
+    else:
+        redacted = f"[redacted legacy obligation; sha256={digest}]"
+    return {"sha256": digest, "redacted": redacted, "claim_limit": LEGACY_OBLIGATION_CLAIM_LIMIT}
+
+
+def redact_legacy_metadata(value: Any) -> Any:
+    """Redact legacy obligation strings in an API/read-model metadata copy."""
+
+    if isinstance(value, dict):
+        return {
+            key: (
+                [
+                    copy.deepcopy(item)
+                    if isinstance(item, dict) and "redacted" in item and "claim_limit" in item
+                    else redacted_legacy_obligation(item)
+                    for item in item_value
+                ]
+                if key in {"new_obligations", "new_required_obligations"} and isinstance(item_value, list)
+                else redact_legacy_metadata(item_value)
+            )
+            for key, item_value in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_legacy_metadata(item) for item in value]
+    return value
 
 
 def _is_non_empty(value: Any) -> bool:
@@ -333,6 +406,9 @@ def _normalise_ref(raw: Any) -> dict[str, Any] | None:
     observed_at = raw.get("observed_at")
     if observed_at is not None and not isinstance(observed_at, str):
         return None
+    degradation = raw.get("degradation")
+    if degradation is not None and (not isinstance(degradation, list) or any(not isinstance(item, str) for item in degradation)):
+        return None
     result: dict[str, Any] = {
         "label": str(label),
         "kind": str(kind),
@@ -344,6 +420,8 @@ def _normalise_ref(raw: Any) -> dict[str, Any] | None:
         "authority": authority,
         "claim_limit": claim_limit,
     }
+    if degradation is not None:
+        result["degradation"] = list(degradation)
     if observed_at is not None:
         result["observed_at"] = observed_at
     return result
@@ -539,7 +617,7 @@ def observations_from_correlation(
                     observation_id=f"envelope:{return_id}",
                     entity_key=f"return:{return_id}",
                     kind="correlation_envelope",
-                    payload=envelope,
+                    payload=redact_legacy_metadata(envelope),
                     source_refs=refs,
                     currentness=correlation_source.get("freshness") or "unknown",
                     observed_at=observed_at,
@@ -564,7 +642,11 @@ def observations_from_correlation(
             "goal_ref": master_filter.get("goal_ref"),
             "return_ids": master_filter.get("return_ids", []),
             "goal_dag": master_filter.get("goal_dag", []),
-            "new_required_obligations": master_filter.get("new_required_obligations", []),
+            "new_required_obligations": [
+                redacted_legacy_obligation(item)
+                for item in master_filter.get("new_required_obligations", [])
+                if isinstance(item, str)
+            ],
             "rejected_or_deferred_claims": master_filter.get("rejected_or_deferred_claims", []),
         }
         try:
@@ -807,7 +889,14 @@ def _source_collisions(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "ref": ref,
                 "candidate_identity_keys": sorted(item["identity_key"] for item in values),
                 "access_downgrade": min(scopes) < max(scopes),
+                "access_scope_drift": len({item.get("access_scope") for item in values}) > 1,
+                "label_drift": len({item.get("label") for item in values}) > 1,
+                "kind_drift": len({item.get("kind") for item in values}) > 1,
+                "digest_drift": len({item.get("sha256") for item in values}) > 1,
+                "currentness_drift": len({item.get("currentness") for item in values}) > 1,
+                "owner_drift": len({item.get("owner") for item in values}) > 1,
                 "authority_drift": len({item.get("authority") for item in values}) > 1,
+                "claim_limit_drift": len({item.get("claim_limit") for item in values}) > 1,
                 "resolution": "unresolved",
                 "winner": None,
                 "claim_limit": CONFLICT_CLAIM_LIMIT,
@@ -863,6 +952,9 @@ def validate_cursor(
     errors: list[str] = []
     if not isinstance(cursor, dict):
         return ["cursor is not an object"]
+    unknown_fields = sorted(set(cursor) - _CURSOR_FIELDS)
+    if unknown_fields:
+        errors.append("cursor has unknown fields: " + ",".join(unknown_fields))
     required_fields = (
         "schema_version",
         "projection_schema_version",
@@ -987,6 +1079,9 @@ def validate_checkpoint(
     errors: list[str] = []
     if not isinstance(checkpoint, dict):
         return ["checkpoint is not an object"]
+    unknown_fields = sorted(set(checkpoint) - _CHECKPOINT_FIELDS)
+    if unknown_fields:
+        errors.append("checkpoint has unknown fields: " + ",".join(unknown_fields))
     if checkpoint.get("schema_version") != CHECKPOINT_SCHEMA_VERSION:
         errors.append("checkpoint schema_version is unsupported")
     if checkpoint.get("projection_schema_version") != PROJECTION_SCHEMA_VERSION:

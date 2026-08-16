@@ -117,7 +117,7 @@
   "$defs": {
     "correlationRef": {
       "type": "object",
-      "required": ["label", "kind", "ref", "sha256", "observed_at", "freshness", "degradation", "authority", "claim_limit"],
+      "required": ["label", "kind", "ref", "sha256", "observed_at", "freshness", "degradation", "owner", "access_scope", "authority", "claim_limit"],
       "additionalProperties": false,
       "properties": {
         "label": {"type": "string", "minLength": 1},
@@ -127,6 +127,8 @@
         "observed_at": {"type": ["string", "null"]},
         "freshness": {"type": "string", "minLength": 1},
         "degradation": {"type": "array", "items": {"type": "string"}},
+        "owner": {"type": "string", "minLength": 1},
+        "access_scope": {"type": "string", "minLength": 1},
         "authority": {"type": "string", "minLength": 1},
         "claim_limit": {"type": "string", "minLength": 1}
       }
@@ -152,6 +154,16 @@
         "next": {"type": "string", "minLength": 1}
       }
     },
+    "redactedObligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "redacted", "claim_limit"],
+      "properties": {
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "redacted": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
     "projection": {
       "type": "object",
       "required": ["schema_version", "state", "master_thread_id", "current_holder", "master_filter", "envelopes", "new_obligations", "rejected_or_deferred_claims", "summary", "observed_at", "freshness", "degradation", "authority", "claim_limit"],
@@ -163,7 +175,7 @@
         "current_holder": {"type": "object"},
         "master_filter": {"type": "object"},
         "envelopes": {"type": "array", "items": {"$ref": "#"}},
-        "new_obligations": {"type": "array", "items": {"type": "string"}},
+        "new_obligations": {"type": "array", "items": {"$ref": "#/$defs/redactedObligation"}},
         "rejected_or_deferred_claims": {"type": "array", "items": {"type": "string"}},
         "summary": {"type": "object"},
         "observed_at": {"type": ["string", "null"]},

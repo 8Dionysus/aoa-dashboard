@@ -4,7 +4,7 @@
   "title": "Structured dashboard Pressure Inbox",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "goal_id", "status", "items", "critical_next_routes", "conflicts", "legacy_candidates", "access_policy", "retention", "claim_limit"],
+  "required": ["schema_version", "goal_id", "status", "items", "critical_next_routes", "conflicts", "duplicates", "invalid_records", "legacy_candidates", "access_policy", "retention", "errors", "read_model_digest", "claim_limit"],
   "properties": {
     "schema_version": {"const": "aoa_dashboard_pressure_inbox_v1"},
     "goal_id": {"type": "string", "minLength": 1},
@@ -14,7 +14,7 @@
     "conflicts": {"type": "array", "items": {"type": "object"}},
     "duplicates": {"type": "array", "items": {"type": "object"}},
     "invalid_records": {"type": "array", "items": {"type": "object"}},
-    "legacy_candidates": {"type": "array", "items": {"type": "object"}},
+    "legacy_candidates": {"type": "array", "items": {"$ref": "#/$defs/legacyCandidate"}},
     "outcomes": {"type": "object"},
     "access_policy": {"type": "object"},
     "retention": {"type": "object"},
@@ -26,8 +26,9 @@
     "typedRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ref", "owner", "kind", "sha256", "currentness", "authority", "claim_limit"],
+      "required": ["ref", "owner", "kind", "sha256", "currentness", "access_scope", "authority", "claim_limit"],
       "properties": {
+        "id": {"type": "string", "minLength": 1},
         "ref": {"type": "string", "minLength": 1},
         "owner": {"type": "string", "minLength": 1},
         "kind": {"type": "string", "minLength": 1},
@@ -35,7 +36,40 @@
         "currentness": {"type": "string", "minLength": 1},
         "access_scope": {"type": "string", "minLength": 1},
         "authority": {"type": "string", "minLength": 1},
-        "claim_limit": {"type": "string", "minLength": 1}
+        "claim_limit": {"type": "string", "minLength": 1},
+        "observed_at": {"type": ["string", "null"]}
+      }
+    },
+    "pressureRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "ref", "owner", "kind", "sha256", "currentness", "access_scope", "authority", "claim_limit"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1},
+        "owner": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "currentness": {"type": "string", "minLength": 1},
+        "access_scope": {"type": "string", "minLength": 1},
+        "authority": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1},
+        "observed_at": {"type": ["string", "null"]}
+      }
+    },
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "owner", "result", "ref", "access_scope", "authority", "claim_limit"],
+      "properties": {
+        "surface": {"type": "string", "minLength": 1},
+        "owner": {"type": "string", "minLength": 1},
+        "result": {"enum": ["fit", "no_fit", "partial", "reused", "unknown"]},
+        "ref": {"type": "string", "minLength": 1},
+        "access_scope": {"type": "string", "minLength": 1},
+        "authority": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1},
+        "observed_at": {"type": ["string", "null"]}
       }
     },
     "pressureRecord": {
@@ -45,20 +79,7 @@
       "properties": {
         "schema_version": {"const": "aoa_dashboard_pressure_record_v1"},
         "goal_id": {"type": "string", "minLength": 1},
-        "pressure_ref": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["id", "kind", "ref", "sha256", "currentness", "access_scope", "authority"],
-          "properties": {
-            "id": {"type": "string", "minLength": 1},
-            "kind": {"type": "string", "minLength": 1},
-            "ref": {"type": "string", "minLength": 1},
-            "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-            "currentness": {"type": "string", "minLength": 1},
-            "access_scope": {"type": "string", "minLength": 1},
-            "authority": {"type": "string", "minLength": 1}
-          }
-        },
+        "pressure_ref": {"$ref": "#/$defs/pressureRef"},
         "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/typedRef"}},
         "affected_goal_criterion": {"type": "string", "minLength": 1},
         "consequence_of_omission": {"type": "string", "minLength": 1},
@@ -73,7 +94,7 @@
             "access_scope": {"type": "string", "minLength": 1}
           }
         },
-        "checked_existing_surfaces": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+        "checked_existing_surfaces": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/surface"}},
         "independence_signals": {"type": "object"},
         "recommended_trigger_strength": {"enum": ["notice", "required_branch", "master_decision", "preauthorized_reflex"]},
         "stop_line": {"type": "string", "minLength": 1},
@@ -96,6 +117,23 @@
         },
         "outcome": {"type": "object"},
         "record_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "legacyCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pressure_ref", "source_evidence_ref", "legacy_obligation_digest", "legacy_obligation_redacted", "missing_fields", "source_missing_fields", "outcome", "migration", "claim_limit"],
+      "properties": {
+        "pressure_ref": {"$ref": "#/$defs/pressureRef"},
+        "source_evidence_ref": {"$ref": "#/$defs/pressureRef"},
+        "legacy_obligation_digest": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "legacy_obligation_redacted": {"type": "string", "minLength": 1},
+        "missing_fields": {"type": "array", "items": {"type": "string"}},
+        "source_missing_fields": {"type": "array", "items": {"type": "string"}},
+        "legacy_freshness": {"type": "string"},
+        "outcome": {"const": "deferred"},
+        "migration": {"type": "string", "minLength": 1},
         "claim_limit": {"type": "string", "minLength": 1}
       }
     }

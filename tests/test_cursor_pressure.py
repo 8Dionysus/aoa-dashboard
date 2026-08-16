@@ -19,6 +19,7 @@ from aoa_dashboard.cursor import (  # noqa: E402
     make_observation,
     materialize_goal_local_projection,
     migrate_legacy_correlation_input,
+    redact_legacy_metadata,
     read_correlation_observation_log,
     rebuild_goal_local_projection,
 )
@@ -83,8 +84,10 @@ def pressure_record() -> dict:
             "ref": "goal:test#P-infinity",
             "sha256": None,
             "currentness": "current_at_read",
+            "owner": "aoa-dashboard",
             "access_scope": "dashboard_local",
             "authority": "dashboard_derived",
+            "claim_limit": "Pressure identity is derived metadata, not source authority.",
         },
         "evidence": [
             {
@@ -112,6 +115,8 @@ def pressure_record() -> dict:
                 "owner": "test-owner",
                 "result": "partial",
                 "ref": "/bounded/test-surface",
+                "access_scope": "dashboard_local",
+                "authority": "dashboard_derived",
                 "claim_limit": "Surface check is not proof.",
             }
         ],
@@ -235,6 +240,82 @@ class CursorRetentionTests(unittest.TestCase):
         self.assertEqual(result["rebuild"]["mode"], "invalid")
         self.assertTrue(any("checkpoint_invalid" in error for error in result["rebuild"]["errors"]))
 
+    def test_checkpoint_authenticates_each_cursor_and_checkpoint_field(self) -> None:
+        first = observation("return:one")
+        baseline = rebuild_goal_local_projection(
+            goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[first]
+        )
+
+        def invalid_checkpoint(checkpoint: dict) -> None:
+            result = rebuild_goal_local_projection(
+                goal_id=GOAL_ID,
+                master_thread_id=THREAD_ID,
+                observations=[first, observation("return:two")],
+                checkpoint=checkpoint,
+            )
+            self.assertEqual(result["status"], "invalid")
+            self.assertTrue(any("checkpoint_invalid" in error for error in result["rebuild"]["errors"]))
+
+        cursor_cases = {
+            "stream_id": "forged-stream",
+            "position": 99,
+            "record_ids": ["forged-record"],
+            "observation_digests": [{"record_id": "forged-record"}],
+            "source_watermarks": [],
+            "source_collisions": [
+                {
+                    "ref": SOURCE_REF["ref"],
+                    "candidate_identity_keys": ["a" * 64],
+                    "access_downgrade": False,
+                    "authority_drift": False,
+                    "resolution": "unresolved",
+                    "winner": None,
+                    "claim_limit": "No winner.",
+                }
+            ],
+            "input_digest": "f" * 64,
+            "claim_limit": "forged claim",
+        }
+        for field, value in cursor_cases.items():
+            checkpoint = copy.deepcopy(baseline["checkpoint"])
+            checkpoint["cursor"][field] = value
+            if field != "cursor_digest":
+                forged_cursor = copy.deepcopy(checkpoint["cursor"])
+                forged_cursor.pop("cursor_digest", None)
+                checkpoint["cursor"]["cursor_digest"] = content_digest(forged_cursor)
+                checkpoint["checkpoint_id"] = f"checkpoint:{checkpoint['cursor']['cursor_digest']}"
+            invalid_checkpoint(checkpoint)
+
+        checkpoint = copy.deepcopy(baseline["checkpoint"])
+        checkpoint["cursor"]["cursor_digest"] = "f" * 64
+        invalid_checkpoint(checkpoint)
+
+        checkpoint = copy.deepcopy(baseline["checkpoint"])
+        checkpoint["cursor"]["forged_field"] = "tamper"
+        invalid_checkpoint(checkpoint)
+
+        checkpoint = copy.deepcopy(baseline["checkpoint"])
+        checkpoint["forged_field"] = "tamper"
+        invalid_checkpoint(checkpoint)
+
+        checkpoint_cases = {
+            "schema_version": "forged",
+            "projection_schema_version": "forged",
+            "checkpoint_id": "checkpoint:forged",
+            "goal_id": "other-goal",
+            "master_thread_id": "other-thread",
+            "projection_digest": "f" * 64,
+            "retained_observation_ids": [],
+            "conflict_ids": ["conflict:forged"],
+            "rebuild_mode": "invalid",
+            "claim_limit": "forged claim",
+            "cursor": {},
+        }
+        for field, value in checkpoint_cases.items():
+            checkpoint = copy.deepcopy(baseline["checkpoint"])
+            checkpoint[field] = value
+            invalid_checkpoint(checkpoint)
+
     def test_checkpoint_maps_and_conflicts_are_authenticated(self) -> None:
         first = observation("return:one")
         baseline = rebuild_goal_local_projection(
@@ -343,6 +424,47 @@ class CursorRetentionTests(unittest.TestCase):
         self.assertEqual(result["status"], "conflicted")
         self.assertTrue(result["cursor"]["source_collisions"][0]["access_downgrade"])
 
+    def test_source_collision_matrix_retains_all_typed_drift_dimensions(self) -> None:
+        first = observation("return:collision-matrix")
+        second_ref = {
+            **SOURCE_REF,
+            "label": "changed source label",
+            "kind": "changed_owner_event",
+            "sha256": "b" * 64,
+            "currentness": "stale",
+            "owner": "different-owner",
+            "access_scope": "public_metadata",
+            "authority": "master_filter",
+            "claim_limit": "Different claim limit.",
+        }
+        second = make_observation(
+            goal_id=GOAL_ID,
+            master_thread_id=THREAD_ID,
+            observation_id="return:collision-matrix-2",
+            entity_key="return:collision-matrix-2",
+            kind="test_observation",
+            payload={"state": "returned", "owner_fact": "retained"},
+            source_refs=[second_ref],
+        )
+        result = rebuild_goal_local_projection(
+            goal_id=GOAL_ID, master_thread_id=THREAD_ID, observations=[first, second]
+        )
+        collision = result["cursor"]["source_collisions"][0]
+        self.assertEqual(len(result["cursor"]["source_watermarks"]), 2)
+        for field in (
+            "access_scope_drift",
+            "label_drift",
+            "kind_drift",
+            "digest_drift",
+            "currentness_drift",
+            "owner_drift",
+            "authority_drift",
+            "claim_limit_drift",
+        ):
+            self.assertTrue(collision[field], field)
+        self.assertIsNone(collision["winner"])
+        self.assertEqual(collision["resolution"], "unresolved")
+
     def test_conflicting_observations_are_both_retained_without_winner(self) -> None:
         first = observation(state="returned")
         second = observation(state="deferred")
@@ -402,6 +524,19 @@ class CursorRetentionTests(unittest.TestCase):
                 payload={"state": "returned", "owner_fact": "retained"},
                 source_refs=[missing_scope],
             )
+
+    def test_legacy_obligation_api_view_is_digest_only(self) -> None:
+        safe = redact_legacy_metadata(
+            {
+                "new_obligations": ["PRIVATE-LEGACY-TEXT"],
+                "master_filter": {"new_required_obligations": ["NESTED-PRIVATE-TEXT"]},
+            }
+        )
+        rendered = json.dumps(safe, sort_keys=True)
+        self.assertNotIn("PRIVATE-LEGACY-TEXT", rendered)
+        self.assertNotIn("NESTED-PRIVATE-TEXT", rendered)
+        self.assertTrue(safe["new_obligations"][0]["sha256"])
+        self.assertTrue(safe["master_filter"]["new_required_obligations"][0]["redacted"].startswith("[redacted"))
 
     def test_append_only_log_is_durable_and_malformed_lines_are_not_discarded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -680,6 +815,23 @@ class PressureInboxTests(unittest.TestCase):
         record["next_route"]["authority"] = "unknown"
         self.assertTrue(any("next_route.authority" in error for error in validate_pressure_record(record)))
 
+    def test_pressure_metadata_boundary_rejects_missing_scope_and_unknown_nested_content(self) -> None:
+        record = pressure_record()
+        record["evidence"][0].pop("access_scope")
+        errors = validate_pressure_record(record, expected_goal_id=GOAL_ID)
+        self.assertTrue(any("evidence[0].access_scope" in error for error in errors))
+
+        record = pressure_record()
+        record["evidence"][0]["nested_secret"] = "PRIVATE"
+        errors = validate_pressure_record(record, expected_goal_id=GOAL_ID)
+        self.assertTrue(any("nested_secret" in error for error in errors))
+
+        record = pressure_record()
+        record["evidence"][0]["raw_body"] = "PRIVATE-BODY"
+        inbox = build_pressure_inbox(goal_id=GOAL_ID, records=[record])
+        self.assertEqual(inbox["items"], [])
+        self.assertNotIn("PRIVATE-BODY", str(inbox))
+
     def test_malformed_pressure_is_rejected_and_conflicts_have_no_winner(self) -> None:
         malformed = pressure_record()
         malformed["stop_line"] = "unknown"
@@ -705,7 +857,12 @@ class PressureInboxTests(unittest.TestCase):
                         "ref": "/bounded/master-filter.json",
                         "kind": "task_local_master_filter",
                         "sha256": "b" * 64,
+                        "owner": "master-thread",
+                        "authority": "master_decision",
+                        "access_scope": "owner_bounded",
+                        "currentness": "current_at_read",
                         "freshness": "current_at_read",
+                        "observed_at": "2026-08-15T23:10:00Z",
                         "claim_limit": "Master filter is not acceptance.",
                     }
                 },
@@ -717,6 +874,13 @@ class PressureInboxTests(unittest.TestCase):
         self.assertEqual(inbox["items"], [])
         self.assertEqual(inbox["legacy_candidates"][0]["outcome"], "deferred")
         self.assertIn("natural_owner", inbox["legacy_candidates"][0]["missing_fields"])
+        legacy = inbox["legacy_candidates"][0]
+        self.assertNotIn("legacy_obligation", legacy)
+        self.assertIn(candidates[0]["legacy_obligation_digest"], legacy["legacy_obligation_redacted"])
+        self.assertEqual(legacy["source_evidence_ref"]["owner"], "master-thread")
+        self.assertEqual(legacy["source_evidence_ref"]["authority"], "master_decision")
+        self.assertEqual(legacy["source_evidence_ref"]["access_scope"], "owner_bounded")
+        self.assertEqual(legacy["source_evidence_ref"]["observed_at"], "2026-08-15T23:10:00Z")
 
     def test_legacy_bootstrap_and_master_filter_migration_is_explicit(self) -> None:
         migration = migrate_legacy_correlation_input(
