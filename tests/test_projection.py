@@ -10,11 +10,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from aoa_dashboard.projection import build_projection, load_config  # noqa: E402
+from aoa_dashboard.projection import _lifecycle, build_projection, load_config  # noqa: E402
 from aoa_dashboard.correlation import observe_current_correlation  # noqa: E402
 from aoa_dashboard.sources import observe_session  # noqa: E402
 from aoa_dashboard.wake_receipts import (  # noqa: E402
+    CODEX_WAKE_OWNER_AUTHORITY,
+    CODEX_WAKE_OWNER_CONTRACT_REF,
     CODEX_WAKE_OWNER_REF,
+    CODEX_WAKE_OWNER_REPO,
     CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
     TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
     normalize_handoff_sha256,
@@ -267,20 +270,29 @@ class CorrelationFixture:
             },
         )
 
-    def config(self) -> dict:
+    def config(self, *, include_codex_owner: bool = True) -> dict:
+        current = {
+            "master_thread_id": self.thread,
+            "task_local_dir": str(self.task_local),
+            "master_filter_path": str(self.filter),
+            "handoff_glob": "*-luna-handoff.json",
+            "wake_glob": "*.wake-receipt.json",
+            "ignored_handoff_names": [],
+            "ignored_wake_names": [],
+            "current_holder": "test correlation holder",
+        }
+        if include_codex_owner:
+            current["codex_wake_receipt_owner"] = {
+                "owner_repo": CODEX_WAKE_OWNER_REPO,
+                "owner_ref": CODEX_WAKE_OWNER_REF,
+                "contract_ref": CODEX_WAKE_OWNER_CONTRACT_REF,
+                "schema_version": CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
+                "authority": CODEX_WAKE_OWNER_AUTHORITY,
+            }
         return {
             "goal_id": "goal-test",
             "goal_anchor_path": str(self.anchor),
-            "current_correlation": {
-                "master_thread_id": self.thread,
-                "task_local_dir": str(self.task_local),
-                "master_filter_path": str(self.filter),
-                "handoff_glob": "*-luna-handoff.json",
-                "wake_glob": "*.wake-receipt.json",
-                "ignored_handoff_names": [],
-                "ignored_wake_names": [],
-                "current_holder": "test correlation holder",
-            },
+            "current_correlation": current,
         }
 
     def close(self) -> None:
@@ -303,6 +315,11 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(envelope["lifecycle"]["wake_requested"]["state"], "wake requested")
         self.assertEqual(envelope["accepted_turn"]["accepted_turn_id"], "accepted-turn-1")
         self.assertEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
+        self.assertTrue(envelope["wake_observation"]["handoff_message_submitted"])
+        self.assertIn(
+            TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
+            envelope["lifecycle"]["wake_requested"]["observation"],
+        )
         self.assertEqual(envelope["return_observation"]["ref"]["sha256"], envelope["master_filter"]["handoff_sha256"])
 
     def test_current_real_receipt_directory_is_bound_when_available(self) -> None:
@@ -423,11 +440,81 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(wake["raw_handoff_sha256"], "sha256:" + hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest())
         self.assertEqual(wake["normalized_handoff_sha256"], hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest())
         self.assertEqual(wake["provenance"]["owner_ref"], CODEX_WAKE_OWNER_REF)
+        self.assertEqual(wake["provenance"]["authority"], CODEX_WAKE_OWNER_AUTHORITY)
+        self.assertIsNone(wake["handoff_message_submitted"])
         self.assertEqual(wake["provenance"]["raw_owner_ref"], str(self.fixture.wake.resolve()))
         self.assertEqual(wake["provenance"]["raw_owner_content_sha256"], hashlib.sha256(self.fixture.wake.read_bytes()).hexdigest())
         self.assertEqual(wake["freshness"], "current_at_read")
         self.assertEqual(wake["missingness"], "present")
         self.assertNotIn("semantic continuation", wake["provenance"]["claim_limit"])
+        self.assertIn(
+            CODEX_WAKE_RECEIPT_SCHEMA_VERSION,
+            envelope["lifecycle"]["wake_requested"]["observation"],
+        )
+        self.assertNotIn(
+            TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
+            envelope["lifecycle"]["wake_requested"]["observation"],
+        )
+        self.assertIn(CODEX_WAKE_RECEIPT_SCHEMA_VERSION, result["observation"])
+
+    def test_v1_without_explicit_owner_binding_is_candidate_only_and_invalid(self) -> None:
+        self.fixture._write_codex_v1()
+        result = observe_current_correlation(self.fixture.config(include_codex_owner=False))
+        envelope = result["metadata"]["envelopes"][0]
+        provenance = envelope["wake_observation"]["provenance"]
+        self.assertEqual(result["state"], "invalid")
+        self.assertEqual(envelope["state"], "invalid")
+        self.assertIsNone(provenance["owner_ref"])
+        self.assertIsNone(provenance["contract_ref"])
+        self.assertNotEqual(provenance["authority"], CODEX_WAKE_OWNER_AUTHORITY)
+        self.assertIn("candidate-only", provenance["claim_limit"])
+        self.assertEqual(provenance["raw_owner_ref"], str(self.fixture.wake.resolve()))
+        self.assertEqual(
+            provenance["raw_owner_content_sha256"],
+            hashlib.sha256(self.fixture.wake.read_bytes()).hexdigest(),
+        )
+        self.assertIsNone(envelope["wake_observation"]["handoff_message_submitted"])
+        self.assertEqual(envelope["accepted_turn"]["state"], "missing")
+        self.assertTrue(
+            any(
+                "owner binding is missing" in item
+                for item in envelope["return_observation"]["errors"]
+            )
+        )
+
+    def test_v1_with_incompatible_owner_binding_is_candidate_only_and_invalid(self) -> None:
+        self.fixture._write_codex_v1()
+        config = self.fixture.config()
+        config["current_correlation"]["codex_wake_receipt_owner"]["owner_repo"] = "other-owner"
+        result = observe_current_correlation(config)
+        envelope = result["metadata"]["envelopes"][0]
+        provenance = envelope["wake_observation"]["provenance"]
+        self.assertEqual(result["state"], "invalid")
+        self.assertIsNone(provenance["owner_ref"])
+        self.assertNotEqual(provenance["authority"], CODEX_WAKE_OWNER_AUTHORITY)
+        self.assertIn("candidate-only", provenance["claim_limit"])
+        self.assertTrue(
+            any(
+                "owner binding owner_repo is incompatible" in item
+                for item in envelope["return_observation"]["errors"]
+            )
+        )
+
+    def test_projection_lifecycle_uses_the_observed_v1_source_family(self) -> None:
+        self.fixture._write_codex_v1()
+        correlation = observe_current_correlation(self.fixture.config())
+        lifecycle = _lifecycle(
+            {"parent_posture": "paused", "historical_bootstrap": {}},
+            {
+                "goal-anchor": {"state": "bound", "evidence_refs": [{"ref": "goal-anchor"}]},
+                "aoa-session-memory": {"evidence_refs": []},
+                "aoa-evals-surface": {"evidence_refs": []},
+                "task-local-correlation": correlation,
+            },
+        )
+        wake_step = next(item for item in lifecycle if item["step"] == "wake requested")
+        self.assertIn(CODEX_WAKE_RECEIPT_SCHEMA_VERSION, wake_step["observation"])
+        self.assertNotIn(TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION, wake_step["observation"])
 
     def test_digest_normalization_is_explicitly_schema_versioned(self) -> None:
         digest = "a" * 64

@@ -10,6 +10,7 @@ from .wake_receipts import (
     TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION,
     make_wake_provenance,
     normalize_handoff_sha256,
+    validate_codex_wake_owner_binding,
     validate_codex_wake_receipt_v1,
     wake_source_family,
     wake_source_kind,
@@ -295,6 +296,7 @@ def _validate_wake(
     expected_thread: str,
     expected_handoff_ref: str,
     expected_handoff_digest: str | None,
+    owner_contract: dict[str, Any] | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
     schema_version = wake.get("schema_version")
@@ -304,6 +306,7 @@ def _validate_wake(
     )
 
     if schema_version == CODEX_WAKE_RECEIPT_SCHEMA_VERSION:
+        errors.extend(validate_codex_wake_owner_binding(owner_contract))
         errors.extend(validate_codex_wake_receipt_v1(wake))
         if wake.get("master_thread_id") != expected_thread:
             errors.append("codex v1 wake receipt master_thread_id mismatch")
@@ -325,9 +328,9 @@ def _validate_wake(
             "request_id": wake.get("request_id"),
             "client_user_message_id": wake.get("client_user_message_id"),
             "handoff_delivery": wake.get("outcome") == "handoff_delivered_pending_master_filter",
-            "handoff_message_submitted": wake.get("outcome") == "handoff_delivered_pending_master_filter",
+            "handoff_message_submitted": None,
             "accepted_turn_id": wake.get("accepted_turn_id"),
-            "goal_resume_requested": False,
+            "goal_resume_requested": None,
             "observed_at": wake.get("attempted_at") or wake.get("generated_at"),
             "attempts": wake.get("attempts"),
             "responsibility_state": wake.get("responsibility_state"),
@@ -365,10 +368,16 @@ def _validate_wake(
             "stage": None,
             "request_id": None,
             "client_user_message_id": None,
-            "handoff_delivery": observed.get("handoff_delivery") is True,
-            "handoff_message_submitted": actions.get("handoff_message_submitted") is True,
+            "handoff_delivery": observed.get("handoff_delivery")
+            if isinstance(observed.get("handoff_delivery"), bool)
+            else None,
+            "handoff_message_submitted": actions.get("handoff_message_submitted")
+            if isinstance(actions.get("handoff_message_submitted"), bool)
+            else None,
             "accepted_turn_id": observed.get("accepted_turn_id"),
-            "goal_resume_requested": actions.get("goal_resume_requested") is True,
+            "goal_resume_requested": actions.get("goal_resume_requested")
+            if isinstance(actions.get("goal_resume_requested"), bool)
+            else None,
             "observed_at": wake.get("attempted_at") or wake.get("generated_at"),
             "attempts": None,
             "responsibility_state": None,
@@ -394,10 +403,10 @@ def _validate_wake(
         "stage": wake.get("stage"),
         "request_id": wake.get("request_id"),
         "client_user_message_id": wake.get("client_user_message_id"),
-        "handoff_delivery": False,
-        "handoff_message_submitted": False,
+        "handoff_delivery": None,
+        "handoff_message_submitted": None,
         "accepted_turn_id": None,
-        "goal_resume_requested": False,
+        "goal_resume_requested": None,
         "observed_at": wake.get("attempted_at") or wake.get("generated_at"),
         "attempts": wake.get("attempts"),
         "responsibility_state": wake.get("responsibility_state"),
@@ -560,10 +569,10 @@ def _envelope(
         "stage": None,
         "request_id": None,
         "client_user_message_id": None,
-        "handoff_delivery": False,
-        "handoff_message_submitted": False,
+        "handoff_delivery": None,
+        "handoff_message_submitted": None,
         "accepted_turn_id": None,
-        "goal_resume_requested": False,
+        "goal_resume_requested": None,
         "observed_at": None,
         "attempts": None,
         "responsibility_state": None,
@@ -581,6 +590,7 @@ def _envelope(
             expected_thread=expected_thread,
             expected_handoff_ref=str(expected_handoff_ref),
             expected_handoff_digest=expected_handoff_digest,
+            owner_contract=owner_contract,
         )
         errors.extend(wake_errors)
         if wake_path is not None and wake_ref["sha256"] is None:
@@ -671,7 +681,10 @@ def _envelope(
         "raw_handoff_sha256": delivery["raw_handoff_sha256"],
         "normalized_handoff_sha256": delivery["normalized_handoff_sha256"],
         "candidate_receipts": candidate_refs,
-        "claim_limit": "Delivery is not proof, acceptance, or semantic continuation.",
+        "claim_limit": (
+            f"{provenance['claim_limit']} Delivery is not proof, acceptance, "
+            "or semantic continuation."
+        ),
     }
     accepted_turn = {
         "accepted_turn_id": delivery["accepted_turn_id"],
@@ -696,6 +709,7 @@ def _envelope(
         "claim_limit": "DAG disposition is the master's task-local filter evidence, not dashboard owner acceptance.",
     }
     lifecycle_claim = "Lifecycle correlation remains weaker than owner events, proof, acceptance, and semantic continuation."
+    wake_schema_label = delivery["schema_version"] or "unknown wake source"
     lifecycle = {
         "returned": _empty_lifecycle(
             return_state,
@@ -705,7 +719,11 @@ def _envelope(
         ),
         "wake_requested": _empty_lifecycle(
             wake_state,
-            "Wake delivery is observed from the validated v2 receipt." if wake_state == "wake requested" else "No validated wake delivery is available.",
+            (
+                f"Wake delivery is observed from the dashboard-validated {wake_schema_label} source receipt."
+                if wake_state == "wake requested"
+                else "No validated wake delivery is available."
+            ),
             [wake_ref],
             "Wake delivery is not proof, acceptance, or semantic continuation.",
         ),
@@ -1082,6 +1100,14 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
         "anomalies": len(anomalies) + len(filter_errors),
         "deferred_candidates": len(deferred_candidates),
     }
+    observed_wake_schemas = sorted(
+        {
+            item["wake_observation"].get("source_schema_version")
+            for item in envelopes
+            if item["wake_observation"].get("source_schema_version")
+        }
+    )
+    wake_schema_summary = ", ".join(observed_wake_schemas) or "no wake receipt schema"
     projection: CorrelationProjection = {
         "schema_version": CORRELATION_PROJECTION_VERSION,
         "state": state,
@@ -1102,9 +1128,10 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
         state=state,
         freshness=projection["freshness"],
         observation=(
-            f"Validated {summary['reentered']} task-local filtered return correlations for master thread {expected_thread}."
+            f"Validated {summary['reentered']} filtered return correlations from {wake_schema_summary} "
+            f"for master thread {expected_thread}."
             if state == "bound"
-            else "Task-local correlation is degraded; invalid, mismatched, or absent evidence remains visible."
+            else "Correlation is degraded; invalid, mismatched, or absent evidence remains visible."
         ),
         metadata=projection,
         refs=base_refs,

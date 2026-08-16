@@ -81,6 +81,14 @@ _CODEX_OUTCOMES = frozenset(
 _CODEX_RESPONSIBILITY_STATES = frozenset(
     {"delivered_to_master_pending_master_filter", "return_ready_wake_failed"}
 )
+_CODEX_OWNER_BINDING_FIELDS = frozenset(
+    {"owner_repo", "owner_ref", "contract_ref", "schema_version", "authority"}
+)
+_CODEX_OWNER_BINDING_REQUIRED_FIELDS = _CODEX_OWNER_BINDING_FIELDS
+
+CODEX_WAKE_CANDIDATE_ONLY_AUTHORITY = (
+    "aoa-dashboard:candidate_only_unbound_wake_source"
+)
 
 
 def is_sha256_hex(value: Any) -> bool:
@@ -236,6 +244,32 @@ def validate_codex_wake_receipt_v1(value: Any) -> list[str]:
     return errors
 
 
+def validate_codex_wake_owner_binding(value: Any) -> list[str]:
+    """Validate the explicit config binding required for the v1 owner source."""
+
+    if not isinstance(value, dict):
+        return [
+            "codex v1 wake receipt owner binding is missing; source remains candidate-only"
+        ]
+
+    errors: list[str] = []
+    extra = sorted(set(value) - _CODEX_OWNER_BINDING_FIELDS)
+    missing = sorted(_CODEX_OWNER_BINDING_REQUIRED_FIELDS - set(value))
+    if extra:
+        errors.append("codex v1 owner binding has unsupported fields: " + ", ".join(extra))
+    if missing:
+        errors.append("codex v1 owner binding is missing fields: " + ", ".join(missing))
+
+    for field in _CODEX_OWNER_BINDING_REQUIRED_FIELDS:
+        if field in value and not _non_empty_string(value[field]):
+            errors.append(f"codex v1 owner binding {field} is missing")
+    if value.get("owner_repo") != CODEX_WAKE_OWNER_REPO:
+        errors.append("codex v1 owner binding owner_repo is incompatible")
+    if value.get("schema_version") != CODEX_WAKE_RECEIPT_SCHEMA_VERSION:
+        errors.append("codex v1 owner binding schema_version is incompatible")
+    return errors
+
+
 def make_wake_provenance(
     *,
     schema_version: Any,
@@ -247,12 +281,28 @@ def make_wake_provenance(
 ) -> dict[str, Any]:
     """Build source/provenance metadata without copying a receipt body."""
 
+    provenance_claim_limit = (
+        "Provenance identifies the observed source and adapter only; it does not "
+        "grant the dashboard runtime, return, acceptance, or semantic authority."
+    )
     if schema_version == CODEX_WAKE_RECEIPT_SCHEMA_VERSION:
-        contract = owner_contract or {}
-        owner_repo = contract.get("owner_repo") or CODEX_WAKE_OWNER_REPO
-        owner_ref = contract.get("owner_ref") or CODEX_WAKE_OWNER_REF
-        contract_ref = contract.get("contract_ref") or CODEX_WAKE_OWNER_CONTRACT_REF
-        source_authority = contract.get("authority") or CODEX_WAKE_OWNER_AUTHORITY
+        binding_errors = validate_codex_wake_owner_binding(owner_contract)
+        if binding_errors:
+            owner_repo = "unbound"
+            owner_ref = None
+            contract_ref = None
+            source_authority = CODEX_WAKE_CANDIDATE_ONLY_AUTHORITY
+            provenance_claim_limit = (
+                "The v1 receipt is candidate-only because its explicit aoa-sdk owner "
+                "binding is missing or incompatible; raw source evidence is retained "
+                "without canonical owner authority or admission."
+            )
+        else:
+            assert owner_contract is not None
+            owner_repo = owner_contract["owner_repo"]
+            owner_ref = owner_contract["owner_ref"]
+            contract_ref = owner_contract["contract_ref"]
+            source_authority = owner_contract["authority"]
     elif schema_version == TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION:
         owner_repo = "task-local producer"
         owner_ref = TASK_LOCAL_WAKE_RECEIPT_SCHEMA_VERSION
@@ -279,15 +329,13 @@ def make_wake_provenance(
         "freshness": freshness,
         "missingness": missingness,
         "authority": source_authority,
-        "claim_limit": (
-            "Provenance identifies the observed source and adapter only; it does not "
-            "grant the dashboard runtime, return, acceptance, or semantic authority."
-        ),
+        "claim_limit": provenance_claim_limit,
     }
 
 
 __all__ = [
     "CODEX_WAKE_OWNER_AUTHORITY",
+    "CODEX_WAKE_CANDIDATE_ONLY_AUTHORITY",
     "CODEX_WAKE_OWNER_CONTRACT_REF",
     "CODEX_WAKE_OWNER_REF",
     "CODEX_WAKE_OWNER_REPO",
@@ -298,6 +346,7 @@ __all__ = [
     "make_wake_provenance",
     "normalize_handoff_sha256",
     "validate_codex_wake_receipt_v1",
+    "validate_codex_wake_owner_binding",
     "wake_source_family",
     "wake_source_kind",
 ]

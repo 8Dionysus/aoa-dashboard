@@ -13,7 +13,10 @@ through adapters and retained only as bounded metadata plus provenance refs.
   `task_local_actor_wake_receipt_v2` distinct from the owner-qualified
   `aoa_codex_wake_receipt_v1` source family and retains exact refs/content
   digests, provenance, observed time, freshness, missingness, failure,
-  authority, and claim limits.
+  authority, and claim limits. v1 owner provenance is admitted only with an
+  explicit compatible `aoa-sdk` binding; missing or incompatible bindings stay
+  candidate-only and invalid. The owner ABI does not contain
+  `handoff_message_submitted`, so that derived field remains `null` for v1.
 - `goal_space_projection.schema.json` describes the read model served to the
   operator UI.
 - `dashboard_annotation.schema.json` and `action_intent.schema.json` are

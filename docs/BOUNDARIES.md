@@ -40,8 +40,10 @@ directory in `current_correlation`. The old session/edeac bootstrap remains a
 separate `historical_bootstrap` binding and is never used as current-holder
 identity. Wake delivery is transport evidence only. The dashboard keeps the
 task-local v2 witness and owner-qualified SDK v1 receipt as distinct source
-families; v1's `sha256:<hex>` is normalized only by the versioned v1 adapter
-while its raw field remains visible. Master-filtered re-entry is emitted only
-from exact `accepted_turn_id` plus the validated master filter and still does
-not prove semantic continuation, owner acceptance, runtime health,
-return acceptance, or parent resume.
+families; v1 requires an explicit compatible owner binding, and its
+`sha256:<hex>` is normalized only by the versioned v1 adapter while its raw
+field remains visible. The owner ABI does not publish
+`handoff_message_submitted`; v1 keeps that observation unknown. Master-filtered
+re-entry is emitted only from exact `accepted_turn_id` plus the validated master
+filter and still does not prove semantic continuation, owner acceptance,
+runtime health, return acceptance, or parent resume.
