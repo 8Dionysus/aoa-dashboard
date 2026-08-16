@@ -2,7 +2,7 @@
 
 ## What this organ owns
 
-The dashboard owns three local surfaces:
+The dashboard owns six local derived/operator surfaces:
 
 1. `aoa_dashboard_projection_v1`, a derived read model assembled from named
    owner sources;
@@ -14,6 +14,14 @@ The dashboard owns three local surfaces:
    handoff, wake, accepted-turn, master-filter, and DAG disposition refs. It
    is derived read-model evidence, not a new actor, runtime, proof, or
    acceptance owner.
+5. a versioned Goal-local cursor/checkpoint and append-only metadata retention
+   layer. It may preserve duplicate/conflicting observations and provenance,
+   but it may not choose a source-owner winner. The HTTP read path does not
+   write; explicit materialization appends validated observations and writes
+   an atomic checkpoint under a bounded local path.
+6. the P-infinity Pressure Inbox and its operator presentation. It may expose
+   a critical next-route with `effect: none`; it cannot wake, branch, approve,
+   execute, or change an owner record.
 
 ## What remains outside the organ
 
@@ -42,3 +50,18 @@ identity. Wake delivery is transport evidence only; master-filtered re-entry
 is emitted only from exact `accepted_turn_id` plus the validated master filter
 and still does not prove semantic continuation, owner acceptance, or runtime
 health.
+
+## Cursor and pressure stop-lines
+
+The cursor is computed from sorted canonical observation identities, payload
+digests, and source watermarks rather than poll order or read time. A replay
+reuses the same cursor; a changed existing payload/source watermark, removed
+record, malformed checkpoint, unknown access scope, or unknown authority is an
+invalid rebuild. A new observation may extend the cursor, but it cannot erase
+an earlier record.
+
+Pressure records fail closed when evidence, natural owner, stop-line, wake
+condition, or route authority is absent. The compatibility bridge accepts the
+existing bootstrap and master-filter paths, but converts legacy obligation
+strings into explicitly deferred candidates with missing fields. It never
+turns a missing owner into a domain zero or an action permission.

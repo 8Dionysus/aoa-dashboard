@@ -24,6 +24,182 @@
     "current_holder": "master-thread:01a00722-0291-72e0-8310-559da802d6e1 (Sol integration holder)",
     "claim_limit": "Current Goal/thread and task-local receipts are a dashboard correlation surface, not role, runtime, proof, acceptance, or human authority."
   },
+  "correlation_projection": {
+    "observation_log_path": "/tmp/aoa-dashboard-state/correlation_observations.jsonl",
+    "checkpoint_path": "/tmp/aoa-dashboard-state/correlation_checkpoint.json",
+    "materialization": "explicit_owner_controlled",
+    "claim_limit": "The HTTP projection reads this local ledger but never writes it; explicit materialization is append-only and dashboard-derived."
+  },
+  "pressure_inbox": [
+    {
+      "schema_version": "aoa_dashboard_pressure_record_v1",
+      "goal_id": "aoa-dashboard-goal-01a00722-20260815",
+      "pressure_ref": {
+        "id": "pressure:d4:cursor-conflict-retention",
+        "kind": "goal_criterion_pressure",
+        "ref": "goal:aoa-dashboard-goal-01a00722-20260815#D4",
+        "sha256": null,
+        "currentness": "current_at_read",
+        "access_scope": "dashboard_local",
+        "authority": "dashboard_derived"
+      },
+      "evidence": [
+        {
+          "ref": "/home/dionysus/.codex/attachments/11f36fe1-23db-4a4f-bce5-cbbdc77a9033/pasted-text-1.txt",
+          "owner": "goal-anchor",
+          "kind": "goal_anchor",
+          "sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
+          "currentness": "current_at_read",
+          "access_scope": "owner_bounded",
+          "authority": "source_owner",
+          "claim_limit": "The Goal Anchor is task-local input, not dashboard authority."
+        },
+        {
+          "ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
+          "owner": "master-thread",
+          "kind": "task_local_master_filter",
+          "sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
+          "currentness": "current_at_read",
+          "access_scope": "owner_bounded",
+          "authority": "master_decision",
+          "claim_limit": "The master filter is task-local disposition evidence, not proof or acceptance."
+        }
+      ],
+      "affected_goal_criterion": "D4 requires a deterministic Goal-local correlation rebuild with cursor/checkpoint drift detection and retained conflict provenance.",
+      "consequence_of_omission": "Replay or source drift could silently replace an owner-qualified observation and make the dashboard look more certain than its evidence.",
+      "natural_owner": {
+        "owner": "aoa-dashboard",
+        "owner_ref": "dashboard:correlation_read_model",
+        "authority": "dashboard_derived",
+        "access_scope": "dashboard_local"
+      },
+      "checked_existing_surfaces": [
+        {
+          "surface": "current_correlation.master_filter_path and handoff/wake globs",
+          "owner": "aoa-dashboard",
+          "result": "partial",
+          "ref": "dashboard:src/aoa_dashboard/correlation.py",
+          "claim_limit": "The existing adapter validates task-local correlation but has no durable cursor/checkpoint ledger."
+        },
+        {
+          "surface": "aoa-agents responsibility and return semantics",
+          "owner": "aoa-agents",
+          "result": "reused",
+          "ref": "/srv/AbyssOS/aoa-agents",
+          "claim_limit": "The dashboard consumes owner metadata and does not redefine actor meaning."
+        }
+      ],
+      "independence_signals": {
+        "status": "present",
+        "signals": ["D4 is a separately addressed Luna implementation holder.", "Independent review remains a later master gate."],
+        "claim_limit": "Independence signals identify routing posture; they are not proof or acceptance."
+      },
+      "recommended_trigger_strength": "required_branch",
+      "stop_line": "Retain and display the observation ledger only; do not select a conflict winner, change owner truth, or execute a wake/action route.",
+      "wake_condition": "Wake the master when a cursor drift or unresolved conflict needs owner disposition, or when independent review is ready.",
+      "next_route": {
+        "owner": "master-thread",
+        "owner_ref": "master_thread:01a00722-0291-72e0-8310-559da802d6e1",
+        "route": "filter exact pressure-cursor-ui handoff and independently review rebuild/conflict semantics",
+        "reason": "The master owns return filtering and integration decisions after the bounded implementation return.",
+        "critical": true,
+        "authority": "master_decision",
+        "access_scope": "owner_bounded",
+        "effect": "none",
+        "claim_limit": "This is a display-only next route; the dashboard cannot wake or execute it."
+      },
+      "outcome": {
+        "state": "new_required_obligation",
+        "owner": "master-thread",
+        "claim_limit": "The outcome records task-local routing, not owner acceptance."
+      },
+      "claim_limit": "This pressure record is a dashboard-owned derived intake; source owners retain all semantic authority."
+    },
+    {
+      "schema_version": "aoa_dashboard_pressure_record_v1",
+      "goal_id": "aoa-dashboard-goal-01a00722-20260815",
+      "pressure_ref": {
+        "id": "pressure:p-infinity:structured-inbox",
+        "kind": "goal_criterion_pressure",
+        "ref": "goal:aoa-dashboard-goal-01a00722-20260815#P-infinity",
+        "sha256": null,
+        "currentness": "current_at_read",
+        "access_scope": "dashboard_local",
+        "authority": "dashboard_derived"
+      },
+      "evidence": [
+        {
+          "ref": "/home/dionysus/.codex/attachments/11f36fe1-23db-4a4f-bce5-cbbdc77a9033/pasted-text-1.txt",
+          "owner": "goal-anchor",
+          "kind": "goal_anchor",
+          "sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
+          "currentness": "current_at_read",
+          "access_scope": "owner_bounded",
+          "authority": "source_owner",
+          "claim_limit": "The Goal Anchor defines the pressure intake fields and routing boundary."
+        },
+        {
+          "ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
+          "owner": "master-thread",
+          "kind": "task_local_master_filter",
+          "sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
+          "currentness": "current_at_read",
+          "access_scope": "owner_bounded",
+          "authority": "master_decision",
+          "claim_limit": "The master filter carries candidate obligations and does not become dashboard action authority."
+        }
+      ],
+      "affected_goal_criterion": "P-infinity requires every discovered pressure to retain owner, evidence, omission consequence, independence, trigger strength, stop-line, wake condition, next route and outcome.",
+      "consequence_of_omission": "Unstructured pressure can disappear into prose, lose its natural owner, or be misread as permission for the dashboard to act.",
+      "natural_owner": {
+        "owner": "aoa-dashboard",
+        "owner_ref": "dashboard:pressure_inbox",
+        "authority": "dashboard_derived",
+        "access_scope": "dashboard_local"
+      },
+      "checked_existing_surfaces": [
+        {
+          "surface": "current_correlation.new_obligations and rejected_or_deferred_claims",
+          "owner": "aoa-dashboard",
+          "result": "partial",
+          "ref": "dashboard:correlation_read_model/migration",
+          "claim_limit": "Legacy strings remain visible as deferred candidates until structured fields are present."
+        },
+        {
+          "surface": "aoa-agents trigger strengths and stop-line semantics",
+          "owner": "aoa-agents",
+          "result": "reused",
+          "ref": "/srv/AbyssOS/aoa-agents/skills/aoa-agents-skills",
+          "claim_limit": "Trigger strength is a recommendation; the dashboard cannot form or wake an actor."
+        }
+      ],
+      "independence_signals": {
+        "status": "present",
+        "signals": ["Pressure intake is a separate P-infinity concern from wake receipt compatibility.", "Critical route is returned to the master for filtering."],
+        "claim_limit": "Independence signals do not establish evaluator independence or owner acceptance."
+      },
+      "recommended_trigger_strength": "required_branch",
+      "stop_line": "Display critical routes with effect:none and preserve missing/unknown fields; do not turn a pressure card into a button that executes an owner action.",
+      "wake_condition": "Wake the master when a pressure is malformed, lacks a natural owner, conflicts with another pressure, or needs a new DAG branch.",
+      "next_route": {
+        "owner": "master-thread",
+        "owner_ref": "master_thread:01a00722-0291-72e0-8310-559da802d6e1",
+        "route": "filter the structured pressure-inbox return without converting dashboard routes into action authority",
+        "reason": "The master decides whether a pressure is absorbed, branched, transferred, or residual.",
+        "critical": true,
+        "authority": "master_decision",
+        "access_scope": "owner_bounded",
+        "effect": "none",
+        "claim_limit": "The dashboard only displays this route and cannot perform the wake or branch decision."
+      },
+      "outcome": {
+        "state": "new_required_obligation",
+        "owner": "master-thread",
+        "claim_limit": "The outcome is a bounded task-local disposition candidate, not a verdict."
+      },
+      "claim_limit": "This pressure record is an owner-bounded derived observation with no operational authority."
+    }
+  ],
   "actor_receipt_path": "/srv/AbyssOS/aoa-agents/.aoa/live_receipts/actor-responsibility-execution-receipts.jsonl",
   "stats_surface_path": "/srv/AbyssOS/aoa-stats/state/generated/source_coverage_summary.min.json",
   "stats_registry_path": "/srv/AbyssOS/aoa-stats/mechanics/recurrence/parts/live-receipt-refresh/config/live_receipt_sources.json",
