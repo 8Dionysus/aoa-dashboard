@@ -35,6 +35,8 @@ CORRELATION_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "contracts" / "c
 CORRELATION_SCHEMA_VALIDATOR = Draft202012Validator(
     json.loads(CORRELATION_SCHEMA_PATH.read_text(encoding="utf-8"))
 )
+from aoa_dashboard.sources import observe_goal, observe_session  # noqa: E402
+from aoa_dashboard.source_binding import read_file_snapshot  # noqa: E402
 
 
 class ProjectionFixture:
@@ -90,6 +92,7 @@ class ProjectionFixture:
                 "goal_id": "test-goal",
                 "title": "Test goal",
                 "goal_anchor_path": str(self.anchor),
+                "goal_anchor_expected_sha256": hashlib.sha256(self.anchor.read_bytes()).hexdigest(),
                 "historical_bootstrap": {
                     "binding_id": "test-historical-bootstrap",
                     "session_manifest_path": str(self.manifest),
@@ -102,6 +105,7 @@ class ProjectionFixture:
                     "master_thread_id": "test-thread",
                     "task_local_dir": str(self.task_local),
                     "master_filter_path": str(self.master_filter),
+                    "master_filter_expected_sha256": None,
                     "handoff_glob": "*-luna-handoff.json",
                     "wake_glob": "*.wake-receipt.json",
                     "ignored_handoff_names": [],
@@ -132,6 +136,32 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(result["state"], "deferred")
         self.assertEqual(result["freshness"], "deferred")
         self.assertGreater(result["metadata"]["live_records"], result["metadata"]["archive_records"])
+
+    def test_expected_digest_mismatch_is_stale_with_one_bytes_parse_snapshot(self) -> None:
+        snapshot = read_file_snapshot(self.fixture.anchor, expected_digest="0" * 64, parser="text")
+        self.assertIsNotNone(snapshot.raw_bytes)
+        self.assertIsNotNone(snapshot.parsed)
+        self.assertEqual(snapshot.digest, hashlib.sha256(self.fixture.anchor.read_bytes()).hexdigest())
+        self.assertEqual(snapshot.currentness, "stale")
+        goal = observe_goal({**self.fixture.config(), "goal_anchor_expected_sha256": "0" * 64}, snapshot)
+        self.assertEqual(goal["state"], "stale")
+        ref = goal["evidence_refs"][0]
+        self.assertEqual(ref["currentness"], "stale")
+        self.assertEqual(ref["sha256"], snapshot.digest)
+        self.assertEqual(ref["expected_sha256"], "0" * 64)
+
+    def test_projection_reconciles_pressure_to_the_single_live_source_ref(self) -> None:
+        projection = build_projection()
+        correlation = projection["correlation"]
+        master_ref = correlation["master_filter"]["ref"]
+        self.assertEqual(master_ref["currentness"], "stale")
+        self.assertEqual(master_ref["owner"], "master-thread")
+        self.assertEqual(master_ref["authority"], "master_decision")
+        self.assertEqual(master_ref["access_scope"], "owner_bounded")
+        self.assertEqual(projection["pressure_inbox"]["status"], "deferred")
+        for item in projection["pressure_inbox"]["items"]:
+            filter_evidence = next(ref for ref in item["evidence"] if ref.get("kind") == "task_local_master_filter")
+            self.assertEqual(filter_evidence, master_ref)
 
     def test_missing_actor_publisher_is_not_zero_success(self) -> None:
         projection = build_projection(self._write_config())
@@ -352,7 +382,8 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertGreater(summary["filtered_return_ids"], 0)
         self.assertEqual(summary["invalid"], 0)
         self.assertEqual(summary["missing"], 0)
-        self.assertEqual(summary["reentered"], summary["filtered_return_ids"])
+        self.assertEqual(summary["reentered"], 0)
+        self.assertEqual(result["metadata"]["master_filter"]["ref"]["currentness"], "stale")
 
     def test_mismatched_master_thread_is_invalid(self) -> None:
         self.fixture._write_valid(handoff_thread="other-thread")

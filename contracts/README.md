@@ -21,6 +21,17 @@ through adapters and retained only as bounded metadata plus provenance refs.
   `handoff_message_submitted`, so that derived field remains `null` for v1.
   `goal_resume_requested` is retained as explicit nullable observation data,
   but never participates in v1 admission or proves semantic resume.
+  It also serves as the source envelope for the versioned, replayable
+  Goal-local observation ledger. The ledger retains provenance and exposes
+  conflicts without selecting a winner.
+- `correlation_observation.schema.json`, `correlation_cursor.schema.json`,
+  `correlation_checkpoint.schema.json`, and
+  `goal_local_correlation_projection.schema.json` define the versioned,
+  replayable Goal-local observation ledger. They retain provenance and expose
+  conflicts without selecting a winner.
+- `pressure_inbox.schema.json` defines the structured P-infinity pressure
+  record/read-model boundary. Its critical routes are display-only and carry
+  `effect: none`.
 - `goal_space_projection.schema.json` describes the read model served to the
   operator UI.
 - `dashboard_annotation.schema.json` and `action_intent.schema.json` are

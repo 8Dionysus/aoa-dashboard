@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/correlation-cursor-v1",
+  "title": "Versioned deterministic Goal-local correlation cursor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "projection_schema_version",
+    "stream_id",
+    "goal_id",
+    "master_thread_id",
+    "position",
+    "record_ids",
+    "observation_digests",
+    "source_watermarks",
+    "source_collisions",
+    "input_digest",
+    "cursor_digest",
+    "claim_limit"
+  ],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_correlation_cursor_v1"},
+    "projection_schema_version": {"const": "aoa_dashboard_goal_local_correlation_projection_v1"},
+    "stream_id": {"type": "string", "minLength": 1},
+    "goal_id": {"type": "string", "minLength": 1},
+    "master_thread_id": {"type": "string", "minLength": 1},
+    "position": {"type": "integer", "minimum": 0},
+    "record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "observation_digests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["record_id", "observation_id", "entity_key", "kind", "payload_digest", "source_digest", "access_scope", "authority", "claim_limit"],
+        "properties": {
+          "record_id": {"type": "string", "minLength": 1},
+          "observation_id": {"type": "string", "minLength": 1},
+          "entity_key": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "payload_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "source_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "access_scope": {"type": "string", "minLength": 1},
+          "authority": {"type": "string", "minLength": 1},
+          "claim_limit": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "source_watermarks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["identity_key", "label", "kind", "ref", "sha256", "currentness", "owner", "access_scope", "authority", "claim_policy", "snapshot_role", "claim_limit"],
+        "properties": {
+          "identity_key": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "label": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "ref": {"type": "string", "minLength": 1},
+          "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "currentness": {"type": "string", "minLength": 1},
+          "owner": {"enum": ["aoa-agents", "aoa-dashboard", "aoa-evals", "aoa-kag", "aoa-memo", "aoa-sdk", "aoa-skills", "aoa-stats", "abyss-stack", "different-owner", "goal-anchor", "master-thread", "task-local-runtime", "test-owner", "test-owner-alt"]},
+          "access_scope": {"enum": ["dashboard_local", "owner_bounded", "public_metadata"]},
+          "authority": {"enum": ["dashboard_derived", "source_owner", "master_filter", "master_decision", "aoa-dashboard:derived", "aoa-dashboard:derived_task_local_correlation"]},
+          "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+          "snapshot_role": {"type": "string", "minLength": 1},
+          "expected_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "missing_fields": {"type": "array", "items": {"type": "string"}},
+          "freshness": {"type": "string", "minLength": 1},
+          "claim_limit": {"type": "string", "minLength": 1},
+          "degradation": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "source_collisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "candidate_identity_keys", "access_downgrade", "access_scope_drift", "label_drift", "kind_drift", "digest_drift", "currentness_drift", "owner_drift", "authority_drift", "claim_limit_drift", "resolution", "winner", "claim_limit"],
+        "properties": {
+          "ref": {"type": "string", "minLength": 1},
+          "candidate_identity_keys": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+          "access_downgrade": {"type": "boolean"},
+          "access_scope_drift": {"type": "boolean"},
+          "label_drift": {"type": "boolean"},
+          "kind_drift": {"type": "boolean"},
+          "digest_drift": {"type": "boolean"},
+          "currentness_drift": {"type": "boolean"},
+          "owner_drift": {"type": "boolean"},
+          "authority_drift": {"type": "boolean"},
+          "claim_limit_drift": {"type": "boolean"},
+          "resolution": {"const": "unresolved"},
+          "winner": {"type": "null"},
+          "claim_limit": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "input_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "cursor_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "claim_limit": {"type": "string", "minLength": 1}
+  }
+}

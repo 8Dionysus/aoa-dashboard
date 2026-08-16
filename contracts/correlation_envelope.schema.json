@@ -135,17 +135,24 @@
   "$defs": {
     "correlationRef": {
       "type": "object",
-      "required": ["label", "kind", "ref", "sha256", "observed_at", "freshness", "degradation", "authority", "claim_limit"],
+      "required": ["label", "kind", "ref", "sha256", "observed_at", "currentness", "freshness", "degradation", "owner", "access_scope", "authority", "claim_policy", "snapshot_role", "claim_limit"],
       "additionalProperties": false,
       "properties": {
         "label": {"type": "string", "minLength": 1},
         "kind": {"type": "string", "minLength": 1},
         "ref": {"type": "string", "minLength": 1},
-        "sha256": {"type": ["string", "null"]},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
         "observed_at": {"type": ["string", "null"]},
+        "currentness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
         "freshness": {"type": "string", "minLength": 1},
         "degradation": {"type": "array", "items": {"type": "string"}},
-        "authority": {"type": "string", "minLength": 1},
+        "owner": {"enum": ["aoa-agents", "aoa-dashboard", "aoa-evals", "aoa-kag", "aoa-memo", "aoa-sdk", "aoa-skills", "aoa-stats", "abyss-stack", "different-owner", "goal-anchor", "master-thread", "task-local-runtime", "test-owner", "test-owner-alt"]},
+        "access_scope": {"enum": ["dashboard_local", "owner_bounded", "public_metadata"]},
+        "authority": {"enum": ["dashboard_derived", "source_owner", "master_filter", "master_decision", "aoa-dashboard:derived", "aoa-dashboard:derived_task_local_correlation"]},
+        "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+        "expected_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "snapshot_role": {"type": "string", "minLength": 1},
+        "missing_fields": {"type": "array", "items": {"type": "string"}},
         "claim_limit": {"type": "string", "minLength": 1}
       }
     },
@@ -203,6 +210,16 @@
         "error": {"type": ["string", "null"]}
       }
     },
+    "redactedObligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "redacted", "claim_limit"],
+      "properties": {
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "redacted": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
     "projection": {
       "type": "object",
       "required": ["schema_version", "state", "master_thread_id", "current_holder", "master_filter", "envelopes", "new_obligations", "rejected_or_deferred_claims", "summary", "observed_at", "freshness", "degradation", "authority", "claim_limit"],
@@ -214,7 +231,7 @@
         "current_holder": {"type": "object"},
         "master_filter": {"type": "object"},
         "envelopes": {"type": "array", "items": {"$ref": "#"}},
-        "new_obligations": {"type": "array", "items": {"type": "string"}},
+        "new_obligations": {"type": "array", "items": {"$ref": "#/$defs/redactedObligation"}},
         "rejected_or_deferred_claims": {"type": "array", "items": {"type": "string"}},
         "summary": {"type": "object"},
         "observed_at": {"type": ["string", "null"]},

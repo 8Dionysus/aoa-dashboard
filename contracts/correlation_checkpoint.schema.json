@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/correlation-checkpoint-v1",
+  "title": "Versioned Goal-local correlation projection checkpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "projection_schema_version",
+    "checkpoint_id",
+    "goal_id",
+    "master_thread_id",
+    "cursor",
+    "projection_digest",
+    "retained_observation_ids",
+    "conflict_ids",
+    "rebuild_mode",
+    "claim_limit"
+  ],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_correlation_checkpoint_v1"},
+    "projection_schema_version": {"const": "aoa_dashboard_goal_local_correlation_projection_v1"},
+    "checkpoint_id": {"type": "string", "minLength": 1},
+    "goal_id": {"type": "string", "minLength": 1},
+    "master_thread_id": {"type": "string", "minLength": 1},
+    "cursor": {"$ref": "aoa-dashboard://contracts/correlation-cursor-v1"},
+    "projection_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "retained_observation_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "conflict_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "rebuild_mode": {"enum": ["initial", "replay", "extension", "invalid"]},
+    "claim_limit": {"type": "string", "minLength": 1}
+  }
+}
