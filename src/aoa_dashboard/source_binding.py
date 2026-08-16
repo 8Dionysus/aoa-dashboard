@@ -46,6 +46,82 @@ KNOWN_CLAIM_POLICIES = frozenset(
     }
 )
 
+DIAGNOSTIC_DIGEST_PREFIX = "diagnostic_digest:"
+DIAGNOSTIC_INVALID_TYPE = "diagnostic_invalid_type"
+MAX_DIAGNOSTIC_ITEMS = 64
+MAX_DIAGNOSTIC_VALUE_LENGTH = 96
+KNOWN_DIAGNOSTIC_CODES = frozenset(
+    {
+        "source_missing",
+        "source_read_failed",
+        "source_parse_failed",
+        "expected_digest_mismatch",
+        "bytes",
+        "digest",
+        "parse_result",
+        "currentness_attestation",
+        "current",
+        "current_at_read",
+        "stale",
+        "deferred",
+        "missing",
+        "unknown",
+        "invalid",
+        "task_local_binding_not_directory",
+        "master_filter_missing",
+        "master_filter_unreadable",
+        "goal_anchor_missing",
+        "goal_anchor_stale",
+        "master_filter_stale",
+        "duplicate_wake_receipts",
+        "unfiltered_handoff_candidate",
+        "unfiltered_wake_receipt",
+        "metadata_admission_rejected",
+        "correlation_envelope_not_object",
+        "legacy_master_filter_ref_not_admitted_with_explicit_access_and_authority",
+        "legacy_master_filter_metadata_admission_rejected",
+        "correlation_envelope_metadata_admission_rejected",
+        "pressure_inbox_records_not_a_list",
+        "pressure_record_invalid",
+        "legacy_candidate_invalid",
+        "legacy_master_filter",
+        "legacy_master_filter_requires_structured_pressure_fields",
+        "non_string_object_key",
+        "diagnostic_invalid_type",
+        "separate_holder",
+        "independent_holder",
+        "separate_pressure_concern",
+        "critical_route_master_filter",
+        "configured_snapshot",
+        "derived_pressure_identity",
+        "live_observed",
+        "directory_binding",
+        "missing_binding",
+        "derived_binding",
+        "test_fixture",
+        "affected_goal_criterion",
+        "consequence_of_omission",
+        "natural_owner",
+        "checked_existing_surfaces",
+        "independence_signals",
+        "recommended_trigger_strength",
+        "stop_line",
+        "wake_condition",
+        "next_route",
+        "outcome",
+        "ref",
+        "sha256",
+        "owner",
+        "kind",
+        "currentness",
+        "access_scope",
+        "authority",
+        "claim_policy",
+        "snapshot_role",
+        "claim_limit",
+    }
+)
+
 ClaimParser = Literal["json", "text"]
 
 
@@ -65,6 +141,37 @@ def is_known_owner(value: Any) -> bool:
 
 def is_known_claim_policy(value: Any) -> bool:
     return isinstance(value, str) and value in KNOWN_CLAIM_POLICIES
+
+
+def is_diagnostic_digest(value: Any) -> bool:
+    if not isinstance(value, str) or not value.startswith(DIAGNOSTIC_DIGEST_PREFIX):
+        return False
+    digest = value[len(DIAGNOSTIC_DIGEST_PREFIX) :]
+    return len(value) <= MAX_DIAGNOSTIC_VALUE_LENGTH and is_sha256(digest) and digest == digest.lower()
+
+
+def is_safe_diagnostic(value: Any) -> bool:
+    return isinstance(value, str) and (
+        value in KNOWN_DIAGNOSTIC_CODES or is_diagnostic_digest(value)
+    )
+
+
+def safe_diagnostic(value: Any) -> str:
+    """Keep known codes and replace every other value with a digest-only code."""
+
+    if is_safe_diagnostic(value):
+        return value
+    if not isinstance(value, str):
+        return DIAGNOSTIC_INVALID_TYPE
+    return f"{DIAGNOSTIC_DIGEST_PREFIX}{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+def sanitize_diagnostic_list(value: Any) -> Any:
+    """Sanitize diagnostic list members without making malformed structure valid."""
+
+    if not isinstance(value, list):
+        return value
+    return [safe_diagnostic(item) if isinstance(item, str) else item for item in value]
 
 
 _CONFUSABLES = str.maketrans(

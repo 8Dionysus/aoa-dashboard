@@ -13,10 +13,14 @@ from .cursor import (
     redacted_legacy_obligation,
 )
 from .source_binding import (
+    MAX_DIAGNOSTIC_ITEMS,
     has_forbidden_key,
     is_known_owner,
     is_known_claim_policy,
+    is_safe_diagnostic,
     is_sha256,
+    safe_diagnostic,
+    sanitize_diagnostic_list,
 )
 
 
@@ -87,6 +91,8 @@ _ROUTE_FIELDS = frozenset(
 )
 _OUTCOME_FIELDS = frozenset({"state", "owner", "claim_policy", "claim_limit"})
 _FORBIDDEN_NESTED_KEY_PARTS = ("raw", "body", "private", "secret", "token", "password", "prompt")
+_DIAGNOSTIC_LIST_FIELDS = frozenset({"degradation", "missing_fields", "signals", "errors", "source_missing_fields"})
+_DIAGNOSTIC_SCALAR_FIELDS = frozenset({"snapshot_role"})
 
 
 def _non_empty(value: Any) -> bool:
@@ -101,9 +107,69 @@ def _sha256(value: Any) -> bool:
     return value is None or is_sha256(value)
 
 
+def _non_string_key_errors(value: Any, prefix: str = "pressure record") -> list[str]:
+    """Reject malformed object keys before any sort/set/walk operation."""
+
+    if isinstance(value, dict):
+        errors: list[str] = []
+        for key, item in value.items():
+            if not isinstance(key, str):
+                errors.append(f"{prefix} contains a non-string object key")
+                continue
+            errors.extend(_non_string_key_errors(item, f"{prefix}.{key}"))
+        return errors
+    if isinstance(value, list):
+        errors = []
+        for index, item in enumerate(value):
+            errors.extend(_non_string_key_errors(item, f"{prefix}[{index}]"))
+        return errors
+    return []
+
+
+def _safe_diagnostic_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [safe_diagnostic(item) for item in value[:MAX_DIAGNOSTIC_ITEMS]]
+
+
+def _diagnostic_errors(value: Any, prefix: str) -> list[str]:
+    if not isinstance(value, list):
+        return [f"{prefix} is malformed"]
+    errors: list[str] = []
+    if len(value) > MAX_DIAGNOSTIC_ITEMS:
+        errors.append(f"{prefix} exceeds the bounded item count")
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            errors.append(f"{prefix}[{index}] is not a string")
+        elif not is_safe_diagnostic(item):
+            errors.append(f"{prefix}[{index}] is not a bounded diagnostic code")
+    return errors
+
+
+def _sanitize_pressure_diagnostics(value: Any, *, field_name: str | None = None) -> Any:
+    """Digest arbitrary diagnostic values before validation or retention."""
+
+    if isinstance(value, dict):
+        if any(not isinstance(key, str) for key in value):
+            return value
+        return {
+            key: _sanitize_pressure_diagnostics(item, field_name=key)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        if field_name in _DIAGNOSTIC_LIST_FIELDS:
+            return sanitize_diagnostic_list(value)
+        return [_sanitize_pressure_diagnostics(item, field_name=field_name) for item in value]
+    if field_name in _DIAGNOSTIC_SCALAR_FIELDS and isinstance(value, str):
+        return safe_diagnostic(value)
+    return value
+
+
 def _object_field_errors(value: Any, prefix: str, allowed: frozenset[str]) -> list[str]:
     if not isinstance(value, dict):
         return [f"{prefix} is missing or not an object"]
+    if any(not isinstance(field, str) for field in value):
+        return [f"{prefix} contains a non-string object key"]
     errors: list[str] = []
     for field in sorted(value):
         if has_forbidden_key(field, _FORBIDDEN_NESTED_KEY_PARTS):
@@ -117,6 +183,8 @@ def _typed_ref_errors(value: Any, prefix: str, *, require_id: bool) -> list[str]
     errors: list[str] = []
     if not isinstance(value, dict):
         return [f"{prefix} is missing or not an object"]
+    if any(not isinstance(field, str) for field in value):
+        return [f"{prefix} contains a non-string object key"]
     for field in sorted(set(value) - _TYPED_REF_FIELDS):
         if has_forbidden_key(field, _FORBIDDEN_NESTED_KEY_PARTS):
             errors.append(f"{prefix}.{field} is forbidden")
@@ -140,8 +208,8 @@ def _typed_ref_errors(value: Any, prefix: str, *, require_id: bool) -> list[str]
         errors.append(f"{prefix}.owner is unknown")
     if not is_known_claim_policy(value.get("claim_policy")):
         errors.append(f"{prefix}.claim_policy is unknown")
-    if not _non_empty(value.get("snapshot_role")):
-        errors.append(f"{prefix}.snapshot_role is missing")
+    if not is_safe_diagnostic(value.get("snapshot_role")):
+        errors.append(f"{prefix}.snapshot_role is missing or unbounded")
     if value.get("freshness") is not None:
         if value.get("freshness") not in KNOWN_CURRENTNESS:
             errors.append(f"{prefix}.freshness is unknown")
@@ -150,8 +218,8 @@ def _typed_ref_errors(value: Any, prefix: str, *, require_id: bool) -> list[str]
     if value.get("expected_sha256") is not None and not _sha256(value.get("expected_sha256")):
         errors.append(f"{prefix}.expected_sha256 is malformed")
     for field in ("missing_fields", "degradation"):
-        if field in value and (not isinstance(value[field], list) or any(not isinstance(item, str) for item in value[field])):
-            errors.append(f"{prefix}.{field} is malformed")
+        if field in value:
+            errors.extend(_diagnostic_errors(value[field], f"{prefix}.{field}"))
     if "observed_at" in value and value["observed_at"] is not None and not isinstance(value["observed_at"], str):
         errors.append(f"{prefix}.observed_at is malformed")
     return errors
@@ -167,6 +235,9 @@ def validate_pressure_record(record: Any, *, expected_goal_id: str | None = None
     errors: list[str] = []
     if not isinstance(record, dict):
         return ["pressure record is not an object"]
+    key_errors = _non_string_key_errors(record)
+    if key_errors:
+        return ["pressure record contains a non-string object key"]
     for field in sorted(set(record) - _RECORD_FIELDS):
         errors.append(f"pressure record.{field} is not an admitted metadata field")
     if record.get("schema_version") != PRESSURE_RECORD_SCHEMA_VERSION:
@@ -237,8 +308,8 @@ def validate_pressure_record(record: Any, *, expected_goal_id: str | None = None
             errors.append("independence_signals.status is unknown")
         if not isinstance(independence.get("signals"), list):
             errors.append("independence_signals.signals is missing")
-        elif any(not isinstance(item, str) for item in independence["signals"]):
-            errors.append("independence_signals.signals contains a non-string")
+        else:
+            errors.extend(_diagnostic_errors(independence["signals"], "independence_signals.signals"))
         if not is_known_claim_policy(independence.get("claim_policy")):
             errors.append("independence_signals.claim_policy is unknown")
         if not _non_empty(independence.get("claim_limit")):
@@ -297,6 +368,8 @@ def _stable_pressure(value: Any, *, path: tuple[str, ...] = (), source_ref: bool
     """Strip timestamps only along explicitly declared pressure source-ref paths."""
 
     if isinstance(value, dict):
+        if any(not isinstance(key, str) for key in value):
+            return {"diagnostic": "non_string_object_key"}
         result: dict[str, Any] = {}
         for key, item in sorted(value.items()):
             if source_ref and key == "observed_at":
@@ -391,11 +464,15 @@ def _safe_ref_summary(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {"id": "unresolved"}
     safe: dict[str, Any] = {}
-    for key in sorted(set(value) & _TYPED_REF_FIELDS):
+    for key in sorted(_TYPED_REF_FIELDS):
+        if key not in value:
+            continue
         item = value[key]
-        if isinstance(item, (str, type(None))):
-            safe[key] = copy.deepcopy(item)
-        elif key in {"missing_fields", "degradation"} and isinstance(item, list) and all(isinstance(entry, str) for entry in item):
+        if key in {"missing_fields", "degradation"}:
+            safe[key] = _safe_diagnostic_list(item)
+        elif key == "snapshot_role":
+            safe[key] = safe_diagnostic(item)
+        elif isinstance(item, (str, type(None))):
             safe[key] = copy.deepcopy(item)
     return safe or {"id": "unresolved"}
 
@@ -404,12 +481,12 @@ def _redacted_invalid(record: Any, errors: list[str], *, migration: str | None =
     pressure_ref = record.get("pressure_ref") if isinstance(record, dict) else None
     result: dict[str, Any] = {
         "pressure_ref": _safe_ref_summary(pressure_ref),
-        "errors": errors,
+        "errors": _safe_diagnostic_list(errors),
         "outcome": "invalid",
         "claim_limit": "Malformed pressure is retained as an invalid input and is not routed or acted upon.",
     }
     if migration:
-        result["migration"] = migration
+        result["migration"] = safe_diagnostic(migration)
     return result
 
 
@@ -424,14 +501,18 @@ def _legacy_projection(candidate: dict[str, Any]) -> dict[str, Any]:
         "source_evidence_ref": _safe_ref_summary(candidate.get("source_evidence_ref") or candidate.get("pressure_ref")),
         "legacy_obligation_digest": digest,
         "legacy_obligation_redacted": redacted,
-        "missing_fields": [item for item in candidate.get("missing_fields", []) if isinstance(item, str)],
-        "source_missing_fields": [item for item in candidate.get("source_missing_fields", []) if isinstance(item, str)],
+        "missing_fields": _safe_diagnostic_list(candidate.get("missing_fields", [])),
+        "source_missing_fields": _safe_diagnostic_list(candidate.get("source_missing_fields", [])),
         "outcome": "deferred",
-        "migration": candidate.get("migration", "legacy_master_filter"),
+        "migration": safe_diagnostic(candidate.get("migration", "legacy_master_filter")),
         "claim_limit": candidate.get("claim_limit", PRESSURE_CLAIM_LIMIT),
     }
     if isinstance(candidate.get("legacy_freshness"), str):
-        result["legacy_freshness"] = candidate["legacy_freshness"]
+        result["legacy_freshness"] = (
+            candidate["legacy_freshness"]
+            if candidate["legacy_freshness"] in KNOWN_CURRENTNESS
+            else safe_diagnostic(candidate["legacy_freshness"])
+        )
     return result
 
 
@@ -448,13 +529,14 @@ def build_pressure_inbox(
     invalid_records: list[dict[str, Any]] = []
     if not isinstance(records, list):
         records = []
-        errors.append("pressure_inbox records is not a list")
+        errors.append("pressure_inbox_records_not_a_list")
     for record in records:
-        item_errors = validate_pressure_record(record, expected_goal_id=goal_id)
+        safe_record = _sanitize_pressure_diagnostics(record)
+        item_errors = validate_pressure_record(safe_record, expected_goal_id=goal_id)
         if item_errors:
             invalid_records.append(_redacted_invalid(record, item_errors))
             continue
-        item = copy.deepcopy(record)
+        item = copy.deepcopy(safe_record)
         item["record_digest"] = pressure_digest(item)
         valid.append(item)
 
@@ -496,7 +578,7 @@ def build_pressure_inbox(
     legacy = []
     for candidate in legacy_candidates or []:
         if not isinstance(candidate, dict):
-            legacy.append(_redacted_invalid(candidate, ["legacy candidate is not an object"], migration="legacy_master_filter"))
+            legacy.append(_redacted_invalid(candidate, ["legacy_candidate_invalid"], migration="legacy_master_filter"))
             continue
         legacy.append(_legacy_projection(candidate))
 
@@ -554,7 +636,7 @@ def build_pressure_inbox(
             "legacy_raw_text": "not_retained",
             "claim_limit": PRESSURE_CLAIM_LIMIT,
         },
-        "errors": errors,
+        "errors": _safe_diagnostic_list(errors),
         "claim_limit": PRESSURE_CLAIM_LIMIT,
     }
     model["read_model_digest"] = content_digest(_stable_pressure(model))

@@ -66,6 +66,24 @@ def _materialize_process_worker(log_path: str, checkpoint_path: str, item: dict,
         queue.put({"ok": False, "error": str(exc)})
 
 
+def _shared_context_process_worker(
+    log_path: str, checkpoint_path: str, item: dict, lock_context: object, queue: object
+) -> None:
+    failures = 0
+    for operation in (
+        lambda: append_correlation_observations(log_path, [item], lock_context=lock_context),
+        lambda: write_correlation_checkpoint(checkpoint_path, {}, lock_context=lock_context),
+    ):
+        try:
+            operation()
+        except ValueError:
+            failures += 1
+        except Exception as exc:  # pragma: no cover - unexpected child failure
+            queue.put({"ok": False, "error": str(exc)})
+            return
+    queue.put({"ok": failures == 2, "failures": failures})
+
+
 def observation(observation_id: str = "return:one", state: str = "returned", entity_key: str | None = None) -> dict:
     return make_observation(
         goal_id=GOAL_ID,
@@ -133,7 +151,7 @@ def pressure_record() -> dict:
         ],
         "independence_signals": {
             "status": "present",
-            "signals": ["separate holder"],
+            "signals": ["separate_holder"],
             "claim_policy": "test_metadata",
             "claim_limit": "Independence is not acceptance.",
         },
@@ -640,6 +658,79 @@ class CursorRetentionTests(unittest.TestCase):
             self.assertFalse(log_path.exists())
             self.assertFalse(checkpoint_path.exists())
 
+    def test_released_and_copied_contexts_cannot_write(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            with _ledger_lock(log_path, checkpoint_path) as lock_context:
+                with self.assertRaises(TypeError):
+                    copy.copy(lock_context)
+                with self.assertRaises(TypeError):
+                    copy.deepcopy(lock_context)
+                forged = object.__new__(type(lock_context))
+                with self.assertRaises(ValueError):
+                    append_correlation_observations(log_path, [observation("forged")], lock_context=forged)
+            with self.assertRaises(ValueError):
+                append_correlation_observations(log_path, [observation("released")], lock_context=lock_context)
+            with self.assertRaises(ValueError):
+                write_correlation_checkpoint(checkpoint_path, {}, lock_context=lock_context)
+            self.assertEqual(log_path.stat().st_size, 0)
+            self.assertFalse(checkpoint_path.exists())
+
+    def test_shared_context_fails_closed_across_thread_and_process(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "correlation.jsonl"
+            checkpoint_path = Path(directory) / "checkpoint.json"
+            with _ledger_lock(log_path, checkpoint_path) as lock_context:
+                thread_result: list[str] = []
+
+                def thread_attempt() -> None:
+                    try:
+                        append_correlation_observations(
+                            log_path, [observation("shared-thread")], lock_context=lock_context
+                        )
+                    except ValueError as exc:
+                        thread_result.append(str(exc))
+                    try:
+                        write_correlation_checkpoint(checkpoint_path, {}, lock_context=lock_context)
+                    except ValueError as exc:
+                        thread_result.append(str(exc))
+
+                thread = threading.Thread(target=thread_attempt)
+                thread.start()
+                thread.join(timeout=5)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(len(thread_result), 2)
+
+                context = multiprocessing.get_context("fork")
+                queue = context.Queue()
+                process = context.Process(
+                    target=_shared_context_process_worker,
+                    args=(str(log_path), str(checkpoint_path), observation("shared-process"), lock_context, queue),
+                )
+                process.start()
+                process.join(timeout=10)
+                self.assertEqual(process.exitcode, 0)
+                child_result = queue.get(timeout=3)
+                self.assertTrue(child_result["ok"], child_result)
+            self.assertEqual(log_path.stat().st_size, 0)
+
+    def test_active_context_rejects_wrong_log_and_checkpoint_before_write(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log_path = root / "correlation.jsonl"
+            checkpoint_path = root / "checkpoint.json"
+            wrong_log = root / "wrong.jsonl"
+            wrong_checkpoint = root / "wrong-checkpoint.json"
+            wrong_log.touch()
+            with _ledger_lock(log_path, checkpoint_path) as lock_context:
+                with self.assertRaises(ValueError):
+                    append_correlation_observations(wrong_log, [observation("wrong-log")], lock_context=lock_context)
+                with self.assertRaises(ValueError):
+                    write_correlation_checkpoint(wrong_checkpoint, {}, lock_context=lock_context)
+            self.assertEqual(wrong_log.stat().st_size, 0)
+            self.assertFalse(wrong_checkpoint.exists())
+
     def test_one_physical_ledger_rejects_divergent_checkpoint_bindings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "correlation.jsonl"
@@ -1007,6 +1098,119 @@ class PressureInboxTests(unittest.TestCase):
             inbox = build_pressure_inbox(goal_id=GOAL_ID, records=[record])
             self.assertEqual(inbox["items"], [], field_path)
             self.assertNotIn("PRIVATE-VALUE", json.dumps(inbox, ensure_ascii=False), field_path)
+
+    def test_all_admitted_diagnostic_lists_are_digest_only(self) -> None:
+        raw_values = [
+            "PRIVATE-DIAGNOSTIC-VALUE",
+            "private-diagnostic-value",
+            "ΡRIVATE-DIAGNOSTIC-VALUE",
+        ]
+        field_targets = (
+            ("pressure_ref", "degradation"),
+            ("evidence", 0, "degradation"),
+            ("evidence", 0, "missing_fields"),
+            ("pressure_ref", "snapshot_role"),
+            ("evidence", 0, "snapshot_role"),
+            ("independence_signals", "signals"),
+        )
+        for field_path in field_targets:
+            for raw_value in raw_values:
+                record = pressure_record()
+                target: object = record
+                for part in field_path[:-1]:
+                    target = target[part]  # type: ignore[index]
+                target[field_path[-1]] = (  # type: ignore[index]
+                    [raw_value] if field_path[-1] in {"degradation", "missing_fields", "signals"} else raw_value
+                )
+                self.assertTrue(validate_pressure_record(record, expected_goal_id=GOAL_ID))
+                inbox = build_pressure_inbox(goal_id=GOAL_ID, records=[record])
+                rendered = json.dumps(inbox, ensure_ascii=False, sort_keys=True)
+                self.assertNotIn(raw_value, rendered, field_path)
+                self.assertEqual(inbox["status"], "current", field_path)
+                self.assertIn("diagnostic_digest:", rendered, field_path)
+
+    def test_legacy_diagnostic_values_are_digest_only_in_deferred_summaries(self) -> None:
+        source = {
+            "metadata": {
+                "new_obligations": ["legacy obligation"],
+                "master_filter": {
+                    "ref": {
+                        "ref": "/bounded/master-filter.json",
+                        "kind": "task_local_master_filter",
+                        "sha256": "b" * 64,
+                        "owner": "master-thread",
+                        "authority": "master_decision",
+                        "access_scope": "owner_bounded",
+                        "currentness": "current_at_read",
+                        "freshness": "current_at_read",
+                        "claim_policy": "master_decision_disposition",
+                        "snapshot_role": "live_observed",
+                        "claim_limit": "Master filter is not acceptance.",
+                    }
+                },
+            }
+        }
+        raw_value = "PRIVATE-LEGACY-DIAGNOSTIC"
+        field_targets = (
+            ("pressure_ref", "degradation"),
+            ("pressure_ref", "missing_fields"),
+            ("pressure_ref", "snapshot_role"),
+            ("source_evidence_ref", "degradation"),
+            ("source_evidence_ref", "missing_fields"),
+            ("source_evidence_ref", "snapshot_role"),
+            ("missing_fields",),
+            ("source_missing_fields",),
+            ("legacy_freshness",),
+            ("migration",),
+        )
+        for field_path in field_targets:
+            candidate = migrate_legacy_pressure_candidates({}, source)[0]
+            target: object = candidate
+            for part in field_path[:-1]:
+                target = target[part]  # type: ignore[index]
+            field = field_path[-1]
+            target[field] = [raw_value] if field.endswith("fields") or field == "degradation" else raw_value  # type: ignore[index]
+            inbox = build_pressure_inbox(goal_id=GOAL_ID, records=[], legacy_candidates=[candidate])
+            rendered = json.dumps(inbox, ensure_ascii=False, sort_keys=True)
+            self.assertEqual(inbox["status"], "deferred", field_path)
+            self.assertNotIn(raw_value, rendered, field_path)
+            self.assertIn("diagnostic_digest:", rendered, field_path)
+
+    def test_non_string_keys_at_every_nested_boundary_are_redacted_invalid(self) -> None:
+        variants: list[dict] = []
+        root = pressure_record()
+        root[1] = "PRIVATE-VALUE"
+        variants.append(root)
+        for field_path in (
+            ("pressure_ref",),
+            ("natural_owner",),
+            ("independence_signals",),
+            ("next_route",),
+            ("outcome",),
+            ("evidence", 0),
+            ("checked_existing_surfaces", 0),
+        ):
+            record = pressure_record()
+            target: object = record
+            for part in field_path:
+                target = target[part]  # type: ignore[index]
+            target[1] = "PRIVATE-VALUE"  # type: ignore[index]
+            variants.append(record)
+        for list_field in (("evidence",), ("checked_existing_surfaces",), ("independence_signals", "signals")):
+            record = pressure_record()
+            target: object = record
+            for part in list_field:
+                target = target[part]  # type: ignore[index]
+            target.append({1: "PRIVATE-VALUE"})  # type: ignore[union-attr]
+            variants.append(record)
+
+        for record in variants:
+            inbox = build_pressure_inbox(goal_id=GOAL_ID, records=[record])
+            rendered = json.dumps(inbox, ensure_ascii=False, sort_keys=True)
+            self.assertEqual(inbox["status"], "invalid")
+            self.assertEqual(inbox["items"], [])
+            self.assertTrue(inbox["invalid_records"])
+            self.assertNotIn("PRIVATE-VALUE", rendered)
 
     def test_malformed_pressure_is_rejected_and_conflicts_have_no_winner(self) -> None:
         malformed = pressure_record()

@@ -18,11 +18,17 @@
     "outcomes": {"type": "object"},
     "access_policy": {"type": "object"},
     "retention": {"type": "object"},
-    "errors": {"type": "array", "items": {"type": "string"}},
+    "errors": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
     "read_model_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "claim_limit": {"type": "string", "minLength": 1}
   },
   "$defs": {
+    "diagnosticValue": {
+      "anyOf": [
+        {"enum": ["source_missing", "source_read_failed", "source_parse_failed", "expected_digest_mismatch", "bytes", "digest", "parse_result", "currentness_attestation", "current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid", "task_local_binding_not_directory", "master_filter_missing", "master_filter_unreadable", "goal_anchor_missing", "goal_anchor_stale", "master_filter_stale", "duplicate_wake_receipts", "unfiltered_handoff_candidate", "unfiltered_wake_receipt", "metadata_admission_rejected", "correlation_envelope_not_object", "legacy_master_filter_ref_not_admitted_with_explicit_access_and_authority", "legacy_master_filter_metadata_admission_rejected", "correlation_envelope_metadata_admission_rejected", "pressure_inbox_records_not_a_list", "pressure_record_invalid", "legacy_candidate_invalid", "legacy_master_filter", "legacy_master_filter_requires_structured_pressure_fields", "non_string_object_key", "diagnostic_invalid_type", "separate_holder", "independent_holder", "separate_pressure_concern", "critical_route_master_filter", "configured_snapshot", "derived_pressure_identity", "live_observed", "directory_binding", "missing_binding", "derived_binding", "test_fixture", "affected_goal_criterion", "consequence_of_omission", "natural_owner", "checked_existing_surfaces", "independence_signals", "recommended_trigger_strength", "stop_line", "wake_condition", "next_route", "outcome", "ref", "sha256", "owner", "kind", "currentness", "access_scope", "authority", "claim_policy", "snapshot_role", "claim_limit"]},
+        {"type": "string", "pattern": "^diagnostic_digest:[0-9a-f]{64}$"}
+      ]
+    },
     "typedRef": {
       "type": "object",
       "additionalProperties": false,
@@ -40,9 +46,9 @@
         "authority": {"enum": ["dashboard_derived", "source_owner", "master_decision"]},
         "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
         "expected_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-        "snapshot_role": {"type": "string", "minLength": 1},
-        "missing_fields": {"type": "array", "items": {"type": "string"}},
-        "degradation": {"type": "array", "items": {"type": "string"}},
+        "snapshot_role": {"$ref": "#/$defs/diagnosticValue"},
+        "missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "degradation": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
         "claim_limit": {"type": "string", "minLength": 1},
         "observed_at": {"type": ["string", "null"]}
       }
@@ -64,9 +70,9 @@
         "authority": {"enum": ["dashboard_derived", "source_owner", "master_decision"]},
         "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
         "expected_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-        "snapshot_role": {"type": "string", "minLength": 1},
-        "missing_fields": {"type": "array", "items": {"type": "string"}},
-        "degradation": {"type": "array", "items": {"type": "string"}},
+        "snapshot_role": {"$ref": "#/$defs/diagnosticValue"},
+        "missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "degradation": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
         "claim_limit": {"type": "string", "minLength": 1},
         "observed_at": {"type": ["string", "null"]}
       }
@@ -117,7 +123,7 @@
           "required": ["status", "signals", "claim_policy", "claim_limit"],
           "properties": {
             "status": {"enum": ["present", "absent", "unknown", "not_attested"]},
-            "signals": {"type": "array", "items": {"type": "string"}},
+            "signals": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
             "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
             "claim_limit": {"type": "string", "minLength": 1}
           }
@@ -167,11 +173,11 @@
         "source_evidence_ref": {"$ref": "#/$defs/legacySourceRef"},
         "legacy_obligation_digest": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
         "legacy_obligation_redacted": {"type": "string", "minLength": 1},
-        "missing_fields": {"type": "array", "items": {"type": "string"}},
-        "source_missing_fields": {"type": "array", "items": {"type": "string"}},
-        "legacy_freshness": {"type": "string"},
+        "missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "source_missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "legacy_freshness": {"$ref": "#/$defs/diagnosticValue"},
         "outcome": {"const": "deferred"},
-        "migration": {"type": "string", "minLength": 1},
+        "migration": {"$ref": "#/$defs/diagnosticValue"},
         "claim_limit": {"type": "string", "minLength": 1}
       }
     },
@@ -192,9 +198,9 @@
         "authority": {"enum": ["dashboard_derived", "source_owner", "master_decision"]},
         "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
         "expected_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-        "snapshot_role": {"type": "string", "minLength": 1},
-        "missing_fields": {"type": "array", "items": {"type": "string"}},
-        "degradation": {"type": "array", "items": {"type": "string"}},
+        "snapshot_role": {"$ref": "#/$defs/diagnosticValue"},
+        "missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "degradation": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
         "claim_limit": {"type": "string", "minLength": 1},
         "observed_at": {"type": ["string", "null"]}
       }
@@ -215,9 +221,9 @@
         "authority": {"enum": ["dashboard_derived", "source_owner", "master_decision"]},
         "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
         "expected_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-        "snapshot_role": {"type": "string", "minLength": 1},
-        "missing_fields": {"type": "array", "items": {"type": "string"}},
-        "degradation": {"type": "array", "items": {"type": "string"}},
+        "snapshot_role": {"$ref": "#/$defs/diagnosticValue"},
+        "missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "degradation": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
         "claim_limit": {"type": "string", "minLength": 1},
         "observed_at": {"type": ["string", "null"]}
       }
