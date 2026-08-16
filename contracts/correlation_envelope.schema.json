@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/correlation-envelope-v1",
+  "title": "aoa-dashboard typed task-local correlation envelope",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "correlation_id",
+    "state",
+    "goal",
+    "return_observation",
+    "wake_observation",
+    "accepted_turn",
+    "master_filter",
+    "dag_disposition",
+    "lifecycle",
+    "authority",
+    "claim_limits"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_correlation_envelope_v1"},
+    "correlation_id": {"type": "string", "minLength": 1},
+    "state": {"enum": ["reentered", "returned", "missing", "deferred", "invalid"]},
+    "goal": {
+      "type": "object",
+      "required": ["goal_id", "master_thread_id", "anchor_ref", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "goal_id": {"type": "string", "minLength": 1},
+        "master_thread_id": {"type": "string", "minLength": 1},
+        "anchor_ref": {"$ref": "#/$defs/correlationRef"},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "return_observation": {
+      "type": "object",
+      "required": ["return_id", "master_thread_id", "ref", "filter_disposition", "errors", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "return_id": {"type": ["string", "null"]},
+        "source_schema_version": {"type": ["string", "null"]},
+        "responsibility_state": {"type": ["string", "object", "null"]},
+        "master_thread_id": {"type": ["string", "null"]},
+        "ref": {"$ref": "#/$defs/correlationRef"},
+        "filter_disposition": {"type": ["string", "null"]},
+        "errors": {"type": "array", "items": {"type": "string"}},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "wake_observation": {
+      "type": "object",
+      "required": ["ref", "schema_version", "outcome", "delivery_route", "handoff_delivery", "handoff_message_submitted", "observed_at", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "ref": {"$ref": "#/$defs/correlationRef"},
+        "schema_version": {"type": ["string", "null"]},
+        "outcome": {"type": ["string", "null"]},
+        "delivery_route": {"type": ["string", "null"]},
+        "handoff_delivery": {"type": "boolean"},
+        "handoff_message_submitted": {"type": "boolean"},
+        "observed_at": {"type": ["string", "null"]},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "accepted_turn": {
+      "type": "object",
+      "required": ["accepted_turn_id", "state", "basis_ref", "observed_at", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "accepted_turn_id": {"type": ["string", "null"]},
+        "state": {"enum": ["transport_accepted", "missing"]},
+        "basis_ref": {"$ref": "#/$defs/correlationRef"},
+        "observed_at": {"type": ["string", "null"]},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "master_filter": {
+      "type": "object",
+      "required": ["return_id", "disposition", "handoff_sha256", "wake_receipt_ref", "ref", "reviewed_at", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "return_id": {"type": ["string", "null"]},
+        "disposition": {"type": ["string", "null"]},
+        "handoff_sha256": {"type": ["string", "null"]},
+        "wake_receipt_ref": {"type": ["string", "null"]},
+        "ref": {"$ref": "#/$defs/correlationRef"},
+        "reviewed_at": {"type": ["string", "null"]},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "dag_disposition": {
+      "type": "object",
+      "required": ["ref", "nodes", "relevant_node_ids", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "ref": {"$ref": "#/$defs/correlationRef"},
+        "nodes": {"type": "array", "items": {"$ref": "#/$defs/dagNode"}},
+        "relevant_node_ids": {"type": "array", "items": {"type": "string"}},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": ["returned", "wake_requested", "master_filtered", "reentered"],
+      "additionalProperties": false,
+      "properties": {
+        "returned": {"$ref": "#/$defs/lifecycleItem"},
+        "wake_requested": {"$ref": "#/$defs/lifecycleItem"},
+        "master_filtered": {"$ref": "#/$defs/lifecycleItem"},
+        "reentered": {"$ref": "#/$defs/lifecycleItem"}
+      }
+    },
+    "authority": {"type": "string", "minLength": 1},
+    "claim_limits": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "correlationRef": {
+      "type": "object",
+      "required": ["label", "kind", "ref", "sha256", "observed_at", "freshness", "degradation", "authority", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"]},
+        "observed_at": {"type": ["string", "null"]},
+        "freshness": {"type": "string", "minLength": 1},
+        "degradation": {"type": "array", "items": {"type": "string"}},
+        "authority": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "lifecycleItem": {
+      "type": "object",
+      "required": ["state", "observation", "evidence_refs", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {"type": "string", "minLength": 1},
+        "observation": {"type": "string", "minLength": 1},
+        "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/correlationRef"}},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "dagNode": {
+      "type": "object",
+      "required": ["id", "state", "next"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "state": {"type": "string", "minLength": 1},
+        "next": {"type": "string", "minLength": 1}
+      }
+    },
+    "projection": {
+      "type": "object",
+      "required": ["schema_version", "state", "master_thread_id", "current_holder", "master_filter", "envelopes", "new_obligations", "rejected_or_deferred_claims", "summary", "observed_at", "freshness", "degradation", "authority", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"const": "aoa_dashboard_correlation_projection_v1"},
+        "state": {"type": "string", "minLength": 1},
+        "master_thread_id": {"type": "string", "minLength": 1},
+        "current_holder": {"type": "object"},
+        "master_filter": {"type": "object"},
+        "envelopes": {"type": "array", "items": {"$ref": "#"}},
+        "new_obligations": {"type": "array", "items": {"type": "string"}},
+        "rejected_or_deferred_claims": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": "object"},
+        "observed_at": {"type": ["string", "null"]},
+        "freshness": {"type": "string", "minLength": 1},
+        "degradation": {"type": "array", "items": {"type": "string"}},
+        "authority": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

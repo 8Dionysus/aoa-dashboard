@@ -29,19 +29,21 @@ def _ref_for(source: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _node_state(node_id: str, config: dict[str, Any], source_index: dict[str, dict[str, Any]]) -> tuple[str, str]:
     root = Path(__file__).resolve().parents[2]
+    correlation = source_index["task-local-correlation"]
+    correlation_bound = correlation.get("state") == "bound"
     checks: dict[str, tuple[bool, str, str]] = {
         "G0": (source_index["goal-anchor"]["state"] == "bound", "Goal Anchor is bound", "goal-anchor"),
         "D1": ((root / "docs" / "BOUNDARIES.md").exists(), "dashboard ownership boundary is present", "dashboard:docs/BOUNDARIES.md"),
         "D2": ((root / "contracts" / "goal_space_projection.schema.json").exists(), "projection contract is present", "dashboard:contracts"),
         "D3": ((root / "src" / "aoa_dashboard" / "sources.py").exists(), "owner adapters are present", "dashboard:src/aoa_dashboard/sources.py"),
         "D4": ((root / "src" / "aoa_dashboard" / "projection.py").exists(), "correlation projection is present", "dashboard:src/aoa_dashboard/projection.py"),
-        "D5": (source_index["aoa-session-memory"].get("runtime_state") == "running", "session source is observed as running", ".aoa:session-source"),
+        "D5": (correlation_bound, "task-local return/wake correlation is bound", "dashboard:task-local-correlation"),
         "D6": ((root / "web" / "index.html").exists(), "operator UI is present", "dashboard:web"),
         "D7": ((root / "docs" / "BOUNDARIES.md").exists(), "trust and action boundary is documented", "dashboard:docs/BOUNDARIES.md"),
         "D8": (
-            source_index["goal-anchor"]["state"] == "bound" and source_index["aoa-session-memory"].get("runtime_state") == "running",
-            "the current Goal and its session source are both visible",
-            "goal-anchor + .aoa/session-memory",
+            source_index["goal-anchor"]["state"] == "bound" and correlation_bound,
+            "the current Goal and task-local correlation surface are both visible",
+            "goal-anchor + dashboard:task-local-correlation",
         ),
         "D9": (False, "independent evaluator packet is not connected", "aoa-evals:independent-proof-packet"),
         "P∞": (False, "pressure intake is deferred to a future owner route", "dashboard:pressure-inbox:deferred"),
@@ -57,7 +59,30 @@ def _node_state(node_id: str, config: dict[str, Any], source_index: dict[str, di
 def _lifecycle(config: dict[str, Any], source_index: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     anchor_bound = source_index["goal-anchor"]["state"] == "bound"
     session = source_index["aoa-session-memory"]
-    actor_manifest_exists = Path(config["actor_manifest_path"]).exists()
+    correlation = source_index["task-local-correlation"]
+    correlation_metadata = correlation.get("metadata", {})
+    historical = config.get("historical_bootstrap", {})
+    if not isinstance(historical, dict):
+        historical = {}
+    historical_manifest_path = historical.get("actor_manifest_path", config.get("actor_manifest_path", ""))
+    correlation_refs = _ref_for(correlation)
+    if not correlation_refs:
+        correlation_refs = [{"label": "current correlation", "kind": "derived", "ref": "current-correlation:unresolved", "claim_limit": "Current correlation is unresolved."}]
+    correlation_state = correlation.get("state", "missing")
+    summary = correlation_metadata.get("summary", {}) if isinstance(correlation_metadata, dict) else {}
+    has_return = bool(summary.get("filtered_return_ids"))
+    has_wake = bool(summary.get("reentered"))
+    has_reentry = bool(summary.get("reentered"))
+    if correlation_state == "invalid":
+        returned_state = wake_state = reentry_state = "invalid"
+    elif has_return:
+        returned_state = "returned"
+        wake_state = "wake requested" if has_wake else "missing"
+        reentry_state = "reentered" if has_reentry else "missing"
+    else:
+        returned_state = "missing" if correlation_state == "missing" else "deferred"
+        wake_state = "missing" if correlation_state == "missing" else "deferred"
+        reentry_state = "missing" if correlation_state == "missing" else "deferred"
     step_state: dict[str, tuple[str, str, list[dict[str, Any]]]] = {
         "planned": (
             "planned" if anchor_bound else "missing",
@@ -65,14 +90,14 @@ def _lifecycle(config: dict[str, Any], source_index: dict[str, dict[str, Any]]) 
             _ref_for(source_index["goal-anchor"]),
         ),
         "bound": (
-            "bound" if actor_manifest_exists else "missing",
-            "The actor incarnation binding is present at its configured path." if actor_manifest_exists else "No actor incarnation binding is readable.",
-            [_ref_for(source_index["goal-anchor"])[0], {"label": "actor manifest", "kind": "source_path", "ref": config["actor_manifest_path"], "path": config["actor_manifest_path"], "claim_limit": "Binding metadata does not prove execution."}],
+            "bound" if correlation_state == "bound" else correlation_state,
+            "Current Goal/thread/task-local correlation is bound; the bootstrap incarnation remains historical." if correlation_state == "bound" else "Current Goal/thread correlation is not bound.",
+            [_ref_for(source_index["goal-anchor"])[0], *correlation_refs],
         ),
         "running": (
-            "running" if session.get("runtime_state") == "running" else "missing",
-            "The current session source is readable; this is not a process-health claim." if session.get("runtime_state") == "running" else "No current session source is readable.",
-            _ref_for(session),
+            "deferred",
+            "The configured bootstrap session is historical; no current holder process or runtime health is inferred from it.",
+            _ref_for(session) + ([{"label": "historical actor manifest", "kind": "source_path", "ref": historical_manifest_path, "path": historical_manifest_path, "claim_limit": "Historical bootstrap binding is not the current holder or runtime health."}] if historical_manifest_path else []),
         ),
         "paused": (
             "paused" if config.get("parent_posture") == "paused" else "unknown",
@@ -80,9 +105,9 @@ def _lifecycle(config: dict[str, Any], source_index: dict[str, dict[str, Any]]) 
             [{"label": "parent posture", "kind": "operator_context", "ref": "goal:parent-posture", "claim_limit": "Posture is not a runtime health or acceptance signal."}],
         ),
         "returned": (
-            "deferred",
-            "No goal-scoped return receipt is connected; return remains deferred rather than inferred.",
-            [_ref_for(source_index["actor-responsibility-receipts"])[0]],
+            returned_state,
+            "Master-filtered Luna return is correlated by exact handoff ref and SHA-256." if returned_state == "returned" else "No valid master-filtered return is available.",
+            correlation_refs,
         ),
         "reviewed": (
             "missing",
@@ -95,14 +120,14 @@ def _lifecycle(config: dict[str, Any], source_index: dict[str, dict[str, Any]]) 
             [{"label": "owner acceptance", "kind": "owner_event", "ref": "owner-acceptance:not-connected", "claim_limit": "Dashboard cannot issue owner acceptance."}],
         ),
         "wake requested": (
-            "missing",
-            "Wake delivery is not yet represented in the projection; the final handoff command is a later boundary.",
-            [{"label": "wake delivery", "kind": "handoff", "ref": "wake-master:not-yet-requested", "claim_limit": "No wake request is claimed before delivery."}],
+            wake_state,
+            "Validated v2 wake delivery is represented as transport admission only." if wake_state == "wake requested" else "No validated v2 wake delivery is available.",
+            correlation_refs,
         ),
         "reentered": (
-            "missing",
-            "No master re-entry event is connected.",
-            [{"label": "master re-entry", "kind": "owner_event", "ref": "master-reentry:not-connected", "claim_limit": "Re-entry cannot be inferred from a local process."}],
+            reentry_state,
+            "Bounded master re-entry correlation uses exact accepted_turn_id plus the master filter; semantic continuation is not claimed." if reentry_state == "reentered" else "Re-entry is withheld without exact accepted_turn_id plus a valid master filter.",
+            correlation_refs,
         ),
     }
     return [
@@ -152,6 +177,7 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     ]
     goal_source = source_index["goal-anchor"]
     goal_metadata = goal_source.get("metadata", {})
+    correlation = source_index["task-local-correlation"].get("metadata", {})
     return {
         "schema_version": "aoa_dashboard_projection_v1",
         "generated_at": utc_now(),
@@ -160,9 +186,12 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
             "title": config["title"],
             "state": goal_source["state"],
             "anchor_digest": goal_metadata.get("anchor_digest"),
+            "master_thread_id": config.get("current_correlation", {}).get("master_thread_id"),
             "source_refs": goal_source.get("evidence_refs", []),
             "claim_limit": "The Goal Anchor is source binding; the dashboard does not own Goal semantics or acceptance.",
         },
+        "correlation": correlation,
+        "current_holder": correlation.get("current_holder", {"scope": "current_correlation", "claim_limit": "Current holder is not runtime authority."}),
         "dag": dag,
         "lifecycle": lifecycle,
         "state_inventory": state_inventory,

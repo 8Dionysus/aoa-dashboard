@@ -4,9 +4,25 @@
   "goal_id": "aoa-dashboard-goal-01a00722-20260815",
   "title": "Create aoa-dashboard first working vertical slice",
   "goal_anchor_path": "/home/dionysus/.codex/attachments/11f36fe1-23db-4a4f-bce5-cbbdc77a9033/pasted-text-1.txt",
-  "session_manifest_path": "/srv/AbyssOS/.aoa/sessions/2026-08-15__065__ты-принимаешь-первую-самостоятельную/session.manifest.json",
-  "session_archive_raw_path": "/srv/AbyssOS/.aoa/sessions/2026-08-15__065__ты-принимаешь-первую-самостоятельную/raw/session.raw.jsonl",
-  "actor_manifest_path": "/srv/abyss-machine/runtimes/codex-incarnations/sha256-edeac34cba6361d9086a5d6da20b1cd2a05cf49b88fe499a6abab58fad5be987/incarnation-home.json",
+  "historical_bootstrap": {
+    "binding_id": "bootstrap-session-065-edeac-historical",
+    "session_manifest_path": "/srv/AbyssOS/.aoa/sessions/2026-08-15__065__ты-принимаешь-первую-самостоятельную/session.manifest.json",
+    "session_archive_raw_path": "/srv/AbyssOS/.aoa/sessions/2026-08-15__065__ты-принимаешь-первую-самостоятельную/raw/session.raw.jsonl",
+    "actor_manifest_path": "/srv/abyss-machine/runtimes/codex-incarnations/sha256-edeac34cba6361d9086a5d6da20b1cd2a05cf49b88fe499a6abab58fad5be987/incarnation-home.json",
+    "configured_scope": "historical_bootstrap",
+    "current_holder": false,
+    "claim_limit": "The bootstrap session/edeac incarnation is retained as historical context only and is not the current holder."
+  },
+  "current_correlation": {
+    "master_thread_id": "01a00722-0291-72e0-8310-559da802d6e1",
+    "task_local_dir": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815",
+    "master_filter_path": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
+    "handoff_glob": "*-luna-handoff.json",
+    "wake_glob": "*.wake-receipt.json",
+    "ignored_handoff_names": ["correlation-slice-luna-handoff.json"],
+    "current_holder": "Luna Max implementation holder D2/D3/D4/D5/D8",
+    "claim_limit": "Current Goal/thread and task-local receipts are a dashboard correlation surface, not role, runtime, proof, acceptance, or human authority."
+  },
   "actor_receipt_path": "/srv/AbyssOS/aoa-agents/.aoa/live_receipts/actor-responsibility-execution-receipts.jsonl",
   "stats_surface_path": "/srv/AbyssOS/aoa-stats/state/generated/source_coverage_summary.min.json",
   "stats_registry_path": "/srv/AbyssOS/aoa-stats/mechanics/recurrence/parts/live-receipt-refresh/config/live_receipt_sources.json",

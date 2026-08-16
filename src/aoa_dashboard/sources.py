@@ -6,7 +6,9 @@ import subprocess
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+
+from .correlation import observe_current_correlation
 
 
 def utc_now() -> str:
@@ -175,8 +177,16 @@ def _record_summary(path: Path, goal_id: str | None = None) -> dict[str, Any]:
 
 
 def observe_session(config: dict[str, Any]) -> dict[str, Any]:
-    manifest_path = Path(config["session_manifest_path"])
-    archive_path = Path(config["session_archive_raw_path"])
+    historical = config.get("historical_bootstrap")
+    if not isinstance(historical, dict):
+        # Legacy configs are accepted only as historical bindings. The default
+        # config never uses this fallback as the current holder surface.
+        historical = {
+            "session_manifest_path": config.get("session_manifest_path"),
+            "session_archive_raw_path": config.get("session_archive_raw_path"),
+        }
+    manifest_path = Path(historical.get("session_manifest_path") or "")
+    archive_path = Path(historical.get("session_archive_raw_path") or "")
     manifest, error = _read_json(manifest_path)
     manifest_ref = _ref(
         "session manifest",
@@ -214,10 +224,14 @@ def observe_session(config: dict[str, Any]) -> dict[str, Any]:
             "state": "missing",
             "freshness": "missing",
             "runtime_state": "unknown",
-            "observation": "The archived session manifest is readable but its live source is missing.",
-            "metadata": {"manifest_event_count": manifest.get("latest_event_count")},
+            "observation": "The configured historical bootstrap manifest is readable but its live source is missing.",
+            "metadata": {
+                "manifest_event_count": manifest.get("latest_event_count"),
+                "binding_scope": "historical_bootstrap",
+                "current_holder": False,
+            },
             "evidence_refs": refs,
-            "claim_limit": "Missing live source is not interpreted as zero events or a completed session.",
+            "claim_limit": "Historical bootstrap evidence is not the current holder and is not interpreted as zero events, completion, or runtime health.",
         }
 
     live_summary = _record_summary(live_path, config["goal_id"])
@@ -232,14 +246,14 @@ def observe_session(config: dict[str, Any]) -> dict[str, Any]:
     if live_summary.get("invalid_records", 0):
         source_state = "invalid"
         freshness = "invalid"
-        observation = "The live session source contains malformed records; metadata is partial."
+        observation = "The historical bootstrap session source contains malformed records; metadata is partial."
     else:
         source_state = "deferred" if live_changed_since_archive else "running"
         freshness = archive_state
         observation = (
-            "Live session metadata is readable; the archive is deferred while the live source advances."
+            "Historical bootstrap session metadata is readable; the archive is deferred while the live source advances."
             if live_changed_since_archive
-            else "Live session metadata and archive snapshot are aligned at read time."
+            else "Historical bootstrap session metadata and archive snapshot are aligned at read time."
         )
     return {
         "id": "aoa-session-memory",
@@ -247,8 +261,10 @@ def observe_session(config: dict[str, Any]) -> dict[str, Any]:
         "state": source_state,
         "freshness": freshness,
         "runtime_state": "running",
-        "observation": observation,
+        "observation": observation + " This binding is historical and is not the current holder.",
         "metadata": {
+            "binding_scope": "historical_bootstrap",
+            "current_holder": False,
             "manifest_event_count": manifest.get("latest_event_count"),
             "live_size_bytes": live_stats.get("size_bytes"),
             "archive_size_bytes": archive_stats.get("size_bytes"),
@@ -262,7 +278,7 @@ def observe_session(config: dict[str, Any]) -> dict[str, Any]:
             "archive_state": archive_state,
         },
         "evidence_refs": refs,
-        "claim_limit": "The `.aoa` source proves only bounded transcript-source observations; it is not proof of return, review, acceptance, or runtime health.",
+        "claim_limit": "The historical `.aoa` source proves only bounded transcript-source observations; it is not the current holder and is not proof of return, review, acceptance, or runtime health.",
     }
 
 
@@ -482,11 +498,13 @@ def observe_owner_surfaces(config: dict[str, Any]) -> list[dict[str, Any]]:
 def observe_all(config: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     goal = observe_goal(config)
     session = observe_session(config)
+    correlation = observe_current_correlation(config)
     actor = observe_actor_receipts(config)
     stats = observe_stats(config, actor)
     sources = [
         goal,
         session,
+        correlation,
         stats,
         actor,
         observe_kag(config),
@@ -512,5 +530,5 @@ def observe_all(config: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str,
     index = {item["id"]: item for item in sources}
     # Short aliases keep adapter call sites readable while the public source
     # ids remain the stable drill-down keys.
-    index.update({"goal": goal, "session": session, "actor": actor, "stats": stats})
+    index.update({"goal": goal, "session": session, "correlation": correlation, "actor": actor, "stats": stats})
     return sources, index

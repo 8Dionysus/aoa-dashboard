@@ -59,6 +59,7 @@ class SourceObservation(TypedDict, total=False):
     owner: str
     state: str
     freshness: str
+    degradation: list[str]
     runtime_state: str
     publisher_status: str
     observation: str
@@ -71,6 +72,8 @@ class Projection(TypedDict, total=False):
     schema_version: str
     generated_at: str
     goal: dict[str, object]
+    correlation: dict[str, object]
+    current_holder: dict[str, object]
     dag: list[dict[str, object]]
     lifecycle: list[StatusItem]
     state_inventory: list[dict[str, object]]
