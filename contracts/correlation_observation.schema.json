@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/correlation-observation-v1",
+  "title": "Attributed metadata-only Goal-local correlation observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "observation_id",
+    "record_id",
+    "entity_key",
+    "kind",
+    "goal_id",
+    "master_thread_id",
+    "observed_at",
+    "payload",
+    "payload_digest",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_correlation_observation_v1"},
+    "observation_id": {"type": "string", "minLength": 1},
+    "record_id": {"type": "string", "minLength": 1},
+    "entity_key": {"type": "string", "minLength": 1},
+    "kind": {"type": "string", "minLength": 1},
+    "goal_id": {"type": "string", "minLength": 1},
+    "master_thread_id": {"type": "string", "minLength": 1},
+    "observed_at": {"type": ["string", "null"]},
+    "payload": {"type": "object"},
+    "payload_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_refs", "source_digest", "currentness", "access_scope", "authority", "claim_limit"],
+      "properties": {
+        "source_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceRef"}},
+        "source_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "currentness": {"type": "string", "minLength": 1},
+        "access_scope": {"type": "string", "minLength": 1},
+        "authority": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1},
+        "duplicate_count": {"type": "integer", "minimum": 0},
+        "duplicate_source_refs": {"type": "array", "items": {"$ref": "#/$defs/sourceRef"}}
+      }
+    }
+  },
+  "$defs": {
+    "sourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "kind", "ref", "sha256", "currentness", "owner", "access_scope", "authority", "claim_limit"],
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "currentness": {"type": "string", "minLength": 1},
+        "owner": {"type": "string", "minLength": 1},
+        "access_scope": {"type": "string", "minLength": 1},
+        "authority": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1},
+        "observed_at": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

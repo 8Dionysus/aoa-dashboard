@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/correlation-cursor-v1",
+  "title": "Versioned deterministic Goal-local correlation cursor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "projection_schema_version",
+    "stream_id",
+    "goal_id",
+    "master_thread_id",
+    "position",
+    "record_ids",
+    "observation_digests",
+    "source_watermarks",
+    "input_digest",
+    "cursor_digest",
+    "claim_limit"
+  ],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_correlation_cursor_v1"},
+    "projection_schema_version": {"const": "aoa_dashboard_goal_local_correlation_projection_v1"},
+    "stream_id": {"type": "string", "minLength": 1},
+    "goal_id": {"type": "string", "minLength": 1},
+    "master_thread_id": {"type": "string", "minLength": 1},
+    "position": {"type": "integer", "minimum": 0},
+    "record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "observation_digests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["observation_id", "payload_digest"],
+        "properties": {
+          "observation_id": {"type": "string", "minLength": 1},
+          "payload_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "source_watermarks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "sha256", "currentness", "owner"],
+        "properties": {
+          "ref": {"type": "string", "minLength": 1},
+          "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "currentness": {"type": "string", "minLength": 1},
+          "owner": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "input_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "cursor_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "claim_limit": {"type": "string", "minLength": 1}
+  }
+}

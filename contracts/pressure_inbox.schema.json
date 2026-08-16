@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/pressure-inbox-v1",
+  "title": "Structured dashboard Pressure Inbox",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "goal_id", "status", "items", "critical_next_routes", "conflicts", "legacy_candidates", "access_policy", "retention", "claim_limit"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_pressure_inbox_v1"},
+    "goal_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["current", "conflicted", "deferred", "missing", "invalid"]},
+    "items": {"type": "array", "items": {"$ref": "#/$defs/pressureRecord"}},
+    "critical_next_routes": {"type": "array", "items": {"type": "object"}},
+    "conflicts": {"type": "array", "items": {"type": "object"}},
+    "duplicates": {"type": "array", "items": {"type": "object"}},
+    "invalid_records": {"type": "array", "items": {"type": "object"}},
+    "legacy_candidates": {"type": "array", "items": {"type": "object"}},
+    "outcomes": {"type": "object"},
+    "access_policy": {"type": "object"},
+    "retention": {"type": "object"},
+    "errors": {"type": "array", "items": {"type": "string"}},
+    "read_model_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "claim_limit": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "typedRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "owner", "kind", "sha256", "currentness", "authority", "claim_limit"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "owner": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "currentness": {"type": "string", "minLength": 1},
+        "access_scope": {"type": "string", "minLength": 1},
+        "authority": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "pressureRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "goal_id", "pressure_ref", "evidence", "affected_goal_criterion", "consequence_of_omission", "natural_owner", "checked_existing_surfaces", "independence_signals", "recommended_trigger_strength", "stop_line", "wake_condition", "next_route", "outcome", "claim_limit"],
+      "properties": {
+        "schema_version": {"const": "aoa_dashboard_pressure_record_v1"},
+        "goal_id": {"type": "string", "minLength": 1},
+        "pressure_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "ref", "sha256", "currentness", "access_scope", "authority"],
+          "properties": {
+            "id": {"type": "string", "minLength": 1},
+            "kind": {"type": "string", "minLength": 1},
+            "ref": {"type": "string", "minLength": 1},
+            "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+            "currentness": {"type": "string", "minLength": 1},
+            "access_scope": {"type": "string", "minLength": 1},
+            "authority": {"type": "string", "minLength": 1}
+          }
+        },
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/typedRef"}},
+        "affected_goal_criterion": {"type": "string", "minLength": 1},
+        "consequence_of_omission": {"type": "string", "minLength": 1},
+        "natural_owner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner", "owner_ref", "authority", "access_scope"],
+          "properties": {
+            "owner": {"type": "string", "minLength": 1},
+            "owner_ref": {"type": "string", "minLength": 1},
+            "authority": {"type": "string", "minLength": 1},
+            "access_scope": {"type": "string", "minLength": 1}
+          }
+        },
+        "checked_existing_surfaces": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+        "independence_signals": {"type": "object"},
+        "recommended_trigger_strength": {"enum": ["notice", "required_branch", "master_decision", "preauthorized_reflex"]},
+        "stop_line": {"type": "string", "minLength": 1},
+        "wake_condition": {"type": "string", "minLength": 1},
+        "next_route": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner", "owner_ref", "route", "reason", "critical", "authority", "access_scope", "effect", "claim_limit"],
+          "properties": {
+            "owner": {"type": "string", "minLength": 1},
+            "owner_ref": {"type": "string", "minLength": 1},
+            "route": {"type": "string", "minLength": 1},
+            "reason": {"type": "string", "minLength": 1},
+            "critical": {"type": "boolean"},
+            "authority": {"type": "string", "minLength": 1},
+            "access_scope": {"type": "string", "minLength": 1},
+            "effect": {"const": "none"},
+            "claim_limit": {"type": "string", "minLength": 1}
+          }
+        },
+        "outcome": {"type": "object"},
+        "record_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
