@@ -20,15 +20,20 @@ provenance, while conflicting observations remain visible with
 `winner: null` and `resolution: unresolved`.
 The HTTP projection remains read-only; the explicit
 `materialize_goal_local_projection` owner-controlled path appends validated
-observations to a JSONL ledger and atomically writes its checkpoint. A local
-materialization is derived evidence, never an owner-source overwrite.
+observations to a JSONL ledger and atomically replaces its checkpoint file. The
+log/checkpoint pair is single-writer locked and recoverable, but is not a
+two-file atomic transaction; an interrupted call may leave a log-ahead state
+for the next locked rebuild. A local materialization is derived evidence, never
+an owner-source overwrite.
 
 The P-infinity Pressure Inbox is a structured, read-only route. Each admitted
 record keeps `pressure_ref`, evidence, the affected Goal criterion, omission
 consequence, natural owner, checked surfaces, independence signals, trigger
 strength, stop-line, wake condition, next route, and outcome. Legacy
 bootstrap/master-filter obligation strings remain visible as deferred
-candidates until those fields are supplied; they are not silently upgraded.
+candidates until those fields are supplied; only a redacted digest-linked
+candidate is emitted, and raw legacy text is never exposed or silently
+upgraded.
 
 ## Run
 

@@ -9,6 +9,7 @@ from typing import Any
 from .cursor import (
     migrate_legacy_correlation_input,
     observations_from_correlation,
+    redact_legacy_metadata,
     read_correlation_checkpoint,
     read_correlation_observation_log,
     rebuild_goal_local_projection,
@@ -207,7 +208,9 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     goal_local_correlation["storage"] = {
         "observation_log_path": observation_log_path,
         "checkpoint_path": checkpoint_path,
-        "durability": "explicit_append_and_checkpoint_write",
+        "durability": "locked_recoverable_log_ahead_checkpoint",
+        "two_file_atomicity": False,
+        "crash_recovery": "next_locked_invocation_rebuilds_from_valid_log_and_replaces_checkpoint",
         "claim_limit": "The dashboard never overwrites owner source; durable local retention requires an explicit bounded write route.",
     }
     legacy_pressure = migrate_legacy_pressure_candidates(config, correlation_source)
@@ -249,6 +252,8 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     goal_source = source_index["goal-anchor"]
     goal_metadata = goal_source.get("metadata", {})
     correlation = source_index["task-local-correlation"].get("metadata", {})
+    safe_correlation = redact_legacy_metadata(correlation)
+    safe_sources = redact_legacy_metadata(sources)
     return {
         "schema_version": "aoa_dashboard_projection_v1",
         "generated_at": utc_now(),
@@ -261,14 +266,14 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
             "source_refs": goal_source.get("evidence_refs", []),
             "claim_limit": "The Goal Anchor is source binding; the dashboard does not own Goal semantics or acceptance.",
         },
-        "correlation": correlation,
+        "correlation": safe_correlation,
         "correlation_read_model": goal_local_correlation,
         "pressure_inbox": pressure_inbox,
-        "current_holder": correlation.get("current_holder", {"scope": "current_correlation", "claim_limit": "Current holder is not runtime authority."}),
+        "current_holder": safe_correlation.get("current_holder", {"scope": "current_correlation", "claim_limit": "Current holder is not runtime authority."}),
         "dag": dag,
         "lifecycle": lifecycle,
         "state_inventory": state_inventory,
-        "sources": sources,
+        "sources": safe_sources,
         "owner_surfaces": observe_owner_surfaces(config),
         "annotations": annotation_summary(),
         "action_intents": action_intent_summary(),

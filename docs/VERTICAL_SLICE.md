@@ -31,13 +31,15 @@ continuation or acceptance.
 The new cursor layer is adjacent to, and does not modify, the wake-receipt
 compatibility adapter. Existing `bootstrap.json` and
 `master-return-disposition.json` inputs remain accepted through an explicit
-migration record. Legacy pressure strings are shown as deferred candidates
-until all structured fields are present.
+migration record. Legacy pressure strings are shown only as redacted,
+digest-linked deferred candidates until all structured fields are present; raw
+legacy text is never emitted.
 
 The projection GET is read-only. When durable local retention is required, an
 owner-controlled caller may use the bounded materialization function to append
-validated observations to JSONL and atomically persist the checkpoint; malformed
-or drifted input is never persisted.
+validated observations to JSONL and atomically replace one checkpoint file; the
+locked log/checkpoint pair is recoverable, not a two-file atomic transaction.
+Malformed or drifted input is never persisted or reported as successful.
 
 This is a read model, not a release gate. Independent evaluation, owner
 acceptance, a goal-scoped return, and master re-entry remain explicitly

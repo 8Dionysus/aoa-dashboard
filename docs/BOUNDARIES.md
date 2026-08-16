@@ -17,8 +17,9 @@ The dashboard owns six local derived/operator surfaces:
 5. a versioned Goal-local cursor/checkpoint and append-only metadata retention
    layer. It may preserve duplicate/conflicting observations and provenance,
    but it may not choose a source-owner winner. The HTTP read path does not
-   write; explicit materialization appends validated observations and writes
-   an atomic checkpoint under a bounded local path.
+   write; explicit materialization appends validated observations and atomically
+   replaces one checkpoint file under the same single-writer lock. The
+   log/checkpoint pair is recoverable rather than two-file atomic.
 6. the P-infinity Pressure Inbox and its operator presentation. It may expose
    a critical next-route with `effect: none`; it cannot wake, branch, approve,
    execute, or change an owner record.
@@ -57,11 +58,14 @@ The cursor is computed from sorted canonical observation identities, payload
 digests, and source watermarks rather than poll order or read time. A replay
 reuses the same cursor; a changed existing payload/source watermark, removed
 record, malformed checkpoint, unknown access scope, or unknown authority is an
-invalid rebuild. A new observation may extend the cursor, but it cannot erase
-an earlier record.
+invalid rebuild. Only declared observation/source read timestamps are excluded
+from digests; meaningful currentness, access, authority, and claim drift
+remains invalid or unresolved. A new observation may extend the cursor, but it
+cannot erase an earlier record.
 
 Pressure records fail closed when evidence, natural owner, stop-line, wake
 condition, or route authority is absent. The compatibility bridge accepts the
 existing bootstrap and master-filter paths, but converts legacy obligation
-strings into explicitly deferred candidates with missing fields. It never
-turns a missing owner into a domain zero or an action permission.
+strings into explicitly deferred, digest-linked candidates with missing fields;
+raw legacy text remains source-owned and is never emitted by the API/UI. It
+never turns a missing owner into a domain zero or an action permission.

@@ -172,7 +172,11 @@ function renderCorrelation(data) {
   obligationBlock.append(text("strong", "New obligations from master filter"));
   if (obligations.length) {
     const list = document.createElement("ul");
-    for (const obligation of obligations) list.append(text("li", obligation));
+    for (const obligation of obligations) {
+      const digest = obligation && typeof obligation === "object" ? obligation.sha256 || "unavailable" : "unavailable";
+      const redacted = obligation && typeof obligation === "object" ? obligation.redacted : null;
+      list.append(text("li", `${redacted || "[redacted legacy obligation]"} · sha256:${digest}`));
+    }
     obligationBlock.append(list);
   } else {
     obligationBlock.append(text("p", "No new obligation is present in the current filter."));
@@ -230,7 +234,8 @@ function renderPressureInbox(data) {
     card.className = "pressure-card legacy";
     card.append(text("strong", candidate.pressure_ref?.id || "legacy pressure candidate"));
     card.append(badge("deferred"));
-    card.append(text("p", candidate.legacy_obligation || "Legacy obligation text unavailable", "claim"));
+    card.append(text("p", candidate.legacy_obligation_redacted || "Legacy obligation text is redacted", "claim"));
+    card.append(text("p", `Source digest: ${candidate.legacy_obligation_digest || "unavailable"}`, "mono muted"));
     card.append(text("p", `Missing structured fields: ${(candidate.missing_fields || []).join(", ") || "unknown"}`, "claim"));
     target.append(card);
   }
