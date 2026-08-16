@@ -269,7 +269,11 @@ class CorrelationAdapterTests(unittest.TestCase):
         result = observe_current_correlation(config)
         self.assertIn(result["state"], {"bound", "deferred"})
         self.assertEqual(result["metadata"]["master_thread_id"], "01a00722-0291-72e0-8310-559da802d6e1")
-        self.assertEqual(result["metadata"]["summary"]["reentered"], 4)
+        summary = result["metadata"]["summary"]
+        self.assertGreater(summary["filtered_return_ids"], 0)
+        self.assertEqual(summary["invalid"], 0)
+        self.assertEqual(summary["missing"], 0)
+        self.assertEqual(summary["reentered"], summary["filtered_return_ids"])
 
     def test_mismatched_master_thread_is_invalid(self) -> None:
         self.fixture._write_valid(handoff_thread="other-thread")
