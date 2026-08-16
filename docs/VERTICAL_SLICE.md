@@ -12,12 +12,6 @@ The slice is complete when a local operator can open the dashboard and see:
   SHA-256 digests, versioned v2 task-local or v1 `aoa-sdk` wake candidates,
   accepted turn, master-filter disposition, DAG state, and newly exposed
   obligations;
-  - a versioned Goal-local correlation read model with deterministic cursor,
-    checkpoint/replay state, source watermarks, duplicate provenance, and
-    unresolved conflicting observations;
-  - a structured P-infinity Pressure Inbox showing the natural owner, evidence,
-    omission consequence, independence signals, trigger strength, stop-line,
-    wake condition, outcome, and critical display-only next-route;
 - a versioned Goal-local correlation read model with deterministic cursor,
   checkpoint/replay state, source watermarks, duplicate provenance, and
   unresolved conflicting observations;

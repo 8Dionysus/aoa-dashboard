@@ -14,9 +14,6 @@ The dashboard owns six local derived/operator surfaces:
    handoff, versioned wake, accepted-turn, master-filter, and DAG disposition
    refs. It is derived read-model evidence, not a new actor, runtime, proof,
    return-acceptance, semantic-re-entry, or parent-resume owner.
-   handoff, wake, accepted-turn, master-filter, and DAG disposition refs. It
-   is derived read-model evidence, not a new actor, runtime, proof,
-   return-acceptance, semantic re-entry, or parent-resume owner.
 5. a versioned Goal-local cursor/checkpoint and append-only metadata retention
    layer. It may preserve duplicate/conflicting observations and provenance,
    but it may not choose a source-owner winner. The HTTP read path does not
