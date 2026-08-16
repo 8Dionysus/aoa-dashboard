@@ -144,6 +144,39 @@ def _optional_string(value: Any) -> bool:
     return value is None or _non_empty_string(value)
 
 
+def normalize_wake_string(value: Any) -> str | None:
+    """Keep a typed wake value only when it is already a JSON string."""
+
+    return value if isinstance(value, str) else None
+
+
+def _admitted_string(value: Any, admitted: frozenset[str]) -> bool:
+    """Guard set membership from JSON values such as lists and objects."""
+
+    return isinstance(value, str) and value in admitted
+
+
+def _validate_object_fields(
+    value: dict[Any, Any],
+    *,
+    allowed: frozenset[str],
+    required: frozenset[str],
+    label: str,
+    errors: list[str],
+) -> None:
+    """Report object-shape errors without assuming JSON string keys."""
+
+    non_string_keys = [key for key in value if not isinstance(key, str)]
+    extra = sorted(key for key in value if isinstance(key, str) and key not in allowed)
+    missing = sorted(field for field in required if field not in value)
+    if non_string_keys:
+        errors.append(f"{label} has non-string field names")
+    if extra:
+        errors.append(f"{label} has unsupported fields: " + ", ".join(extra))
+    if missing:
+        errors.append(f"{label} is missing fields: " + ", ".join(missing))
+
+
 def _bounded_string(value: Any, *, maximum: int, label: str, errors: list[str]) -> None:
     if isinstance(value, str) and len(value) > maximum:
         errors.append(f"codex v1 wake receipt {label} exceeds {maximum} characters")
@@ -161,12 +194,13 @@ def _validate_failure(value: Any, errors: list[str]) -> None:
     if not isinstance(value, dict):
         errors.append("codex v1 failure is not an object")
         return
-    extra = sorted(set(value) - _CODEX_FAILURE_FIELDS)
-    missing = sorted(_CODEX_FAILURE_REQUIRED_FIELDS - set(value))
-    if extra:
-        errors.append("codex v1 failure has unsupported fields: " + ", ".join(extra))
-    if missing:
-        errors.append("codex v1 failure is missing fields: " + ", ".join(missing))
+    _validate_object_fields(
+        value,
+        allowed=_CODEX_FAILURE_FIELDS,
+        required=_CODEX_FAILURE_REQUIRED_FIELDS,
+        label="codex v1 failure",
+        errors=errors,
+    )
     for field in _CODEX_FAILURE_FIELDS:
         if field in value and not _non_empty_string(value[field]):
             errors.append(f"codex v1 failure {field} is missing")
@@ -182,12 +216,13 @@ def validate_codex_wake_receipt_v1(value: Any) -> list[str]:
     if not isinstance(value, dict):
         return ["codex v1 wake receipt is not an object"]
 
-    extra = sorted(set(value) - _CODEX_RECEIPT_FIELDS)
-    missing = sorted(_CODEX_RECEIPT_REQUIRED_FIELDS - set(value))
-    if extra:
-        errors.append("codex v1 wake receipt has unsupported fields: " + ", ".join(extra))
-    if missing:
-        errors.append("codex v1 wake receipt is missing fields: " + ", ".join(missing))
+    _validate_object_fields(
+        value,
+        allowed=_CODEX_RECEIPT_FIELDS,
+        required=_CODEX_RECEIPT_REQUIRED_FIELDS,
+        label="codex v1 wake receipt",
+        errors=errors,
+    )
 
     for field in (
         "schema_version",
@@ -214,7 +249,7 @@ def validate_codex_wake_receipt_v1(value: Any) -> list[str]:
         value.get("handoff_sha256"), schema_version=CODEX_WAKE_RECEIPT_SCHEMA_VERSION
     ) is None:
         errors.append("codex v1 wake receipt handoff_sha256 is not sha256:<hex>")
-    if value.get("route") not in _CODEX_ROUTES:
+    if not _admitted_string(value.get("route"), _CODEX_ROUTES):
         errors.append("codex v1 wake receipt route is not admitted")
     if normalize_codex_wake_attempts(value.get("attempts")) is None:
         errors.append("codex v1 wake receipt attempts must be an integer in 0..3")
@@ -230,10 +265,10 @@ def validate_codex_wake_receipt_v1(value: Any) -> list[str]:
     _bounded_string(value.get("accepted_turn_id"), maximum=256, label="accepted_turn_id", errors=errors)
 
     outcome = value.get("outcome")
-    if outcome not in _CODEX_OUTCOMES:
+    if not _admitted_string(outcome, _CODEX_OUTCOMES):
         errors.append("codex v1 wake receipt outcome is not admitted")
     responsibility_state = value.get("responsibility_state")
-    if responsibility_state not in _CODEX_RESPONSIBILITY_STATES:
+    if not _admitted_string(responsibility_state, _CODEX_RESPONSIBILITY_STATES):
         errors.append("codex v1 wake receipt responsibility_state is not admitted")
     if outcome == "handoff_delivered_pending_master_filter":
         if value.get("failure") is not None:
@@ -264,12 +299,13 @@ def validate_codex_wake_owner_binding(value: Any) -> list[str]:
         ]
 
     errors: list[str] = []
-    extra = sorted(set(value) - _CODEX_OWNER_BINDING_FIELDS)
-    missing = sorted(_CODEX_OWNER_BINDING_REQUIRED_FIELDS - set(value))
-    if extra:
-        errors.append("codex v1 owner binding has unsupported fields: " + ", ".join(extra))
-    if missing:
-        errors.append("codex v1 owner binding is missing fields: " + ", ".join(missing))
+    _validate_object_fields(
+        value,
+        allowed=_CODEX_OWNER_BINDING_FIELDS,
+        required=_CODEX_OWNER_BINDING_REQUIRED_FIELDS,
+        label="codex v1 owner binding",
+        errors=errors,
+    )
 
     for field in _CODEX_OWNER_BINDING_REQUIRED_FIELDS:
         if field in value and not _non_empty_string(value[field]):
@@ -336,7 +372,7 @@ def make_wake_provenance(
         "owner_repo": owner_repo,
         "owner_ref": owner_ref,
         "contract_ref": contract_ref,
-        "source_schema_version": schema_version,
+        "source_schema_version": normalize_wake_string(schema_version),
         "source_family": wake_source_family(schema_version),
         "adapter_version": WAKE_RECEIPT_ADAPTER_VERSION,
         "raw_owner_ref": raw_ref,
@@ -361,6 +397,7 @@ __all__ = [
     "make_wake_provenance",
     "normalize_codex_wake_attempts",
     "normalize_handoff_sha256",
+    "normalize_wake_string",
     "validate_codex_wake_receipt_v1",
     "validate_codex_wake_owner_binding",
     "wake_source_family",

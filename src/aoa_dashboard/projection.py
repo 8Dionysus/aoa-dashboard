@@ -78,6 +78,9 @@ def _lifecycle(config: dict[str, Any], source_index: dict[str, dict[str, Any]]) 
             for envelope in correlation_metadata.get("envelopes", [])
             if isinstance(envelope, dict)
             and isinstance(envelope.get("wake_observation"), dict)
+            and isinstance(
+                envelope["wake_observation"].get("source_schema_version"), str
+            )
             and envelope["wake_observation"].get("source_schema_version")
         }
     )

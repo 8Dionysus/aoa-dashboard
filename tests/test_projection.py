@@ -792,6 +792,185 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertIsNone(envelope["wake_observation"]["goal_resume_requested"])
         self.assertIn("unsupported wake receipt schema_version", " ".join(envelope["return_observation"]["errors"]))
 
+    def _assert_invalid_v2_payload(self, payload: dict) -> dict:
+        self.fixture._write_valid(wake_payload=payload)
+        result = observe_current_correlation(self.fixture.config())
+        envelope = result["metadata"]["envelopes"][0]
+        self.assertEqual(result["state"], "invalid")
+        self.assertEqual(envelope["state"], "invalid")
+        self.assertEqual(envelope["accepted_turn"]["state"], "missing")
+        self.assertNotEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
+        self._assert_schema_valid(envelope)
+        return envelope
+
+    def _assert_invalid_v1_payload(self, payload: dict) -> dict:
+        self.fixture._write_codex_v1(wake_payload=payload)
+        result = observe_current_correlation(self.fixture.config())
+        envelope = result["metadata"]["envelopes"][0]
+        self.assertEqual(result["state"], "invalid")
+        self.assertEqual(envelope["state"], "invalid")
+        self.assertEqual(envelope["accepted_turn"]["state"], "missing")
+        self.assertNotEqual(envelope["lifecycle"]["reentered"]["state"], "reentered")
+        self._assert_schema_valid(envelope)
+        return envelope
+
+    def test_f05_malformed_schema_version_is_total_and_schema_valid(self) -> None:
+        for schema_version in (True, 7):
+            with self.subTest(schema_version=schema_version):
+                payload = json.loads(self.fixture.wake.read_text(encoding="utf-8"))
+                payload["schema_version"] = schema_version
+                envelope = self._assert_invalid_v2_payload(payload)
+                wake = envelope["wake_observation"]
+                self.assertIsNone(wake["schema_version"])
+                self.assertIsNone(wake["source_schema_version"])
+                self.assertEqual(wake["source_family"], "unsupported")
+                lifecycle = _lifecycle(
+                    {"parent_posture": "paused", "historical_bootstrap": {}},
+                    {
+                        "goal-anchor": {"state": "bound", "evidence_refs": [{"ref": "goal-anchor"}]},
+                        "aoa-session-memory": {"evidence_refs": []},
+                        "aoa-evals-surface": {"evidence_refs": []},
+                        "task-local-correlation": observe_current_correlation(self.fixture.config()),
+                    },
+                )
+                wake_step = next(item for item in lifecycle if item["step"] == "wake requested")
+                self.assertEqual(wake_step["state"], "invalid")
+
+    def test_f05_v1_unhashable_route_is_invalid_not_exception(self) -> None:
+        payload = self.fixture._write_codex_v1()
+        payload["route"] = []
+        envelope = self._assert_invalid_v1_payload(payload)
+        self.assertIsNone(envelope["wake_observation"]["route"])
+
+    def test_f05_v2_unhashable_outcome_is_invalid_not_exception(self) -> None:
+        payload = json.loads(self.fixture.wake.read_text(encoding="utf-8"))
+        payload["outcome"] = {}
+        envelope = self._assert_invalid_v2_payload(payload)
+        self.assertIsNone(envelope["wake_observation"]["outcome"])
+
+    def test_f05_v1_wrong_typed_fields_are_normalized_and_evidence_retained(self) -> None:
+        payload = self.fixture._write_codex_v1()
+        payload.update(
+            {
+                "request_id": 7,
+                "handoff_sha256": {},
+                "attempted_at": 7,
+                "delivery_route": {},
+                "accepted_turn_id": {},
+                "failure": [],
+            }
+        )
+        envelope = self._assert_invalid_v1_payload(payload)
+        wake = envelope["wake_observation"]
+        self.assertIsNone(wake["request_id"])
+        self.assertIsNone(wake["raw_handoff_sha256"])
+        self.assertIsNone(wake["delivery_route"])
+        self.assertIsNone(envelope["accepted_turn"]["accepted_turn_id"])
+        self.assertIsNone(wake["failure"])
+        self.assertEqual(wake["observed_at"], "2026-08-15T23:00:01Z")
+        self.assertTrue(envelope["return_observation"]["errors"])
+        self.assertEqual(
+            wake["provenance"]["raw_owner_content_sha256"],
+            hashlib.sha256(self.fixture.wake.read_bytes()).hexdigest(),
+        )
+
+    def test_f05_v2_wrong_delivery_route_cannot_reenter_or_bind(self) -> None:
+        payload = json.loads(self.fixture.wake.read_text(encoding="utf-8"))
+        payload["observed"]["delivery_route"] = {}
+        envelope = self._assert_invalid_v2_payload(payload)
+        self.assertIsNone(envelope["wake_observation"]["delivery_route"])
+        self.assertEqual(envelope["wake_observation"]["missingness"], "present_but_invalid")
+
+    def test_f05_expanded_wrong_type_matrix_is_total_and_schema_valid(self) -> None:
+        v1_mutations = {
+            "schema_version": [],
+            "route": {},
+            "outcome": {},
+            "request_id": 7,
+            "handoff_sha256": {},
+            "attempted_at": 7,
+            "generated_at": [],
+            "delivery_route": {},
+            "client_user_message_id": [],
+            "accepted_turn_id": {},
+            "responsibility_state": [],
+            "failure": [],
+            "before": [],
+            "after": [],
+            "master_thread_id": [],
+            "handoff_ref": {},
+            "attempts": {},
+            "failure_nested": {"stage": [], "error_type": "bad", "message": "bad"},
+        }
+        for label, value in v1_mutations.items():
+            with self.subTest(source="v1", field=label):
+                payload = self.fixture._write_codex_v1()
+                if label == "failure_nested":
+                    payload["failure"] = value
+                else:
+                    payload[label] = value
+                self._assert_invalid_v1_payload(payload)
+
+        v2_mutations = {
+            "schema_version": 7,
+            "outcome": {},
+            "handoff_sha256": [],
+            "attempted_at": {},
+            "generated_at": [],
+            "thread_id": [],
+            "handoff_ref": {},
+            "observed": [],
+            "actions": [],
+        }
+        for label, value in v2_mutations.items():
+            with self.subTest(source="v2", field=label):
+                payload = json.loads(self.fixture.wake.read_text(encoding="utf-8"))
+                payload[label] = value
+                self._assert_invalid_v2_payload(payload)
+
+        nested_v2 = [
+            ("observed.delivery_route", {"delivery_route": {}}),
+            (
+                "observed.accepted_turn_id",
+                {
+                    "accepted_turn_id": {},
+                    "delivery_route": "active_turn_steer",
+                    "handoff_delivery": True,
+                },
+            ),
+            (
+                "observed.handoff_delivery",
+                {
+                    "accepted_turn_id": "accepted-turn-1",
+                    "delivery_route": "active_turn_steer",
+                    "handoff_delivery": [],
+                },
+            ),
+            (
+                "actions.handoff_message_submitted",
+                {"handoff_message_submitted": []},
+            ),
+        ]
+        for label, value in nested_v2:
+            with self.subTest(source="v2", field=label):
+                payload = json.loads(self.fixture.wake.read_text(encoding="utf-8"))
+                if label.startswith("observed"):
+                    payload["observed"] = value
+                else:
+                    payload["actions"] = value
+                self._assert_invalid_v2_payload(payload)
+
+    def test_f03_malformed_goal_resume_remains_nullable_observation_only(self) -> None:
+        payload = json.loads(self.fixture.wake.read_text(encoding="utf-8"))
+        payload["actions"]["goal_resume_requested"] = {}
+        self.fixture._write_valid(wake_payload=payload)
+        result = observe_current_correlation(self.fixture.config())
+        envelope = result["metadata"]["envelopes"][0]
+        self._assert_schema_valid(envelope)
+        self.assertEqual(envelope["state"], "reentered")
+        self.assertIsNone(envelope["wake_observation"]["goal_resume_requested"])
+        self.assertEqual(envelope["accepted_turn"]["state"], "transport_accepted")
+
 
 if __name__ == "__main__":
     unittest.main()
