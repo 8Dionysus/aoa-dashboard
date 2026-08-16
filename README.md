@@ -42,3 +42,9 @@ The current correlation surface is task-local and read-only. Handoff delivery
 is not proof or acceptance; `reentered` requires exact `accepted_turn_id` plus
 the master filter and remains a bounded correlation claim. Annotations and
 action intents keep their local dashboard-owned, non-executing boundary.
+
+The live activity surface is derived from those admitted task-local correlation
+envelopes. It renders one card per observed return candidate and copies only
+allowlisted scalar actor, responsibility, process, session, terminal, and usage
+fields from the handoff or wake payload. Missing or unknown fields stay visible;
+the surface never treats them as zero or as runtime health.

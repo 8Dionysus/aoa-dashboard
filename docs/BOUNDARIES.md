@@ -2,7 +2,7 @@
 
 ## What this organ owns
 
-The dashboard owns three local surfaces:
+The dashboard owns five local surfaces:
 
 1. `aoa_dashboard_projection_v1`, a derived read model assembled from named
    owner sources;
@@ -14,6 +14,10 @@ The dashboard owns three local surfaces:
    handoff, wake, accepted-turn, master-filter, and DAG disposition refs. It
    is derived read-model evidence, not a new actor, runtime, proof, or
    acceptance owner.
+5. a task-local actor-activity projection, which groups admitted envelopes by
+   actor key and retains allowlisted process/session/terminal/usage observations
+   with their source refs. It is an observation surface, not a lifecycle or
+   runtime-health owner.
 
 ## What remains outside the organ
 
@@ -42,3 +46,9 @@ identity. Wake delivery is transport evidence only; master-filtered re-entry
 is emitted only from exact `accepted_turn_id` plus the validated master filter
 and still does not prove semantic continuation, owner acceptance, or runtime
 health.
+
+The actor-activity cards reuse that same correlation binding. Their identity,
+responsibility, process, session, terminal, and usage groups are field-level
+observations. A missing publisher, missing field, malformed payload, or absent
+usage value remains missing, unknown, or invalid; no count, health, or success
+claim is inferred from absence.

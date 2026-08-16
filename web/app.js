@@ -164,6 +164,80 @@ function renderCorrelation(data) {
   target.append(obligationBlock);
 }
 
+function activityValue(group, key) {
+  const value = group?.[key];
+  return value == null || value === "" ? "unknown" : value;
+}
+
+function activityGroup(label, group, fields) {
+  const block = document.createElement("div");
+  block.className = "activity-group";
+  const heading = document.createElement("div");
+  heading.className = "activity-group-head";
+  heading.append(text("strong", label));
+  heading.append(badge(group?.state || "unknown"));
+  block.append(heading);
+  for (const [name, key] of fields) {
+    const row = document.createElement("div");
+    row.className = "activity-field";
+    row.append(text("span", name, "muted"));
+    row.append(text("span", activityValue(group, key), "mono"));
+    block.append(row);
+  }
+  return block;
+}
+
+function renderActorActivity(data) {
+  const target = byId("actor-activity");
+  clear(target);
+  const activity = data.actor_activity || {};
+  const summary = activity.summary || {};
+  const intro = document.createElement("div");
+  intro.className = "activity-summary";
+  intro.append(text("strong", `${summary.actor_count == null ? "unknown" : summary.actor_count} actor(s) observed`));
+  intro.append(badge(activity.state || "unknown"));
+  intro.append(text("p", activity.observation || "Actor activity is not available; absence is not zero."));
+  target.append(intro);
+
+  const actors = activity.actors || [];
+  if (!actors.length) {
+    target.append(text("p", "No actor envelope is admitted by the current task-local correlation surface; actor count remains unknown.", "claim"));
+    return;
+  }
+  for (const actor of actors) {
+    const card = document.createElement("article");
+    card.className = "actor-card";
+    const head = document.createElement("div");
+    head.className = "actor-head";
+    const title = document.createElement("div");
+    title.append(text("strong", actor.identity?.label || actor.actor_key || "actor identity unknown"));
+    title.append(text("div", actor.actor_key || "actor key unknown", "mono muted"));
+    head.append(title);
+    head.append(badge(actor.state || "unknown"));
+    card.append(head);
+
+    const grid = document.createElement("div");
+    grid.className = "activity-grid";
+    grid.append(activityGroup("Identity", actor.identity, [["actor id", "actor_id"], ["incarnation", "incarnation_id"], ["role", "role_id"]]));
+    grid.append(activityGroup("Responsibility", actor.responsibility, [["state", "responsibility_state"], ["holder", "holder"], ["mandate", "mandate_id"], ["obligation", "obligation_id"]]));
+    grid.append(activityGroup("Process", actor.process, [["process id", "process_id"], ["posture", "posture"]]));
+    grid.append(activityGroup("Session", actor.session, [["session id", "session_id"], ["posture", "posture"]]));
+    grid.append(activityGroup("Terminal", actor.terminal, [["terminal id", "terminal_id"], ["posture", "posture"], ["exit code", "exit_code"]]));
+    grid.append(activityGroup("Usage", actor.usage, [["evidence status", "observation_status"], ["input tokens", "input_tokens"], ["output tokens", "output_tokens"], ["total tokens", "total_tokens"], ["tool calls", "tool_calls"], ["duration seconds", "duration_seconds"]]));
+    card.append(grid);
+
+    const wakeReturn = document.createElement("div");
+    wakeReturn.className = "activity-return";
+    wakeReturn.append(text("strong", "Wake / return posture"));
+    wakeReturn.append(badge(actor.wake_return?.return_state || "unknown"));
+    wakeReturn.append(text("span", `wake: ${activityValue(actor.wake_return, "wake_state")} · re-entry: ${activityValue(actor.wake_return, "reentry_state")} · accepted turn: ${activityValue(actor.wake_return, "accepted_turn_id")}`, "mono"));
+    card.append(wakeReturn);
+    card.append(evidenceList(actor.evidence_refs));
+    card.append(text("p", actor.claim_limit || "", "claim"));
+    target.append(card);
+  }
+}
+
 function renderSources(data) {
   const target = byId("sources");
   clear(target);
@@ -246,6 +320,7 @@ async function refresh() {
     renderLifecycle(data);
     renderDag(data);
     renderCorrelation(data);
+    renderActorActivity(data);
     renderSources(data);
     renderOwners(data);
     renderRecords(data);

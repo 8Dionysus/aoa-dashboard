@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .activity import observe_actor_activity
 from .correlation import observe_current_correlation
 
 
@@ -499,12 +500,14 @@ def observe_all(config: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str,
     goal = observe_goal(config)
     session = observe_session(config)
     correlation = observe_current_correlation(config)
+    activity = observe_actor_activity(config, correlation)
     actor = observe_actor_receipts(config)
     stats = observe_stats(config, actor)
     sources = [
         goal,
         session,
         correlation,
+        activity,
         stats,
         actor,
         observe_kag(config),
@@ -530,5 +533,5 @@ def observe_all(config: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str,
     index = {item["id"]: item for item in sources}
     # Short aliases keep adapter call sites readable while the public source
     # ids remain the stable drill-down keys.
-    index.update({"goal": goal, "session": session, "correlation": correlation, "actor": actor, "stats": stats})
+    index.update({"goal": goal, "session": session, "correlation": correlation, "activity": activity, "actor": actor, "stats": stats})
     return sources, index

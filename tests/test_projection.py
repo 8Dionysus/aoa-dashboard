@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aoa_dashboard.projection import build_projection, load_config  # noqa: E402
 from aoa_dashboard.correlation import observe_current_correlation  # noqa: E402
+from aoa_dashboard.activity import observe_actor_activity  # noqa: E402
 from aoa_dashboard.sources import observe_session  # noqa: E402
 
 
@@ -152,6 +153,13 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(projection["current_holder"]["scope"], "current_task_local_correlation")
         self.assertEqual(next(item for item in projection["lifecycle"] if item["step"] == "running")["state"], "deferred")
 
+    def test_actor_activity_absence_stays_unknown(self) -> None:
+        projection = build_projection(self._write_config())
+        activity = next(item for item in projection["sources"] if item["id"] == "task-local-actor-activity")
+        self.assertEqual(activity["state"], "missing")
+        self.assertIsNone(projection["actor_activity"]["summary"]["actor_count"])
+        self.assertEqual(projection["actor_activity"]["actors"], [])
+
     def _write_config(self) -> str:
         path = self.fixture.root / "config.json"
         path.write_text(json.dumps(self.fixture.config()), encoding="utf-8")
@@ -272,8 +280,16 @@ class CorrelationAdapterTests(unittest.TestCase):
         summary = result["metadata"]["summary"]
         self.assertGreater(summary["filtered_return_ids"], 0)
         self.assertEqual(summary["invalid"], 0)
-        self.assertEqual(summary["missing"], 0)
-        self.assertEqual(summary["reentered"], summary["filtered_return_ids"])
+        self.assertEqual(
+            summary["reentered"] + summary["missing"],
+            summary["filtered_return_ids"],
+        )
+        if summary["missing"]:
+            self.assertEqual(result["state"], "deferred")
+        activity = observe_actor_activity(config, result)["metadata"]
+        self.assertGreaterEqual(activity["summary"]["actor_count"], 2)
+        self.assertEqual(activity["summary"]["actor_count"], len(activity["actors"]))
+        self.assertTrue(all(actor["evidence_refs"] for actor in activity["actors"]))
 
     def test_mismatched_master_thread_is_invalid(self) -> None:
         self.fixture._write_valid(handoff_thread="other-thread")
@@ -367,6 +383,105 @@ class CorrelationAdapterTests(unittest.TestCase):
         extra = next(item for item in result["metadata"]["envelopes"] if item["return_observation"]["return_id"] == "unfiltered")
         self.assertEqual(extra["state"], "deferred")
         self.assertEqual(extra["lifecycle"]["reentered"]["state"], "missing")
+        activity = observe_actor_activity(self.fixture.config(), result)["metadata"]
+        extra_activity = next(item for item in activity["actors"] if item["actor_key"] == "return:unfiltered")
+        self.assertEqual(activity["state"], "deferred")
+        self.assertEqual(extra_activity["payload_state"], "observed")
+        self.assertEqual(extra_activity["wake_return"]["wake_state"], "wake requested")
+
+    def test_actor_activity_keeps_two_actors_and_unknown_usage_distinct(self) -> None:
+        primary = {
+            "schema_version": "test_handoff_v1",
+            "master_thread_id": self.fixture.thread,
+            "responsibility_state": {
+                "state": "returned_pending_review",
+                "holder": "independent Luna Max implementation holder",
+            },
+            "actor": {
+                "name": "Luna",
+                "kind": "external_codex_incarnation",
+                "session_id": "session-alpha",
+            },
+            "runtime": {
+                "incarnation": "incarnation:alpha",
+                "process_pid": 731,
+                "terminal_wake_state_before_command": "pending",
+            },
+            "return_summary": {"usage_observation": {"status": "complete"}},
+        }
+        self.fixture._write_json(self.fixture.handoff, primary)
+        primary_digest = hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest()
+        wake = json.loads(self.fixture.wake.read_text(encoding="utf-8"))
+        wake["handoff_sha256"] = primary_digest
+        self.fixture._write_json(self.fixture.wake, wake)
+        self.fixture._write_filter(primary_digest)
+
+        secondary = self.fixture.task_local / "secondary-luna-handoff.json"
+        self.fixture._write_json(
+            secondary,
+            {
+                "schema_version": "test_handoff_v1",
+                "master_thread_id": self.fixture.thread,
+                "responsibility_state": "returned",
+            },
+        )
+        secondary_digest = hashlib.sha256(secondary.read_bytes()).hexdigest()
+        filter_value = json.loads(self.fixture.filter.read_text(encoding="utf-8"))
+        filter_value["returns"].append(
+            {
+                "id": "secondary",
+                "disposition": "accepted_with_limits",
+                "handoff_ref": str(secondary.resolve()),
+                "handoff_sha256": secondary_digest,
+                "wake_receipt_ref": str((self.fixture.task_local / "secondary.wake-receipt.json").resolve()),
+            }
+        )
+        self.fixture._write_json(self.fixture.filter, filter_value)
+
+        correlation = observe_current_correlation(self.fixture.config())
+        source = observe_actor_activity(self.fixture.config(), correlation)
+        activity = source["metadata"]
+        self.assertEqual(activity["state"], "deferred")
+        self.assertEqual(activity["summary"]["actor_count"], 2)
+        self.assertEqual(activity["summary"]["with_usage"], 1)
+        alpha = next(item for item in activity["actors"] if item["identity"]["incarnation_id"] == "incarnation:alpha")
+        secondary_view = next(item for item in activity["actors"] if item["actor_key"] == "return:secondary")
+        self.assertEqual(alpha["identity"]["label"], "Luna")
+        self.assertEqual(alpha["identity"]["role_id"], "external_codex_incarnation")
+        self.assertEqual(alpha["responsibility"]["holder"], "independent Luna Max implementation holder")
+        self.assertEqual(alpha["process"]["process_id"], "731")
+        self.assertEqual(alpha["session"]["session_id"], "session-alpha")
+        self.assertEqual(alpha["terminal"]["posture"], "pending")
+        self.assertEqual(alpha["usage"]["observation_status"], "complete")
+        self.assertIsNone(alpha["usage"]["total_tokens"])
+        self.assertEqual(secondary_view["identity"]["state"], "unknown")
+        self.assertEqual(secondary_view["usage"]["state"], "unknown")
+        self.assertIsNone(secondary_view["usage"]["total_tokens"])
+        self.assertEqual(secondary_view["wake_return"]["wake_state"], "missing")
+
+    def test_actor_activity_malformed_payload_is_invalid_not_zero(self) -> None:
+        malformed = self.fixture.task_local / "malformed-luna-handoff.json"
+        malformed.write_text("{not-json\n", encoding="utf-8")
+        malformed_digest = hashlib.sha256(malformed.read_bytes()).hexdigest()
+        filter_value = json.loads(self.fixture.filter.read_text(encoding="utf-8"))
+        filter_value["returns"].append(
+            {
+                "id": "malformed",
+                "disposition": "accepted_with_limits",
+                "handoff_ref": str(malformed.resolve()),
+                "handoff_sha256": malformed_digest,
+                "wake_receipt_ref": str((self.fixture.task_local / "malformed.wake-receipt.json").resolve()),
+            }
+        )
+        self.fixture._write_json(self.fixture.filter, filter_value)
+
+        correlation = observe_current_correlation(self.fixture.config())
+        source = observe_actor_activity(self.fixture.config(), correlation)
+        malformed_view = next(item for item in source["metadata"]["actors"] if item["actor_key"] == "return:malformed")
+        self.assertEqual(source["state"], "invalid")
+        self.assertEqual(malformed_view["state"], "invalid")
+        self.assertEqual(malformed_view["payload_state"], "invalid")
+        self.assertNotEqual(malformed_view["usage"]["state"], "observed")
 
 
 if __name__ == "__main__":

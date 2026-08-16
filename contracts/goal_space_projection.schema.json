@@ -3,12 +3,25 @@
   "$id": "aoa-dashboard://contracts/goal-space-projection-v1",
   "title": "aoa-dashboard derived Goal Space projection",
   "type": "object",
-  "required": ["schema_version", "generated_at", "goal", "correlation", "current_holder", "dag", "lifecycle", "state_inventory", "sources", "owner_surfaces", "claim_limits"],
+  "required": ["schema_version", "generated_at", "goal", "correlation", "actor_activity", "current_holder", "dag", "lifecycle", "state_inventory", "sources", "owner_surfaces", "claim_limits"],
   "properties": {
     "schema_version": {"const": "aoa_dashboard_projection_v1"},
     "generated_at": {"type": "string", "format": "date-time"},
     "goal": {"type": "object"},
     "correlation": {"$ref": "aoa-dashboard://contracts/correlation-envelope-v1#/$defs/projection"},
+    "actor_activity": {
+      "type": "object",
+      "required": ["schema_version", "state", "actors", "summary", "claim_limit"],
+      "properties": {
+        "schema_version": {"const": "aoa_dashboard_actor_activity_v1"},
+        "state": {"type": "string"},
+        "actors": {"type": "array", "items": {"type": "object"}},
+        "summary": {"type": "object"},
+        "evidence_refs": {"type": "array"},
+        "claim_limit": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
     "current_holder": {"type": "object"},
     "dag": {"type": "array"},
     "lifecycle": {"type": "array"},

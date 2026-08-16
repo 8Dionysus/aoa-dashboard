@@ -84,6 +84,21 @@ h2 { margin-bottom: 18px; font-family: Georgia, serif; font-size: 25px; line-hei
 .correlation-obligations { padding: 14px; border-left: 3px solid var(--amber); background: #fff9ed; color: var(--muted); font-size: 12px; }
 .correlation-obligations strong { color: var(--ink); }
 .correlation-obligations p { margin: 8px 0 0; }
+.actor-activity { display: grid; gap: 14px; }
+.activity-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #f1f7f6; }
+.activity-summary p { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.actor-card { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fbfcfd; }
+.actor-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.actor-head strong { font-size: 14px; }
+.activity-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-top: 14px; }
+.activity-group { display: grid; gap: 7px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.activity-group-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: var(--teal); font-size: 11px; }
+.activity-field { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #eef1f3; padding-top: 6px; font-size: 10px; }
+.activity-field .mono { text-align: right; overflow-wrap: anywhere; }
+.activity-return { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 12px; padding: 10px; border-left: 3px solid var(--amber); background: #fff9ed; font-size: 11px; }
+.activity-return strong { color: var(--ink); }
+.activity-return .mono { overflow-wrap: anywhere; }
+.actor-card > .claim { margin-top: 10px; }
 .source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; }
 .source-card { padding: 17px; border: 1px solid var(--line); border-radius: 14px; background: #fbfcfd; }
 .source-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 11px; }
@@ -123,5 +138,9 @@ button.secondary { color: #214f4d; background: #dff2ef; }
   .panel { padding: 20px; border-radius: 14px; }
   .timeline-row { grid-template-columns: 102px minmax(0, 1fr); }
   .correlation-chain { grid-template-columns: 1fr 1fr; }
+  .activity-grid { grid-template-columns: 1fr 1fr; }
   .footer { display: grid; }
+}
+@media (max-width: 480px) {
+  .activity-grid { grid-template-columns: 1fr; }
 }

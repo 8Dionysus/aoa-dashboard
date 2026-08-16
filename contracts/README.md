@@ -11,6 +11,10 @@ through adapters and retained only as bounded metadata plus provenance refs.
   for Goal/thread, handoff, v2 wake receipt, accepted turn, master filter, and
   task-local DAG disposition. It retains exact refs/digests, observed time,
   freshness, degradation, authority, and claim limits.
+- `goal_space_projection.schema.json` also carries the
+  `aoa_dashboard_actor_activity_v1` derived view. Its actor cards retain only
+  allowlisted scalar activity metadata and source refs; absent or malformed
+  fields remain bounded observations.
 - `goal_space_projection.schema.json` describes the read model served to the
   operator UI.
 - `dashboard_annotation.schema.json` and `action_intent.schema.json` are

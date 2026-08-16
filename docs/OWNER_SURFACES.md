@@ -23,6 +23,10 @@ owns only the thin translation and presentation layer.
   over the bounded task-local handoff/wake directory and master filter. It
   preserves exact refs/digests and does not take ownership of role, runtime,
   proof, acceptance, or semantic continuation.
+- The live actor-activity card is a second derived view over the same admitted
+  envelopes. It may show allowlisted scalar process/session/terminal/usage
+  observations and responsibility identifiers, but it cannot publish or
+  reinterpret those owners' semantics. Missing and unknown remain explicit.
 - `aoa-evals`: proof and independent evaluation owner. Candidate artifacts are
   not displayed as verdicts.
 - `aoa-memo`: reviewed durable memory owner. Recall is context, not evidence

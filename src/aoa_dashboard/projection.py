@@ -181,6 +181,7 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     goal_source = source_index["goal-anchor"]
     goal_metadata = goal_source.get("metadata", {})
     correlation = source_index["task-local-correlation"].get("metadata", {})
+    actor_activity = source_index["task-local-actor-activity"].get("metadata", {})
     return {
         "schema_version": "aoa_dashboard_projection_v1",
         "generated_at": utc_now(),
@@ -194,6 +195,7 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
             "claim_limit": "The Goal Anchor is source binding; the dashboard does not own Goal semantics or acceptance.",
         },
         "correlation": correlation,
+        "actor_activity": actor_activity,
         "current_holder": correlation.get("current_holder", {"scope": "current_correlation", "claim_limit": "Current holder is not runtime authority."}),
         "dag": dag,
         "lifecycle": lifecycle,

@@ -15,6 +15,14 @@ from aoa_dashboard.server import DashboardHandler  # noqa: E402
 
 
 class ServerTests(unittest.TestCase):
+    def test_operator_ui_exposes_actor_activity_surface(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        javascript = (root / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="actor-activity"', html)
+        self.assertIn("function renderActorActivity", javascript)
+        self.assertIn("data.actor_activity", javascript)
+
     def test_health_endpoint_is_read_model_only(self) -> None:
         server = __import__("http.server", fromlist=["ThreadingHTTPServer"]).ThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)

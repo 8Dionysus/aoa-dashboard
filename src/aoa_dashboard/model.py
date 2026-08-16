@@ -73,6 +73,7 @@ class Projection(TypedDict, total=False):
     generated_at: str
     goal: dict[str, object]
     correlation: dict[str, object]
+    actor_activity: dict[str, object]
     current_holder: dict[str, object]
     dag: list[dict[str, object]]
     lifecycle: list[StatusItem]
