@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from .model import LIFECYCLE_STATES, OBSERVATION_QUALITY, STATUS_VOCABULARY, Projection
+from .model import LIFECYCLE_STATES, STATUS_VOCABULARY, Projection
 from .sources import observe_all, observe_owner_surfaces, utc_now
 from .state_store import action_intent_summary, annotation_summary
 
@@ -72,6 +72,19 @@ def _lifecycle(config: dict[str, Any], source_index: dict[str, dict[str, Any]]) 
         correlation_refs = [{"label": "current correlation", "kind": "derived", "ref": "current-correlation:unresolved", "claim_limit": "Current correlation is unresolved."}]
     correlation_state = correlation.get("state", "missing")
     summary = correlation_metadata.get("summary", {}) if isinstance(correlation_metadata, dict) else {}
+    wake_schema_versions = sorted(
+        {
+            envelope.get("wake_observation", {}).get("source_schema_version")
+            for envelope in correlation_metadata.get("envelopes", [])
+            if isinstance(envelope, dict)
+            and isinstance(envelope.get("wake_observation"), dict)
+            and isinstance(
+                envelope["wake_observation"].get("source_schema_version"), str
+            )
+            and envelope["wake_observation"].get("source_schema_version")
+        }
+    )
+    wake_schema_label = ", ".join(wake_schema_versions) or "source-qualified"
     has_return = bool(summary.get("filtered_return_ids"))
     has_wake = bool(summary.get("reentered"))
     has_reentry = bool(summary.get("reentered"))
@@ -124,7 +137,11 @@ def _lifecycle(config: dict[str, Any], source_index: dict[str, dict[str, Any]]) 
         ),
         "wake requested": (
             wake_state,
-            "Validated v2 wake delivery is represented as transport admission only." if wake_state == "wake requested" else "No validated v2 wake delivery is available.",
+            (
+                f"Validated {wake_schema_label} wake delivery is represented as transport admission only."
+                if wake_state == "wake requested"
+                else "No validated wake delivery is available."
+            ),
             correlation_refs,
         ),
         "reentered": (

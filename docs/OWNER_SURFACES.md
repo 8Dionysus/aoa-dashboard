@@ -21,8 +21,15 @@ owns only the thin translation and presentation layer.
   referenced; an advancing source marks the archive as deferred/stale.
 - Current Goal/thread return correlation is dashboard-owned derived metadata
   over the bounded task-local handoff/wake directory and master filter. It
-  preserves exact refs/digests and does not take ownership of role, runtime,
-  proof, acceptance, or semantic continuation.
+  supports the historical task-local v2 witness beside the versioned
+  owner-shaped `aoa-sdk` v1 source, preserving exact refs/content digests,
+  explicit digest normalization provenance, freshness, missingness, and
+  failure. The v1 admitted binding set is currently empty; config strings are
+  candidate input only and cannot establish owner authority. A future
+  owner-qualified admission route must be supplied by the stronger owner
+  surface before v1 can be canonical or reenter. It does not take ownership of
+  role, runtime, proof, return acceptance, parent resume, or semantic
+  continuation.
 - The live actor-activity card is a second derived view over the same admitted
   envelopes. It may show allowlisted scalar process/session/terminal/usage
   observations and responsibility identifiers, but it cannot publish or
