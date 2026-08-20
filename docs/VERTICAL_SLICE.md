@@ -12,6 +12,12 @@ The slice is complete when a local operator can open the dashboard and see:
   SHA-256 digests, versioned v2 task-local or v1 `aoa-sdk` wake candidates,
   accepted turn, master-filter disposition, DAG state, and newly exposed
   obligations;
+- a versioned Goal-local correlation read model with deterministic cursor,
+  checkpoint/replay state, source watermarks, duplicate provenance, and
+  unresolved conflicting observations;
+- a structured P-infinity Pressure Inbox showing the natural owner, evidence,
+  omission consequence, independence signals, trigger strength, stop-line,
+  wake condition, outcome, and critical display-only next-route;
 - one compact actor-by-actor activity inventory over admitted task-local
   envelopes, with responsibility identity, process/session/terminal posture,
   wake/return state, usage observations, provenance refs, and field-level
@@ -35,6 +41,19 @@ v1/v2 collision is invalid and both candidate schemas remain visible in
 evidence drill-down. `goal_resume_requested` is an explicit nullable
 observation: null for v1, unsupported, or missing, and the exact v2 boolean
 when present; it is not an admission or semantic-resume signal.
+
+The new cursor layer is adjacent to, and does not modify, the wake-receipt
+compatibility adapter. Existing `bootstrap.json` and
+`master-return-disposition.json` inputs remain accepted through an explicit
+migration record. Legacy pressure strings are shown only as redacted,
+digest-linked deferred candidates until all structured fields are present; raw
+legacy text is never emitted.
+
+The projection GET is read-only. When durable local retention is required, an
+owner-controlled caller may use the bounded materialization function to append
+validated observations to JSONL and atomically replace one checkpoint file; the
+locked log/checkpoint pair is recoverable, not a two-file atomic transaction.
+Malformed or drifted input is never persisted or reported as successful.
 
 The activity adapter reads only the refs already admitted by that adapter and
 copies a fixed allowlist of scalar metadata. It does not add a cursor, pressure

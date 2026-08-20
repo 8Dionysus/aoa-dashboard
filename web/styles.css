@@ -70,7 +70,8 @@ h2 { margin-bottom: 18px; font-family: Georgia, serif; font-size: 25px; line-hei
 .dag-pressure { color: var(--muted); font-size: 11px; }
 .correlation-list { display: grid; gap: 14px; }
 .correlation-identity { display: grid; gap: 7px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #f1f7f6; }
-.correlation-identity p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.correlation-identity p, .correlation-identity ul { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.correlation-identity ul { padding-left: 18px; }
 .correlation-card { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fbfcfd; }
 .correlation-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .correlation-chain { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
@@ -84,6 +85,18 @@ h2 { margin-bottom: 18px; font-family: Georgia, serif; font-size: 25px; line-hei
 .correlation-obligations { padding: 14px; border-left: 3px solid var(--amber); background: #fff9ed; color: var(--muted); font-size: 12px; }
 .correlation-obligations strong { color: var(--ink); }
 .correlation-obligations p { margin: 8px 0 0; }
+.pressure-summary { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; color: var(--muted); }
+.pressure-list { display: grid; gap: 14px; }
+.pressure-card { padding: 17px; border: 1px solid var(--line); border-radius: 14px; background: #fbfcfd; }
+.pressure-card.critical { border-color: #d8ac68; box-shadow: inset 4px 0 0 var(--amber); }
+.pressure-card.legacy { border-style: dashed; opacity: .88; }
+.pressure-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 11px; }
+.pressure-criterion { margin: 0 0 8px; color: var(--ink); font-size: 13px; line-height: 1.45; }
+.pressure-route { display: grid; gap: 5px; margin-top: 14px; padding: 12px; border-radius: 10px; color: var(--navy); background: #fff8e8; }
+.pressure-route-label { color: var(--amber); font-size: 10px; font-weight: 900; letter-spacing: .09em; }
+.pressure-card details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.pressure-card summary { cursor: pointer; color: var(--teal); font-size: 11px; font-weight: 800; }
+.pressure-card pre { max-height: 180px; margin: 10px 0 0; padding: 10px; overflow: auto; color: #394758; background: #f1f4f6; border-radius: 8px; font-size: 10px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .actor-activity { display: grid; gap: 14px; }
 .activity-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #f1f7f6; }
 .activity-summary p { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }

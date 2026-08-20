@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/goal-local-correlation-projection-v1",
+  "title": "Derived Goal-local correlation projection with retained conflicts",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "goal_id",
+    "master_thread_id",
+    "status",
+    "cursor",
+    "checkpoint",
+    "observations",
+    "conflicts",
+    "duplicates",
+    "retention",
+    "rebuild",
+    "authority",
+    "claim_limits"
+  ],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_goal_local_correlation_projection_v1"},
+    "goal_id": {"type": "string", "minLength": 1},
+    "master_thread_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["current", "conflicted", "invalid"]},
+    "cursor": {"$ref": "aoa-dashboard://contracts/correlation-cursor-v1"},
+    "checkpoint": {"$ref": "aoa-dashboard://contracts/correlation-checkpoint-v1"},
+    "observations": {"type": "array", "items": {"$ref": "aoa-dashboard://contracts/correlation-observation-v1"}},
+    "conflicts": {"type": "array", "items": {"type": "object"}},
+    "duplicates": {"type": "array", "items": {"type": "object"}},
+    "retention": {"type": "object"},
+    "rebuild": {"type": "object"},
+    "migration": {"type": "object"},
+    "storage": {"type": "object"},
+    "authority": {"const": "aoa-dashboard:derived_goal_local_correlation"},
+    "claim_limits": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}

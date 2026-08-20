@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import copy
 import hashlib
-import json
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
@@ -17,6 +17,7 @@ from .wake_receipts import (
     wake_source_family,
     wake_source_kind,
 )
+from .source_binding import FileSnapshot, read_file_snapshot, snapshot_ref
 
 
 CORRELATION_SCHEMA_VERSION = "aoa_dashboard_correlation_envelope_v1"
@@ -35,10 +36,17 @@ class CorrelationRef(TypedDict):
     ref: str
     sha256: str | None
     observed_at: str | None
+    currentness: str
     freshness: str
     degradation: list[str]
+    owner: str
+    access_scope: str
     authority: str
+    claim_policy: str
+    expected_sha256: str | None
+    snapshot_role: str
     claim_limit: str
+    missing_fields: list[str]
 
 
 class CorrelationLifecycleItem(TypedDict):
@@ -70,7 +78,7 @@ class CorrelationProjection(TypedDict):
     current_holder: dict[str, Any]
     master_filter: dict[str, Any]
     envelopes: list[CorrelationEnvelope]
-    new_obligations: list[str]
+    new_obligations: list[dict[str, Any]]
     rejected_or_deferred_claims: list[str]
     summary: dict[str, Any]
     observed_at: str | None
@@ -84,27 +92,6 @@ def _utc_now() -> str:
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _read_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        return None, str(exc)
-    if not isinstance(value, dict):
-        return None, "top-level JSON value is not an object"
-    return value, None
-
-
-def _sha256(path: Path) -> str | None:
-    try:
-        digest = hashlib.sha256()
-        with path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
-    except OSError:
-        return None
 
 
 def _is_sha256(value: Any) -> bool:
@@ -160,20 +147,38 @@ def _ref(
     digest: str | None = None,
     observed_at: str | None = None,
     freshness: str = "unknown",
+    currentness: str | None = None,
     degradation: list[str] | None = None,
+    owner: str = "aoa-dashboard",
+    access_scope: str = "dashboard_local",
+    authority: str = "aoa-dashboard:derived",
+    claim_policy: str = "dashboard_derived_read_model",
+    expected_sha256: str | None = None,
+    snapshot_role: str = "derived_binding",
+    missing_fields: list[str] | None = None,
     claim_limit: str,
 ) -> CorrelationRef:
-    return {
+    result: dict[str, Any] = {
         "label": label,
         "kind": kind,
         "ref": str(path),
         "sha256": digest,
         "observed_at": observed_at,
+        "currentness": currentness or freshness,
         "freshness": freshness,
         "degradation": list(degradation or []),
-        "authority": "aoa-dashboard:derived",
+        "owner": owner,
+        "access_scope": access_scope,
+        "authority": authority,
+        "claim_policy": claim_policy,
         "claim_limit": claim_limit,
+        "snapshot_role": snapshot_role,
     }
+    if expected_sha256 is not None:
+        result["expected_sha256"] = expected_sha256
+    if missing_fields:
+        result["missing_fields"] = list(missing_fields)
+    return result  # type: ignore[return-value]
 
 
 def _direct_child(root: Path, value: Any) -> tuple[Path | None, str | None]:
@@ -199,26 +204,59 @@ def _base_claim_limit() -> str:
     )
 
 
+_LEGACY_OBLIGATION_CLAIM_LIMIT = (
+    "Legacy obligation text remains source-owned. The dashboard exposes only a digest-linked redaction "
+    "until an allowed owner scope supplies a structured pressure record."
+)
+
+
+def _redacted_obligation(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict) and "redacted" in value and "claim_limit" in value:
+        digest = value.get("sha256")
+        return {
+            "sha256": digest if _is_sha256(digest) else None,
+            "redacted": f"[redacted legacy obligation; sha256={digest}]" if _is_sha256(digest) else "[redacted legacy obligation; digest unavailable]",
+            "claim_limit": _LEGACY_OBLIGATION_CLAIM_LIMIT,
+        }
+    if not isinstance(value, str):
+        return None
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return {
+        "sha256": digest,
+        "redacted": f"[redacted legacy obligation; sha256={digest}]",
+        "claim_limit": _LEGACY_OBLIGATION_CLAIM_LIMIT,
+    }
+
+
+def _redacted_obligations(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for raw in value if (item := _redacted_obligation(raw)) is not None]
+
+
 def _file_ref(
     label: str,
     kind: str,
-    path: Path,
+    snapshot: FileSnapshot,
     *,
     observed_at: str | None,
-    freshness: str,
-    degradation: list[str] | None = None,
+    owner: str,
+    access_scope: str,
+    authority: str,
+    claim_policy: str,
     claim_limit: str,
 ) -> CorrelationRef:
-    return _ref(
-        label,
-        kind,
-        path,
-        digest=_sha256(path),
-        observed_at=observed_at,
-        freshness=freshness,
-        degradation=degradation,
+    return snapshot_ref(
+        snapshot,
+        label=label,
+        kind=kind,
+        owner=owner,
+        access_scope=access_scope,
+        authority=authority,
+        claim_policy=claim_policy,
         claim_limit=claim_limit,
-    )
+        observed_at=observed_at,
+    )  # type: ignore[return-value]
 
 
 def _missing_ref(label: str, kind: str, path: Path | str, claim_limit: str) -> CorrelationRef:
@@ -228,8 +266,14 @@ def _missing_ref(label: str, kind: str, path: Path | str, claim_limit: str) -> C
         path,
         digest=None,
         observed_at=None,
+        currentness="missing",
         freshness="missing",
         degradation=["source_missing"],
+        owner="aoa-dashboard",
+        access_scope="dashboard_local",
+        authority="aoa-dashboard:derived",
+        claim_policy="dashboard_derived_read_model",
+        snapshot_role="missing_binding",
         claim_limit=claim_limit,
     )
 
@@ -469,8 +513,7 @@ def _validate_wake(
 
 def _master_filter_summary(
     value: dict[str, Any],
-    filter_path: Path,
-    digest: str | None,
+    filter_ref: CorrelationRef,
     dag: list[dict[str, str]],
     entries: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
@@ -480,21 +523,12 @@ def _master_filter_summary(
     )
     return {
         "schema_version": _string_or_none(value.get("schema_version")),
-        "ref": _file_ref(
-            "master return filter",
-            "task_local_master_filter",
-            filter_path,
-            observed_at=_string_or_none(value.get("reviewed_at")),
-            freshness="current_at_read",
-            claim_limit=claim_limit,
-        ),
+        "ref": copy.deepcopy(filter_ref),
         "reviewed_at": _string_or_none(value.get("reviewed_at")),
         "return_ids": [item.get("id") for item in entries.values() if _non_empty_string(item.get("id"))],
         "goal_ref": value.get("goal_ref"),
         "goal_dag": dag,
-        "new_required_obligations": [
-            item for item in value.get("new_required_obligations", []) if isinstance(item, str)
-        ],
+        "new_required_obligations": _redacted_obligations(value.get("new_required_obligations", [])),
         "rejected_or_deferred_claims": [
             item for item in value.get("rejected_or_deferred_claims", []) if isinstance(item, str)
         ],
@@ -510,13 +544,17 @@ def _envelope(
     filter_summary: dict[str, Any],
     filter_entry: dict[str, Any],
     handoff_path: Path | None,
+    handoff_snapshot: FileSnapshot | None,
     handoff: dict[str, Any] | None,
     handoff_error: str | None,
     wake_path: Path | None,
+    wake_snapshot: FileSnapshot | None,
     wake: dict[str, Any] | None,
     wake_error: str | None,
-    wake_candidates: list[tuple[Path, dict[str, Any] | None, str | None]] | None = None,
+    wake_candidates: list[tuple[Path, FileSnapshot, dict[str, Any] | None, str | None]] | None = None,
     owner_contract: dict[str, Any] | None = None,
+    filter_currentness: str,
+    goal_currentness: str,
 ) -> CorrelationEnvelope:
     claim_limit = _base_claim_limit()
     expected_handoff_ref = filter_entry.get("handoff_ref")
@@ -525,16 +563,15 @@ def _envelope(
         _file_ref(
             "Luna handoff",
             "task_local_handoff",
-            handoff_path,
-            observed_at=_non_empty_string_or_none(
-                (handoff or {}).get("summary", {}).get("snapshot_utc")
-                if isinstance((handoff or {}).get("summary"), dict)
-                else None
-            ),
-            freshness="current_at_read",
+            handoff_snapshot,
+            observed_at=handoff_snapshot.observed_at,
+            owner="aoa-agents",
+            access_scope="owner_bounded",
+            authority="source_owner",
+            claim_policy="actor_return_metadata",
             claim_limit="The handoff is a task-local return artifact; its contents do not become owner truth.",
         )
-        if handoff_path is not None
+        if handoff_snapshot is not None
         else _missing_ref(
             "Luna handoff",
             "task_local_handoff",
@@ -550,14 +587,15 @@ def _envelope(
         _file_ref(
             "wake receipt",
             wake_kind,
-            wake_path,
-            observed_at=_non_empty_string_or_none(
-                (wake or {}).get("attempted_at"), (wake or {}).get("generated_at")
-            ),
-            freshness="current_at_read",
+            wake_snapshot,
+            observed_at=wake_snapshot.observed_at,
+            owner="aoa-agents",
+            access_scope="owner_bounded",
+            authority="source_owner",
+            claim_policy="actor_return_metadata",
             claim_limit="Wake delivery is transport evidence only; it does not prove acceptance or semantic continuation.",
         )
-        if wake_path is not None
+        if wake_snapshot is not None
         else _missing_ref(
             "wake receipt",
             wake_kind,
@@ -567,25 +605,24 @@ def _envelope(
     )
     candidate_values = list(wake_candidates or [])
     if not candidate_values and wake_path is not None:
-        candidate_values = [(wake_path, wake, wake_error)]
+        candidate_values = [(wake_path, wake_snapshot, wake, wake_error)]
     candidate_refs: list[dict[str, Any]] = []
-    for candidate_path, candidate_value, candidate_error in candidate_values:
+    for candidate_path, candidate_snapshot, candidate_value, candidate_error in candidate_values:
         candidate_schema = (
             _string_or_none(candidate_value.get("schema_version"))
             if isinstance(candidate_value, dict)
             else None
         )
-        candidate_digest = _sha256(candidate_path)
+        candidate_digest = candidate_snapshot.digest if candidate_snapshot is not None else None
         candidate_ref = _file_ref(
             "wake receipt candidate",
             wake_source_kind(candidate_schema),
-            candidate_path,
-            observed_at=_non_empty_string_or_none(
-                (candidate_value or {}).get("attempted_at"),
-                (candidate_value or {}).get("generated_at"),
-            ),
-            freshness="invalid" if candidate_error else "current_at_read",
-            degradation=["receipt_unreadable"] if candidate_error else [],
+            candidate_snapshot,
+            observed_at=candidate_snapshot.observed_at if candidate_snapshot is not None else None,
+            owner="aoa-agents",
+            access_scope="owner_bounded",
+            authority="source_owner",
+            claim_policy="actor_return_metadata",
             claim_limit="Candidate identity is preserved for collision review; it does not establish a delivery or re-entry claim.",
         )
         candidate_refs.append(
@@ -608,7 +645,7 @@ def _envelope(
     else:
         if handoff.get("master_thread_id") != expected_thread:
             errors.append("handoff master_thread_id mismatch")
-        actual_digest = _sha256(handoff_path) if handoff_path else None
+        actual_digest = handoff_snapshot.digest if handoff_snapshot else None
         if actual_digest != expected_handoff_digest:
             errors.append("handoff SHA-256 does not match master filter")
     wake_missing = wake is None and wake_error == "wake receipt is absent from the bounded directory"
@@ -619,7 +656,7 @@ def _envelope(
             _string_or_none(candidate_value.get("schema_version"))
             if isinstance(candidate_value, dict)
             else None
-            for _, candidate_value, _ in candidate_values
+            for _, _, candidate_value, _ in candidate_values
         ]
         errors.append(
             "wake receipt collision: multiple receipts for one handoff "
@@ -659,9 +696,9 @@ def _envelope(
             owner_contract=owner_contract,
         )
         errors.extend(wake_errors)
-        if wake_path is not None and wake_ref["sha256"] is None:
+        if wake_snapshot is not None and wake_ref["sha256"] is None:
             errors.append("wake receipt digest is unavailable")
-        if wake_path is not None and str(wake_path) != str(filter_entry.get("wake_receipt_ref")):
+        if wake_snapshot is not None and str(wake_snapshot.path) != str(filter_entry.get("wake_receipt_ref")):
             errors.append("wake receipt path does not match master filter wake_receipt_ref")
     wake_source_errors = list(wake_errors)
     if len(candidate_values) > 1:
@@ -711,6 +748,22 @@ def _envelope(
         return_state = "deferred"
         master_state = "deferred"
         reentry_state = "missing"
+
+    # A configured digest is an attestation boundary, not a label that can be
+    # carried forward after the bytes changed.  Keep the parsed evidence
+    # visible, but withhold a re-entry claim when either source snapshot is not
+    # attested current at this read.
+    if not errors and (filter_currentness != "current_at_read" or goal_currentness != "current_at_read"):
+        if filter_currentness in {"invalid", "missing"} or goal_currentness in {"invalid", "missing"}:
+            return_state = "missing" if "missing" in {filter_currentness, goal_currentness} else "invalid"
+            wake_state = "deferred"
+            master_state = "deferred"
+            reentry_state = "missing"
+        else:
+            master_state = "deferred"
+            reentry_state = "deferred"
+            if return_state == "returned":
+                return_state = "deferred"
 
     handoff_metadata = {
         "return_id": _string_or_none(filter_entry.get("id"))
@@ -864,7 +917,11 @@ def _source(
     }
 
 
-def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
+def observe_current_correlation(
+    config: dict[str, Any],
+    *,
+    goal_anchor_snapshot: FileSnapshot | None = None,
+) -> dict[str, Any]:
     current = config.get("current_correlation")
     if not isinstance(current, dict):
         return _source(
@@ -902,45 +959,54 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
         "bootstrap_binding": "historical_only",
         "claim_limit": "Current holder label is a task-local correlation binding, not role or runtime authority.",
     }
-    anchor_digest = _sha256(goal_anchor_path_obj)
+    goal_anchor_snapshot = goal_anchor_snapshot or read_file_snapshot(
+        goal_anchor_path_obj,
+        expected_digest=config.get("goal_anchor_expected_sha256"),
+        parser="text",
+    )
+    filter_snapshot = read_file_snapshot(
+        filter_path,
+        expected_digest=current.get("master_filter_expected_sha256"),
+        parser="json",
+    )
+    anchor_digest = goal_anchor_snapshot.digest
     goal_anchor_ref = _file_ref(
         "Goal Anchor",
         "goal_anchor",
-        goal_anchor_path_obj,
-        observed_at=_utc_now() if anchor_digest else None,
-        freshness="current_at_read" if anchor_digest else "missing",
+        goal_anchor_snapshot,
+        observed_at=goal_anchor_snapshot.observed_at,
+        owner="goal-anchor",
+        access_scope="owner_bounded",
+        authority="source_owner",
+        claim_policy="source_owner_metadata",
         claim_limit="Goal Anchor ref and digest bind this projection; they do not prove execution, review, or acceptance.",
-    ) if anchor_digest else _missing_ref(
-        "Goal Anchor",
-        "goal_anchor",
-        goal_anchor_path_obj,
-        "Goal Anchor is absent; correlation cannot claim a current Goal binding.",
     )
-    directory_ref = _file_ref(
+    directory_ref = _ref(
         "task-local correlation directory",
         "task_local_directory",
         task_root,
+        digest=None,
         observed_at=_utc_now() if task_root.exists() else None,
+        currentness="current_at_read" if task_root.is_dir() else "missing",
         freshness="current_at_read" if task_root.is_dir() else "missing",
+        owner="task-local-runtime",
+        access_scope="owner_bounded",
+        authority="source_owner",
+        claim_policy="runtime_binding",
+        snapshot_role="directory_binding",
+        degradation=[] if task_root.is_dir() else ["source_missing"],
         claim_limit="Directory presence is a binding observation, not runtime health or acceptance.",
-    ) if task_root.exists() else _missing_ref(
-        "task-local correlation directory",
-        "task_local_directory",
-        task_root,
-        "Task-local receipt directory is absent; no current return/wake claim is made.",
     )
     filter_ref = _file_ref(
         "master return filter",
         "task_local_master_filter",
-        filter_path,
-        observed_at=None,
-        freshness="current_at_read",
+        filter_snapshot,
+        observed_at=filter_snapshot.observed_at,
+        owner="master-thread",
+        access_scope="owner_bounded",
+        authority="master_decision",
+        claim_policy="master_decision_disposition",
         claim_limit="The master filter is task-local disposition evidence, not proof or owner acceptance.",
-    ) if filter_path.is_file() else _missing_ref(
-        "master return filter",
-        "task_local_master_filter",
-        filter_path,
-        "Master filter is absent; filtered disposition and re-entry correlation remain missing.",
     )
     base_refs = [goal_anchor_ref, directory_ref, filter_ref]
     claim_limit = _base_claim_limit()
@@ -978,29 +1044,30 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
             degradation=["task_local_binding_not_directory"],
             claim_limit=claim_limit,
         )
-    filter_value, filter_error = _read_json(filter_path)
+    filter_value = filter_snapshot.parsed
+    filter_error = filter_snapshot.parse_error or filter_snapshot.read_error
     if filter_error or filter_value is None:
         return _source(
-            state="missing" if not filter_path.exists() else "invalid",
-            freshness="missing" if not filter_path.exists() else "invalid",
-            observation="Master filter is absent." if not filter_path.exists() else f"Master filter is unreadable: {filter_error}",
+            state="missing" if filter_snapshot.currentness == "missing" else "invalid",
+            freshness="missing" if filter_snapshot.currentness == "missing" else "invalid",
+            observation="Master filter is absent." if filter_snapshot.currentness == "missing" else f"Master filter is unreadable: {filter_error}",
             metadata={
                 "schema_version": CORRELATION_PROJECTION_VERSION,
                 "master_thread_id": expected_thread,
                 "current_holder": holder,
-                "master_filter": {"ref": filter_ref, "state": "missing" if not filter_path.exists() else "invalid", "claim_limit": claim_limit},
+                "master_filter": {"ref": filter_ref, "state": "missing" if filter_snapshot.currentness == "missing" else "invalid", "claim_limit": claim_limit},
                 "envelopes": [],
                 "new_obligations": [],
                 "rejected_or_deferred_claims": [],
                 "summary": {"handoff_files": None, "wake_files": None, "envelopes": None},
                 "observed_at": None,
-                "freshness": "missing" if not filter_path.exists() else "invalid",
-                "degradation": ["master_filter_missing" if not filter_path.exists() else "master_filter_unreadable"],
+                "freshness": "missing" if filter_snapshot.currentness == "missing" else "invalid",
+                "degradation": ["master_filter_missing" if filter_snapshot.currentness == "missing" else "master_filter_unreadable"],
                 "authority": "aoa-dashboard:derived_task_local_correlation",
                 "claim_limit": claim_limit,
             },
             refs=base_refs,
-            degradation=["master_filter_missing" if not filter_path.exists() else "master_filter_unreadable"],
+            degradation=["master_filter_missing" if filter_snapshot.currentness == "missing" else "master_filter_unreadable"],
             claim_limit=claim_limit,
         )
 
@@ -1016,9 +1083,7 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
         _, wake_ref_error = _direct_child(task_root, entry.get("wake_receipt_ref"))
         if wake_ref_error:
             filter_errors.append(f"master filter wake_receipt_ref is not exact/bounded: {wake_ref_error}")
-    filter_summary = _master_filter_summary(filter_value, filter_path, _sha256(filter_path), dag, filter_entries)
-    if filter_summary["ref"]["observed_at"] is None:
-        filter_summary["ref"]["observed_at"] = _string_or_none(filter_value.get("reviewed_at"))
+    filter_summary = _master_filter_summary(filter_value, filter_ref, dag, filter_entries)
     handoff_glob = (
         current.get("handoff_glob")
         if isinstance(current.get("handoff_glob"), str)
@@ -1042,27 +1107,37 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
         (path.resolve(strict=False) for path in task_root.glob(wake_glob) if path.is_file() and path.name not in ignored_wake_names),
         key=str,
     )
-    handoffs: dict[str, tuple[Path, dict[str, Any] | None, str | None]] = {}
+    handoffs: dict[str, tuple[Path, FileSnapshot, dict[str, Any] | None, str | None]] = {}
     for path in handoff_paths:
-        value, error = _read_json(path)
-        handoffs[str(path)] = (path, value, error)
-    wakes: dict[str, list[tuple[Path, dict[str, Any] | None, str | None]]] = {}
+        snapshot = read_file_snapshot(path, parser="json")
+        value = snapshot.parsed if isinstance(snapshot.parsed, dict) else None
+        error = "handoff file is absent from the bounded directory" if snapshot.currentness == "missing" else (snapshot.parse_error or snapshot.read_error)
+        handoffs[str(path)] = (path, snapshot, value, error)
+    wakes: dict[str, list[tuple[Path, FileSnapshot, dict[str, Any] | None, str | None]]] = {}
     anomalies: list[str] = []
     for path in wake_paths:
-        value, error = _read_json(path)
+        snapshot = read_file_snapshot(path, parser="json")
+        value = snapshot.parsed if isinstance(snapshot.parsed, dict) else None
+        error = "wake receipt is absent from the bounded directory" if snapshot.currentness == "missing" else (snapshot.parse_error or snapshot.read_error)
         handoff_ref_value = value.get("handoff_ref") if value else None
         handoff_ref_path, ref_error = _direct_child(task_root, handoff_ref_value)
         if ref_error:
             anomalies.append(f"wake {path.name}: {ref_error}")
             continue
         assert handoff_ref_path is not None
-        wakes.setdefault(str(handoff_ref_path), []).append((path, value, error))
+        wakes.setdefault(str(handoff_ref_path), []).append((path, snapshot, value, error))
     envelopes: list[CorrelationEnvelope] = []
     for handoff_ref, entry in filter_entries.items():
-        handoff_path, handoff_value, handoff_error = handoffs.get(
-            handoff_ref,
-            (Path(handoff_ref), None, "handoff file is absent from the bounded directory"),
-        )
+        handoff_item = handoffs.get(handoff_ref)
+        if handoff_item is None:
+            handoff_path = Path(handoff_ref)
+            handoff_snapshot = read_file_snapshot(handoff_path, parser="json")
+            handoff_value = handoff_snapshot.parsed if isinstance(handoff_snapshot.parsed, dict) else None
+            handoff_error = handoff_snapshot.parse_error or handoff_snapshot.read_error
+            if handoff_snapshot.currentness == "missing":
+                handoff_error = "handoff file is absent from the bounded directory"
+        else:
+            handoff_path, handoff_snapshot, handoff_value, handoff_error = handoff_item
         wake_candidates = wakes.get(handoff_ref, [])
         if len(wake_candidates) > 1:
             anomalies.append(f"duplicate wake receipts for {handoff_ref}")
@@ -1072,15 +1147,19 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
             wake_candidates[0] if wake_candidates else None,
         )
         if selected_candidate is not None:
-            wake_path, wake_value, wake_error = selected_candidate
+            wake_path, wake_snapshot, wake_value, wake_error = selected_candidate
         else:
-            if expected_wake_path is not None and expected_wake_path.is_file():
+            if expected_wake_path is not None:
                 wake_path = expected_wake_path
-                wake_value, wake_error = _read_json(expected_wake_path)
+                wake_snapshot = read_file_snapshot(expected_wake_path, parser="json")
+                wake_value = wake_snapshot.parsed if isinstance(wake_snapshot.parsed, dict) else None
+                wake_error = wake_snapshot.parse_error or wake_snapshot.read_error
                 if expected_wake_ref_error:
                     wake_error = expected_wake_ref_error
+                elif wake_snapshot.currentness == "missing":
+                    wake_error = "wake receipt is absent from the bounded directory"
             else:
-                wake_path, wake_value, wake_error = None, None, "wake receipt is absent from the bounded directory"
+                wake_path, wake_snapshot, wake_value, wake_error = None, None, None, "wake receipt is absent from the bounded directory"
         effective_handoff_error = handoff_error
         if filter_errors:
             filter_detail = "master filter validation failed: " + "; ".join(filter_errors)
@@ -1093,33 +1172,37 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
                 filter_summary=filter_summary,
                 filter_entry=entry,
                 handoff_path=handoff_path if handoff_value is not None else None,
+                handoff_snapshot=handoff_snapshot,
                 handoff=handoff_value,
                 handoff_error=effective_handoff_error,
                 wake_path=wake_path,
+                wake_snapshot=wake_snapshot,
                 wake=wake_value,
                 wake_error=wake_error if len(wake_candidates) <= 1 else "duplicate wake receipts",
-                wake_candidates=wake_candidates or ([(wake_path, wake_value, wake_error)] if wake_path is not None else []),
+                wake_candidates=wake_candidates or ([(wake_path, wake_snapshot, wake_value, wake_error)] if wake_path is not None and wake_snapshot is not None else []),
                 owner_contract=owner_contract,
+                filter_currentness=filter_snapshot.currentness,
+                goal_currentness=goal_anchor_snapshot.currentness,
             )
         )
     filter_ref_set = set(filter_entries)
     deferred_candidates: list[str] = []
-    for path, handoff_value, handoff_error in handoffs.values():
+    for path, handoff_snapshot, handoff_value, handoff_error in handoffs.values():
         if str(path) in filter_ref_set:
             continue
         deferred_candidates.append(f"unfiltered handoff candidate: {path}")
         if handoff_value is not None and handoff_value.get("master_thread_id") == expected_thread:
             extra_wakes = wakes.get(str(path), [])
             if extra_wakes:
-                extra_wake_path, extra_wake_value, extra_wake_error = extra_wakes[0]
+                extra_wake_path, extra_wake_snapshot, extra_wake_value, extra_wake_error = extra_wakes[0]
                 extra_wake_ref = str(extra_wake_path)
             else:
-                extra_wake_path, extra_wake_value, extra_wake_error = None, None, "wake receipt is absent from the bounded directory"
+                extra_wake_path, extra_wake_snapshot, extra_wake_value, extra_wake_error = None, None, None, "wake receipt is absent from the bounded directory"
                 extra_wake_ref = "unresolved:unfiltered"
             filter_entry = {
                 "id": path.stem.removesuffix("-luna-handoff"),
                 "handoff_ref": str(path),
-                "handoff_sha256": _sha256(path),
+                "handoff_sha256": handoff_snapshot.digest,
                 "wake_receipt_ref": extra_wake_ref,
                 "disposition": "not_listed_by_master_filter",
             }
@@ -1131,13 +1214,17 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
                     filter_summary=filter_summary,
                     filter_entry=filter_entry,
                     handoff_path=path,
+                    handoff_snapshot=handoff_snapshot,
                     handoff=handoff_value,
                     handoff_error=handoff_error,
                     wake_path=extra_wake_path,
+                    wake_snapshot=extra_wake_snapshot,
                     wake=extra_wake_value,
                     wake_error=extra_wake_error,
-                    wake_candidates=extra_wakes or ([(extra_wake_path, extra_wake_value, extra_wake_error)] if extra_wake_path is not None else []),
+                    wake_candidates=extra_wakes or ([(extra_wake_path, extra_wake_snapshot, extra_wake_value, extra_wake_error)] if extra_wake_path is not None and extra_wake_snapshot is not None else []),
                     owner_contract=owner_contract,
+                    filter_currentness=filter_snapshot.currentness,
+                    goal_currentness=goal_anchor_snapshot.currentness,
                 )
             )
     for wake_ref, candidates in wakes.items():
@@ -1164,6 +1251,18 @@ def observe_current_correlation(config: dict[str, Any]) -> dict[str, Any]:
     if not anchor_digest:
         state = "invalid"
         degradation.append("goal_anchor_missing")
+    if filter_snapshot.currentness != "current_at_read":
+        degradation.append(f"master_filter_currentness:{filter_snapshot.currentness}")
+        if filter_snapshot.currentness in {"invalid", "missing"}:
+            state = "invalid" if filter_snapshot.currentness == "invalid" else "missing"
+        elif state == "bound":
+            state = "deferred"
+    if goal_anchor_snapshot.currentness != "current_at_read":
+        degradation.append(f"goal_anchor_currentness:{goal_anchor_snapshot.currentness}")
+        if goal_anchor_snapshot.currentness in {"invalid", "missing"}:
+            state = "invalid" if goal_anchor_snapshot.currentness == "invalid" else "missing"
+        elif state == "bound":
+            state = "deferred"
     observed_at = filter_value.get("reviewed_at") if _non_empty_string(filter_value.get("reviewed_at")) else None
     summary = {
         "handoff_files": len(handoff_paths),

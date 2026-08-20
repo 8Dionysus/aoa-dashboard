@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/pressure-inbox-v1",
+  "title": "Structured dashboard Pressure Inbox",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "goal_id", "status", "items", "critical_next_routes", "conflicts", "duplicates", "invalid_records", "legacy_candidates", "access_policy", "retention", "errors", "read_model_digest", "claim_limit"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_pressure_inbox_v1"},
+    "goal_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["current", "conflicted", "deferred", "missing", "invalid"]},
+    "items": {"type": "array", "items": {"$ref": "#/$defs/pressureRecord"}},
+    "critical_next_routes": {"type": "array", "items": {"type": "object"}},
+    "conflicts": {"type": "array", "items": {"type": "object"}},
+    "duplicates": {"type": "array", "items": {"type": "object"}},
+    "invalid_records": {"type": "array", "items": {"type": "object"}},
+    "legacy_candidates": {"type": "array", "items": {"$ref": "#/$defs/legacyCandidate"}},
+    "outcomes": {"type": "object"},
+    "access_policy": {"type": "object"},
+    "retention": {"type": "object"},
+    "errors": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+    "read_model_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "claim_limit": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "diagnosticValue": {
+      "anyOf": [
+        {"enum": ["source_missing", "source_read_failed", "source_parse_failed", "expected_digest_mismatch", "bytes", "digest", "parse_result", "currentness_attestation", "current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid", "task_local_binding_not_directory", "master_filter_missing", "master_filter_unreadable", "goal_anchor_missing", "goal_anchor_stale", "master_filter_stale", "duplicate_wake_receipts", "unfiltered_handoff_candidate", "unfiltered_wake_receipt", "metadata_admission_rejected", "correlation_envelope_not_object", "legacy_master_filter_ref_not_admitted_with_explicit_access_and_authority", "legacy_master_filter_metadata_admission_rejected", "correlation_envelope_metadata_admission_rejected", "pressure_inbox_records_not_a_list", "pressure_record_invalid", "legacy_candidate_invalid", "legacy_master_filter", "legacy_master_filter_requires_structured_pressure_fields", "non_string_object_key", "diagnostic_invalid_type", "separate_holder", "independent_holder", "separate_pressure_concern", "critical_route_master_filter", "configured_snapshot", "derived_pressure_identity", "live_observed", "directory_binding", "missing_binding", "derived_binding", "test_fixture", "affected_goal_criterion", "consequence_of_omission", "natural_owner", "checked_existing_surfaces", "independence_signals", "recommended_trigger_strength", "stop_line", "wake_condition", "next_route", "outcome", "ref", "sha256", "owner", "kind", "currentness", "access_scope", "authority", "claim_policy", "snapshot_role", "claim_limit"]},
+        {"type": "string", "pattern": "^diagnostic_digest:[0-9a-f]{64}$"}
+      ]
+    },
+    "typedRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "owner", "kind", "sha256", "currentness", "access_scope", "authority", "claim_policy", "snapshot_role", "claim_limit"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1},
+        "owner": {"enum": ["aoa-agents", "aoa-dashboard", "aoa-evals", "aoa-kag", "aoa-memo", "aoa-sdk", "aoa-skills", "aoa-stats", "abyss-stack", "different-owner", "goal-anchor", "master-thread", "task-local-runtime", "test-owner", "test-owner-alt"]},
+        "kind": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "currentness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+        "freshness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+        "access_scope": {"enum": ["dashboard_local", "owner_bounded", "public_metadata"]},
+        "authority": {"enum": ["dashboard_derived", "source_owner", "master_decision"]},
+        "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+        "expected_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "snapshot_role": {"$ref": "#/$defs/diagnosticValue"},
+        "missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "degradation": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "claim_limit": {"type": "string", "minLength": 1},
+        "observed_at": {"type": ["string", "null"]}
+      }
+    },
+    "pressureRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "ref", "owner", "kind", "sha256", "currentness", "access_scope", "authority", "claim_policy", "snapshot_role", "claim_limit"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1},
+        "owner": {"enum": ["aoa-agents", "aoa-dashboard", "aoa-evals", "aoa-kag", "aoa-memo", "aoa-sdk", "aoa-skills", "aoa-stats", "abyss-stack", "different-owner", "goal-anchor", "master-thread", "task-local-runtime", "test-owner", "test-owner-alt"]},
+        "kind": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "currentness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+        "freshness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+        "access_scope": {"enum": ["dashboard_local", "owner_bounded", "public_metadata"]},
+        "authority": {"enum": ["dashboard_derived", "source_owner", "master_decision"]},
+        "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+        "expected_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "snapshot_role": {"$ref": "#/$defs/diagnosticValue"},
+        "missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "degradation": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "claim_limit": {"type": "string", "minLength": 1},
+        "observed_at": {"type": ["string", "null"]}
+      }
+    },
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "owner", "result", "ref", "access_scope", "authority", "claim_policy", "claim_limit"],
+      "properties": {
+        "surface": {"type": "string", "minLength": 1},
+        "owner": {"enum": ["aoa-agents", "aoa-dashboard", "aoa-evals", "aoa-kag", "aoa-memo", "aoa-sdk", "aoa-skills", "aoa-stats", "abyss-stack", "different-owner", "goal-anchor", "master-thread", "task-local-runtime", "test-owner", "test-owner-alt"]},
+        "result": {"enum": ["fit", "no_fit", "partial", "reused", "unknown"]},
+        "ref": {"type": "string", "minLength": 1},
+        "access_scope": {"type": "string", "minLength": 1},
+        "authority": {"type": "string", "minLength": 1},
+        "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+        "claim_limit": {"type": "string", "minLength": 1},
+        "observed_at": {"type": ["string", "null"]}
+      }
+    },
+    "pressureRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "goal_id", "pressure_ref", "evidence", "affected_goal_criterion", "consequence_of_omission", "natural_owner", "checked_existing_surfaces", "independence_signals", "recommended_trigger_strength", "stop_line", "wake_condition", "next_route", "outcome", "claim_policy", "claim_limit"],
+      "properties": {
+        "schema_version": {"const": "aoa_dashboard_pressure_record_v1"},
+        "goal_id": {"type": "string", "minLength": 1},
+        "pressure_ref": {"$ref": "#/$defs/pressureRef"},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/typedRef"}},
+        "affected_goal_criterion": {"type": "string", "minLength": 1},
+        "consequence_of_omission": {"type": "string", "minLength": 1},
+        "natural_owner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner", "owner_ref", "authority", "access_scope", "claim_policy"],
+          "properties": {
+            "owner": {"enum": ["aoa-agents", "aoa-dashboard", "aoa-evals", "aoa-kag", "aoa-memo", "aoa-sdk", "aoa-skills", "aoa-stats", "abyss-stack", "different-owner", "goal-anchor", "master-thread", "task-local-runtime", "test-owner", "test-owner-alt"]},
+            "owner_ref": {"type": "string", "minLength": 1},
+            "authority": {"type": "string", "minLength": 1},
+            "access_scope": {"enum": ["dashboard_local", "owner_bounded", "public_metadata"]},
+            "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]}
+          }
+        },
+        "checked_existing_surfaces": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/surface"}},
+        "independence_signals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "signals", "claim_policy", "claim_limit"],
+          "properties": {
+            "status": {"enum": ["present", "absent", "unknown", "not_attested"]},
+            "signals": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+            "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+            "claim_limit": {"type": "string", "minLength": 1}
+          }
+        },
+        "recommended_trigger_strength": {"enum": ["notice", "required_branch", "master_decision", "preauthorized_reflex"]},
+        "stop_line": {"type": "string", "minLength": 1},
+        "wake_condition": {"type": "string", "minLength": 1},
+        "next_route": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner", "owner_ref", "route", "reason", "critical", "authority", "access_scope", "effect", "claim_policy", "claim_limit"],
+          "properties": {
+            "owner": {"enum": ["aoa-agents", "aoa-dashboard", "aoa-evals", "aoa-kag", "aoa-memo", "aoa-sdk", "aoa-skills", "aoa-stats", "abyss-stack", "different-owner", "goal-anchor", "master-thread", "task-local-runtime", "test-owner", "test-owner-alt"]},
+            "owner_ref": {"type": "string", "minLength": 1},
+            "route": {"type": "string", "minLength": 1},
+            "reason": {"type": "string", "minLength": 1},
+            "critical": {"type": "boolean"},
+            "authority": {"type": "string", "minLength": 1},
+            "access_scope": {"enum": ["dashboard_local", "owner_bounded", "public_metadata"]},
+            "effect": {"const": "none"},
+            "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+            "claim_limit": {"type": "string", "minLength": 1}
+          }
+        },
+        "outcome": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "owner", "claim_policy", "claim_limit"],
+          "properties": {
+            "state": {"enum": ["unresolved", "absorbed", "new_branch", "new_required_obligation", "stronger_owner", "residual", "deferred", "invalid"]},
+            "owner": {"enum": ["aoa-agents", "aoa-dashboard", "aoa-evals", "aoa-kag", "aoa-memo", "aoa-sdk", "aoa-skills", "aoa-stats", "abyss-stack", "different-owner", "goal-anchor", "master-thread", "task-local-runtime", "test-owner", "test-owner-alt"]},
+            "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+            "claim_limit": {"type": "string", "minLength": 1}
+          }
+        },
+        "record_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "legacyCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pressure_ref", "source_evidence_ref", "legacy_obligation_digest", "legacy_obligation_redacted", "missing_fields", "source_missing_fields", "outcome", "migration", "claim_limit"],
+      "properties": {
+        "pressure_ref": {"$ref": "#/$defs/legacyPressureRef"},
+        "source_evidence_ref": {"$ref": "#/$defs/legacySourceRef"},
+        "legacy_obligation_digest": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "legacy_obligation_redacted": {"type": "string", "minLength": 1},
+        "missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "source_missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "legacy_freshness": {"$ref": "#/$defs/diagnosticValue"},
+        "outcome": {"const": "deferred"},
+        "migration": {"$ref": "#/$defs/diagnosticValue"},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "legacyPressureRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1},
+        "owner": {"enum": ["aoa-agents", "aoa-dashboard", "aoa-evals", "aoa-kag", "aoa-memo", "aoa-sdk", "aoa-skills", "aoa-stats", "abyss-stack", "different-owner", "goal-anchor", "master-thread", "task-local-runtime", "test-owner", "test-owner-alt"]},
+        "kind": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "currentness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+        "freshness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+        "access_scope": {"enum": ["dashboard_local", "owner_bounded", "public_metadata"]},
+        "authority": {"enum": ["dashboard_derived", "source_owner", "master_decision"]},
+        "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+        "expected_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "snapshot_role": {"$ref": "#/$defs/diagnosticValue"},
+        "missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "degradation": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "claim_limit": {"type": "string", "minLength": 1},
+        "observed_at": {"type": ["string", "null"]}
+      }
+    },
+    "legacySourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1},
+        "owner": {"enum": ["aoa-agents", "aoa-dashboard", "aoa-evals", "aoa-kag", "aoa-memo", "aoa-sdk", "aoa-skills", "aoa-stats", "abyss-stack", "different-owner", "goal-anchor", "master-thread", "task-local-runtime", "test-owner", "test-owner-alt"]},
+        "kind": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "currentness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+        "freshness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+        "access_scope": {"enum": ["dashboard_local", "owner_bounded", "public_metadata"]},
+        "authority": {"enum": ["dashboard_derived", "source_owner", "master_decision"]},
+        "claim_policy": {"enum": ["actor_return_metadata", "dashboard_derived_read_model", "deferred_legacy_redaction", "derived_navigation", "derived_stats", "historical_context", "master_decision_disposition", "runtime_binding", "source_owner_metadata", "test_metadata"]},
+        "expected_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "snapshot_role": {"$ref": "#/$defs/diagnosticValue"},
+        "missing_fields": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "degradation": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/diagnosticValue"}},
+        "claim_limit": {"type": "string", "minLength": 1},
+        "observed_at": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
