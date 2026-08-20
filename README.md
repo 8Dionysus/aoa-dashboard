@@ -1,6 +1,6 @@
 # aoa-dashboard
 
-The first working vertical slice of the AoA Goal Space/operator surface.
+The owner-bounded AoA Goal Space/operator surface.
 It reads a current Goal Anchor, a historical `.aoa` bootstrap binding, the
 current task-local Goal/thread handoff and wake directory, the `aoa-stats`
 source-coverage projection, the optional `aoa-agents` responsibility feed, and
@@ -11,6 +11,12 @@ The dashboard is not an authority plane. It does not create roles, run actors,
 execute runtime actions, issue eval verdicts, accept work, or rewrite owner
 facts. Posted annotations and action intents are dashboard-owned records; an
 action intent is explicitly deferred and is never executed by this service.
+
+The constitutional boundary and owner routes are defined in
+[`docs/ORGAN_CONTRACT.md`](docs/ORGAN_CONTRACT.md) and the machine-readable
+[`contracts/organ_contract.json`](contracts/organ_contract.json). The repository
+is a public source identity for a bootstrap derived layer; that identity does
+not by itself admit a runtime or private organ access contour.
 
 The derived correlation read model is rebuilt from canonical metadata-only
 observations with `aoa_dashboard_correlation_cursor_v1` and
@@ -53,9 +59,23 @@ periodically; no fixture data is bundled or loaded.
 ## Validation
 
 ```text
+python3 scripts/validate_organ_contract.py
 python3 -m unittest discover -s tests -v
 for contract in contracts/*.json; do python3 -m json.tool "$contract" >/dev/null; done
 ```
+
+The same route is run by the `Repo Validation` GitHub workflow.
+
+## Owner and admission routes
+
+- [`docs/BOUNDARIES.md`](docs/BOUNDARIES.md) states what the dashboard owns and
+  what remains with sibling repositories.
+- [`docs/ADMISSION.md`](docs/ADMISSION.md) records the current no-access-plane
+  state and the future private registry route without fabricating admission.
+- [`docs/DIRECTION.md`](docs/DIRECTION.md) records the next bounded growth
+  conditions.
+- [`docs/RELEASE_POSTURE.md`](docs/RELEASE_POSTURE.md) separates source
+  identity, GitHub landing, deployment, and live acceptance.
 
 The projection is evidence of the dashboard's adapter and rendering contract,
 not proof of live runtime health or owner acceptance. The UI keeps

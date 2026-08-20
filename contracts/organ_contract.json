@@ -1,0 +1,138 @@
+{
+  "schema_version": "aoa_dashboard_organ_contract_v1",
+  "contract_id": "aoa-dashboard-organ-v1",
+  "organ_id": "aoa-dashboard",
+  "organ_name": "AoA Goal Space and operator projection",
+  "repository": {
+    "canonical_remote": "https://github.com/8Dionysus/aoa-dashboard",
+    "visibility": "public",
+    "source_identity": "owner repository",
+    "maturity": "bootstrap",
+    "admission_state": "declared_not_admitted"
+  },
+  "constitutional_boundary": {
+    "owns": [
+      "aoa_dashboard_projection_v1",
+      "dashboard_annotation_v1",
+      "action_intent_v1",
+      "goal_local_correlation_projection_v1",
+      "goal_local_cursor_v1",
+      "pressure_inbox_v1",
+      "task_local_actor_activity_projection_v1"
+    ],
+    "effects": [
+      "read_named_owner_surfaces",
+      "render_derived_operator_projection",
+      "persist_dashboard_annotations",
+      "persist_deferred_non_executing_action_intents"
+    ],
+    "does_not_own": [
+      "roles_mandates_responsibility_returns_or_wakes",
+      "capability_abi_or_task_local_dag",
+      "runplan_or_incarnation_selection",
+      "runtime_deployment_or_process_lifecycle",
+      "raw_session_transcript_or_freshness_truth",
+      "proof_review_or_eval_verdicts",
+      "durable_memory_meaning_or_retention",
+      "measurement_compatibility_or_source_coverage_meaning",
+      "kag_source_relations_or_retrieval_authority",
+      "owner_acceptance_or_semantic_reentry",
+      "actor_creation_master_wake_or_action_execution"
+    ],
+    "effect_ceiling": "derived_read_and_deferred_non_executing_operator_intent"
+  },
+  "owner_routes": {
+    "aoa-agents": {
+      "owns": "role mandate responsibility return and wake semantics",
+      "dashboard_action": "observe validated receipts and refs only"
+    },
+    "aoa-skills": {
+      "owns": "capability ABI and task-local DAG vocabulary",
+      "dashboard_action": "render bounded metadata only"
+    },
+    "aoa-sdk": {
+      "owns": "workspace discovery typed compatibility control-plane and RunPlan/incarnation seams",
+      "dashboard_action": "consume binding refs; never select or admit them"
+    },
+    "abyss-stack": {
+      "owns": "runtime source deployment and live lifecycle",
+      "dashboard_action": "keep source deploy and live evidence distinct"
+    },
+    ".aoa-session-memory": {
+      "owns": "raw session material and freshness",
+      "dashboard_action": "retain refs and provenance; never promote a projection to proof"
+    },
+    "aoa-evals": {
+      "owns": "proof review and eval verdicts",
+      "dashboard_action": "show independent evidence or missingness"
+    },
+    "aoa-memo": {
+      "owns": "reviewed durable memory",
+      "dashboard_action": "use optional context only"
+    },
+    "aoa-stats": {
+      "owns": "measurement compatibility and source coverage",
+      "dashboard_action": "consume derived views without inventing zeros or quality claims"
+    },
+    "aoa-kag": {
+      "owns": "derived navigation and evidence-bearing relations",
+      "dashboard_action": "use navigation/provenance only"
+    },
+    "human_operator": {
+      "owns": "semantic acceptance policy and irreversible authority",
+      "dashboard_action": "present evidence; never self-accept"
+    }
+  },
+  "federation_registration": {
+    "center_registry_ref": "Agents-of-Abyss/generated/ecosystem_registry.min.json",
+    "center_relation": "derived-layer",
+    "sdk_workspace_repo_name": "aoa-dashboard",
+    "sdk_workspace_role": "goal-space-derived-organ",
+    "public_route_owner": "8Dionysus",
+    "private_access_owner": "workspace-owner/os-abyss"
+  },
+  "private_admission": {
+    "access_plane": "none",
+    "current_state": "no_record_by_design",
+    "default_admission": "deny",
+    "registry_schema": "aoa_organ_registry_source_v2",
+    "registry_source": "workspace-private AOA_SDK_ORGAN_REGISTRY binding",
+    "record_policy": "do not add a record until a concrete dashboard access contour, source evidence, compatibility, proof, and owner acceptance exist",
+    "future_route": [
+      "dashboard source owner defines the bounded read capability and effect ceiling",
+      "aoa-sdk validates and compiles the typed candidate",
+      "workspace owner validates the expiring private v2 source and records the contour",
+      "abyss-stack supplies deployment or live evidence only when a runtime effect exists",
+      "aoa-evals supplies independent proof for any stronger claim",
+      "dashboard owner and human operator accept the bounded payload before admission"
+    ],
+    "rollback": "lower admission to deny or shadow first, revoke the consumer route, preserve the source record and receipt refs, then restore only after revalidation"
+  },
+  "required_surfaces": [
+    "README.md",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "docs/ORGAN_CONTRACT.md",
+    "docs/ADMISSION.md",
+    "docs/DIRECTION.md",
+    "docs/RELEASE_POSTURE.md",
+    "contracts/organ_contract.json",
+    "scripts/validate_organ_contract.py",
+    "tests/test_organ_contract.py"
+  ],
+  "validation": {
+    "local": [
+      "python3 scripts/validate_organ_contract.py",
+      "python3 -m unittest discover -s tests -v",
+      "for contract in contracts/*.json; do python3 -m json.tool $contract >/dev/null; done"
+    ],
+    "ci_workflow": ".github/workflows/repo-validation.yml",
+    "required_check_name": "Repo Validation"
+  },
+  "handoff": {
+    "return_owner": "holder:aoa-dashboard-master-sol",
+    "master_thread_id": "01a00722-0291-72e0-8310-559da802d6e1",
+    "next_transition": "master filters this return, updates the Goal DAG, and routes any access contour to its natural owner",
+    "claim_limit": "source and federation bootstrap landed; no private admission, runtime deployment, proof verdict, semantic reentry, or human acceptance is claimed"
+  }
+}
