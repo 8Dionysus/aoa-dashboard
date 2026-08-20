@@ -153,14 +153,56 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(ref["expected_sha256"], "0" * 64)
 
     def test_projection_reconciles_pressure_to_the_single_live_source_ref(self) -> None:
-        projection = build_projection()
+        self.fixture.master_filter.parent.mkdir(parents=True, exist_ok=True)
+        self.fixture.master_filter.write_text(
+            json.dumps(
+                {
+                    "schema_version": "aoa_dashboard_master_return_disposition_v1",
+                    "goal_ref": "test-goal",
+                    "master_thread_id": "test-thread",
+                    "reviewed_at": "2026-08-15T22:00:00Z",
+                    "responsibility_state": "test-review",
+                    "returns": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        config = self.fixture.config()
+        config["current_correlation"]["master_filter_expected_sha256"] = "0" * 64
+        config["goal_anchor_expected_sha256"] = "f" * 64
+        default_goal = "aoa-dashboard-goal-01a00722-20260815"
+        for record in config["pressure_inbox"]:
+            record["goal_id"] = "test-goal"
+            record["pressure_ref"]["ref"] = record["pressure_ref"]["ref"].replace(
+                default_goal, "test-goal"
+            )
+            for evidence in record["evidence"]:
+                if evidence["kind"] == "goal_anchor":
+                    evidence.update(
+                        {
+                            "ref": str(self.fixture.anchor),
+                            "sha256": hashlib.sha256(self.fixture.anchor.read_bytes()).hexdigest(),
+                            "expected_sha256": "f" * 64,
+                        }
+                    )
+                elif evidence["kind"] == "task_local_master_filter":
+                    evidence.update(
+                        {
+                            "ref": str(self.fixture.master_filter),
+                            "sha256": hashlib.sha256(self.fixture.master_filter.read_bytes()).hexdigest(),
+                            "expected_sha256": "0" * 64,
+                        }
+                    )
+        config_path = self.fixture.root / "pressure-reconciliation-config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        projection = build_projection(str(config_path))
         correlation = projection["correlation"]
         master_ref = correlation["master_filter"]["ref"]
         self.assertEqual(master_ref["currentness"], "stale")
         self.assertEqual(master_ref["owner"], "master-thread")
         self.assertEqual(master_ref["authority"], "master_decision")
         self.assertEqual(master_ref["access_scope"], "owner_bounded")
-        self.assertEqual(projection["pressure_inbox"]["status"], "deferred")
+        self.assertEqual(projection["pressure_inbox"]["status"], "current")
         for item in projection["pressure_inbox"]["items"]:
             filter_evidence = next(ref for ref in item["evidence"] if ref.get("kind") == "task_local_master_filter")
             self.assertEqual(filter_evidence, master_ref)
