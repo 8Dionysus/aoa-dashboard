@@ -91,3 +91,12 @@ envelopes. It renders one card per observed return candidate and copies only
 allowlisted scalar actor, responsibility, process, session, terminal, and usage
 fields from the handoff or wake payload. Missing or unknown fields stay visible;
 the surface never treats them as zero or as runtime health.
+
+The mutable master disposition is admitted through the owner-authored
+`master_filter_currentness` binding: a content-addressed current-head attestation
+and append-only history record the exact filter digest, sequence, transition,
+and rollback history. The former `master_filter_expected_sha256` is retained
+only as historical bootstrap context and is never used to decide currentness.
+Missing, conflicting, ambiguous, stale, or unannounced rollback evidence stays
+deferred or invalid with bounded refs and claim limits; the dashboard does not
+rewrite the binding after a master transition.

@@ -156,7 +156,8 @@ class ProjectionTests(unittest.TestCase):
         projection = build_projection()
         correlation = projection["correlation"]
         master_ref = correlation["master_filter"]["ref"]
-        self.assertEqual(master_ref["currentness"], "stale")
+        self.assertEqual(master_ref["currentness"], "deferred")
+        self.assertIn("current_head_missing", master_ref["degradation"])
         self.assertEqual(master_ref["owner"], "master-thread")
         self.assertEqual(master_ref["authority"], "master_decision")
         self.assertEqual(master_ref["access_scope"], "owner_bounded")
@@ -430,13 +431,11 @@ class CorrelationAdapterTests(unittest.TestCase):
             self.assertGreater(summary["invalid"], 0)
             return
         self.assertEqual(summary["invalid"], 0)
-        self.assertEqual(result["metadata"]["master_filter"]["ref"]["currentness"], "stale")
-        self.assertEqual(
-            summary["reentered"] + summary["missing"],
-            summary["filtered_return_ids"],
-        )
-        if summary["missing"]:
-            self.assertEqual(result["state"], "deferred")
+        master_ref = result["metadata"]["master_filter"]["ref"]
+        self.assertEqual(master_ref["currentness"], "deferred")
+        self.assertIn("current_head_missing", master_ref["degradation"])
+        self.assertEqual(summary["reentered"], 0)
+        self.assertEqual(result["state"], "deferred")
         activity = observe_actor_activity(config, result)["metadata"]
         self.assertGreaterEqual(activity["summary"]["actor_count"], 2)
         self.assertEqual(activity["summary"]["actor_count"], len(activity["actors"]))

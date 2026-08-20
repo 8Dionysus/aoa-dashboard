@@ -22,6 +22,8 @@ class ServerTests(unittest.TestCase):
         self.assertIn('id="actor-activity"', html)
         self.assertIn("function renderActorActivity", javascript)
         self.assertIn("data.actor_activity", javascript)
+        self.assertIn("master-filter current-head evidence", javascript)
+        self.assertIn("currentness.evidence_refs", javascript)
 
     def test_health_endpoint_is_read_model_only(self) -> None:
         server = __import__("http.server", fromlist=["ThreadingHTTPServer"]).ThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)

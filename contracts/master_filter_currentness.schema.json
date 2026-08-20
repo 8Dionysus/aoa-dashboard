@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/master-filter-currentness-v1",
+  "title": "aoa-dashboard master-filter owner currentness contract",
+  "description": "A dashboard consumer contract for an owner-authored current-head attestation and append-only history.",
+  "oneOf": [
+    {"$ref": "#/$defs/binding"},
+    {"$ref": "#/$defs/currentHead"},
+    {"$ref": "#/$defs/historyRecord"}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ownerFields": {
+      "type": "object",
+      "required": ["owner", "authority", "access_scope", "claim_limit"],
+      "properties": {
+        "owner": {"const": "master-thread"},
+        "authority": {"const": "master_decision"},
+        "access_scope": {"const": "owner_bounded"},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "owner",
+        "authority",
+        "access_scope",
+        "filter_ref",
+        "current_head_ref",
+        "history_ref",
+        "claim_limit"
+      ],
+      "properties": {
+        "schema_version": {"const": "aoa_dashboard_master_filter_currentness_binding_v1"},
+        "owner": {"const": "master-thread"},
+        "authority": {"const": "master_decision"},
+        "access_scope": {"const": "owner_bounded"},
+        "filter_ref": {"type": "string", "minLength": 1},
+        "current_head_ref": {"type": "string", "minLength": 1},
+        "history_ref": {"type": "string", "minLength": 1},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "headFields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "owner",
+        "authority",
+        "access_scope",
+        "master_thread_id",
+        "goal_ref",
+        "filter_ref",
+        "history_ref",
+        "head_sha256",
+        "sequence",
+        "reviewed_at",
+        "transition",
+        "previous_head_sha256",
+        "claim_limit"
+      ],
+      "properties": {
+        "schema_version": {"enum": ["aoa_dashboard_master_filter_current_head_v1", "aoa_dashboard_master_filter_head_record_v1"]},
+        "owner": {"const": "master-thread"},
+        "authority": {"const": "master_decision"},
+        "access_scope": {"const": "owner_bounded"},
+        "master_thread_id": {"type": "string", "minLength": 1},
+        "goal_ref": {"type": "string", "minLength": 1},
+        "filter_ref": {"type": "string", "minLength": 1},
+        "history_ref": {"type": "string", "minLength": 1},
+        "head_sha256": {"$ref": "#/$defs/sha256"},
+        "sequence": {"type": "integer", "minimum": 0},
+        "reviewed_at": {"type": "string", "minLength": 1},
+        "transition": {"enum": ["initial", "advance", "rollback"]},
+        "previous_head_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "currentHead": {
+      "allOf": [
+        {"$ref": "#/$defs/headFields"},
+        {
+          "type": "object",
+          "properties": {"schema_version": {"const": "aoa_dashboard_master_filter_current_head_v1"}}
+        }
+      ]
+    },
+    "historyRecord": {
+      "allOf": [
+        {"$ref": "#/$defs/headFields"},
+        {
+          "type": "object",
+          "properties": {"schema_version": {"const": "aoa_dashboard_master_filter_head_record_v1"}}
+        }
+      ]
+    }
+  }
+}
