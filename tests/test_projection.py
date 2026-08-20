@@ -55,6 +55,8 @@ class ProjectionFixture:
         self.actor_manifest = self.root / "incarnation-home.json"
         self.task_local = self.root / "task-local"
         self.master_filter = self.task_local / "master-return-disposition.json"
+        self.current_head = self.task_local / "master-return-current-head.json"
+        self.history = self.task_local / "master-return-head-history.jsonl"
         self.anchor.write_text("# current goal\nD0 dogfood\n", encoding="utf-8")
         self.live.write_text(
             json.dumps({"type": "message", "timestamp": "2026-08-15T22:00:00Z", "payload": {"type": "session_meta"}}) + "\n",
@@ -107,7 +109,22 @@ class ProjectionFixture:
                     "master_thread_id": "test-thread",
                     "task_local_dir": str(self.task_local),
                     "master_filter_path": str(self.master_filter),
-                    "master_filter_expected_sha256": None,
+                    "master_filter_currentness": {
+                        "schema_version": "aoa_dashboard_master_filter_currentness_binding_v1",
+                        "owner": "master-thread",
+                        "authority": "master_decision",
+                        "access_scope": "owner_bounded",
+                        "filter_ref": str(self.master_filter.resolve()),
+                        "current_head_ref": str(self.current_head.resolve()),
+                        "history_ref": str(self.history.resolve()),
+                        "claim_limit": "The current head is owner evidence consumed by the dashboard, not authority or acceptance.",
+                    },
+                    "legacy_snapshot_binding": {
+                        "schema_version": "aoa_dashboard_legacy_snapshot_binding_v1",
+                        "expected_sha256": "0" * 64,
+                        "snapshot_role": "historical_bootstrap_only",
+                        "claim_limit": "Historical context only.",
+                    },
                     "handoff_glob": "*-luna-handoff.json",
                     "wake_glob": "*.wake-receipt.json",
                     "ignored_handoff_names": [],
@@ -168,7 +185,6 @@ class ProjectionTests(unittest.TestCase):
             encoding="utf-8",
         )
         config = self.fixture.config()
-        config["current_correlation"]["master_filter_expected_sha256"] = "0" * 64
         config["goal_anchor_expected_sha256"] = "f" * 64
         default_goal = "aoa-dashboard-goal-01a00722-20260815"
         for record in config["pressure_inbox"]:
@@ -198,7 +214,8 @@ class ProjectionTests(unittest.TestCase):
         projection = build_projection(str(config_path))
         correlation = projection["correlation"]
         master_ref = correlation["master_filter"]["ref"]
-        self.assertEqual(master_ref["currentness"], "stale")
+        self.assertEqual(master_ref["currentness"], "deferred")
+        self.assertIn("current_head_missing", master_ref["degradation"])
         self.assertEqual(master_ref["owner"], "master-thread")
         self.assertEqual(master_ref["authority"], "master_decision")
         self.assertEqual(master_ref["access_scope"], "owner_bounded")
@@ -472,13 +489,11 @@ class CorrelationAdapterTests(unittest.TestCase):
             self.assertGreater(summary["invalid"], 0)
             return
         self.assertEqual(summary["invalid"], 0)
-        self.assertEqual(result["metadata"]["master_filter"]["ref"]["currentness"], "stale")
-        self.assertEqual(
-            summary["reentered"] + summary["missing"],
-            summary["filtered_return_ids"],
-        )
-        if summary["missing"]:
-            self.assertEqual(result["state"], "deferred")
+        master_ref = result["metadata"]["master_filter"]["ref"]
+        self.assertEqual(master_ref["currentness"], "deferred")
+        self.assertIn("current_head_missing", master_ref["degradation"])
+        self.assertEqual(summary["reentered"], 0)
+        self.assertEqual(result["state"], "deferred")
         activity = observe_actor_activity(config, result)["metadata"]
         self.assertGreaterEqual(activity["summary"]["actor_count"], 2)
         self.assertEqual(activity["summary"]["actor_count"], len(activity["actors"]))

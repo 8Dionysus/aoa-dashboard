@@ -100,6 +100,22 @@ function renderCorrelation(data) {
   identity.append(text("div", `master thread: ${correlation.master_thread_id || "missing"}`, "mono"));
   identity.append(text("div", `surface: ${correlation.state || "missing"} · freshness: ${correlation.freshness || "unknown"}`, "mono"));
   identity.append(text("p", correlation.claim_limit || ""));
+  const currentness = correlation.master_filter?.currentness || {};
+  const currentnessDetails = document.createElement("details");
+  currentnessDetails.open = true;
+  currentnessDetails.append(text("summary", "master-filter current-head evidence"));
+  const head = currentness.head || {};
+  currentnessDetails.append(text(
+    "p",
+    `state: ${currentness.state || "unknown"} · sequence: ${head.sequence ?? "unknown"} · head: ${head.sha256 || "missing"}`,
+    "claim",
+  ));
+  currentnessDetails.append(evidenceList(currentness.evidence_refs));
+  if (currentness.degradation?.length) {
+    currentnessDetails.append(text("p", `diagnostics: ${currentness.degradation.join(", ")}`, "claim"));
+  }
+  currentnessDetails.append(text("p", currentness.claim_limit || "Currentness claim limit unavailable.", "claim"));
+  identity.append(currentnessDetails);
   target.append(identity);
 
   const readModel = data.correlation_read_model || {};

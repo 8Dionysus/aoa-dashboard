@@ -56,6 +56,23 @@ KNOWN_DIAGNOSTIC_CODES = frozenset(
         "source_read_failed",
         "source_parse_failed",
         "expected_digest_mismatch",
+        "legacy_snapshot_pin_ignored",
+        "historical_bootstrap_only",
+        "current_head_missing",
+        "current_head_parse_failed",
+        "current_head_schema_unsupported",
+        "current_head_authority_missing",
+        "current_head_authority_conflict",
+        "current_head_filter_ref_mismatch",
+        "current_head_digest_mismatch",
+        "current_head_history_missing",
+        "current_head_history_invalid",
+        "current_head_history_conflict",
+        "current_head_ambiguous",
+        "current_head_rollback_detected",
+        "current_head_rollback_attested",
+        "current_head_rollback_target_missing",
+        "current_head_sequence_invalid",
         "bytes",
         "digest",
         "parse_result",
@@ -303,6 +320,10 @@ def snapshot_ref(
     claim_limit: str,
     snapshot_role: str = "live_observed",
     observed_at: str | None = None,
+    currentness_override: str | None = None,
+    freshness_override: str | None = None,
+    extra_degradation: list[str] | None = None,
+    extra_missing_fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a rich typed ref without rereading or relabelling the source."""
 
@@ -315,13 +336,16 @@ def snapshot_ref(
         degradation.append("expected_digest_mismatch")
     if snapshot.currentness == "missing":
         degradation.append("source_missing")
+    degradation.extend(extra_degradation or [])
+    currentness = currentness_override or snapshot.currentness
+    freshness = freshness_override or currentness
     result: dict[str, Any] = {
         "label": label,
         "kind": kind,
         "ref": str(snapshot.path),
         "sha256": snapshot.digest,
-        "currentness": snapshot.currentness,
-        "freshness": snapshot.currentness,
+        "currentness": currentness,
+        "freshness": freshness,
         "owner": owner,
         "access_scope": access_scope,
         "authority": authority,
@@ -333,6 +357,7 @@ def snapshot_ref(
     }
     if snapshot.expected_digest is not None:
         result["expected_sha256"] = snapshot.expected_digest
-    if snapshot.missing_fields:
-        result["missing_fields"] = list(snapshot.missing_fields)
+    missing_fields = [*snapshot.missing_fields, *(extra_missing_fields or [])]
+    if missing_fields:
+        result["missing_fields"] = list(dict.fromkeys(missing_fields))
     return result

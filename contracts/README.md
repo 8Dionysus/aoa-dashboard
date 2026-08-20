@@ -38,5 +38,10 @@ through adapters and retained only as bounded metadata plus provenance refs.
   fields remain bounded observations.
 - `goal_space_projection.schema.json` describes the read model served to the
   operator UI.
+- `master_filter_currentness.schema.json` defines the migration boundary for
+  the mutable master return filter. The dashboard consumes an owner-authored
+  current-head attestation plus append-only head history, compares the
+  attested SHA-256 with one read of the filter bytes, and fails closed on
+  missing, stale, ambiguous, conflicting, or unannounced rollback evidence.
 - `dashboard_annotation.schema.json` and `action_intent.schema.json` are
   append-only dashboard-owned records.

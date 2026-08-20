@@ -51,7 +51,7 @@ known to be a step while its expected evidence is missing or deferred.
 The current holder is bound through the Goal/thread and task-local receipt
 directory in `current_correlation`. The old session/edeac bootstrap remains a
 separate `historical_bootstrap` binding and is never used as current-holder
-identity. Wake delivery is transport evidence only. The dashboard keeps the
+Wake delivery is transport evidence only. The dashboard keeps the
 task-local v2 witness and owner-shaped SDK v1 source as distinct families; the
 current independently admitted v1 binding set is empty, so v1 remains raw
 candidate evidence with null canonical owner refs, invalid state, and no
@@ -65,6 +65,14 @@ and is an exact v2 boolean when present; it never participates in v1 admission.
 Master-filtered re-entry is emitted only from exact `accepted_turn_id` plus the
 validated master filter and still does not prove semantic continuation, owner
 acceptance, runtime health, return acceptance, or parent resume.
+
+The mutable master filter is current only when the `master-thread` owner
+supplies the content-addressed current-head attestation and bounded append-only
+history declared by `master_filter_currentness`. The dashboard compares the
+attested digest to the filter bytes and preserves sequence, transition,
+rollback, provenance, and claim limits. Missing or conflicting owner evidence is
+deferred or invalid; the historical snapshot digest is context only and is not
+rewritten after a transition.
 
 ## Cursor and pressure stop-lines
 
