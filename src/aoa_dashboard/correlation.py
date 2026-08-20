@@ -17,6 +17,7 @@ from .wake_receipts import (
     wake_source_family,
     wake_source_kind,
 )
+from .currentness import filter_currentness_for_ref, resolve_master_filter_currentness
 from .source_binding import FileSnapshot, read_file_snapshot, snapshot_ref
 
 
@@ -245,6 +246,10 @@ def _file_ref(
     authority: str,
     claim_policy: str,
     claim_limit: str,
+    currentness_override: str | None = None,
+    freshness_override: str | None = None,
+    extra_degradation: list[str] | None = None,
+    extra_missing_fields: list[str] | None = None,
 ) -> CorrelationRef:
     return snapshot_ref(
         snapshot,
@@ -256,6 +261,10 @@ def _file_ref(
         claim_policy=claim_policy,
         claim_limit=claim_limit,
         observed_at=observed_at,
+        currentness_override=currentness_override,
+        freshness_override=freshness_override,
+        extra_degradation=extra_degradation,
+        extra_missing_fields=extra_missing_fields,
     )  # type: ignore[return-value]
 
 
@@ -516,6 +525,7 @@ def _master_filter_summary(
     filter_ref: CorrelationRef,
     dag: list[dict[str, str]],
     entries: dict[str, dict[str, Any]],
+    currentness: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     claim_limit = (
         "The master filter is task-local disposition evidence. It is not proof, owner acceptance, "
@@ -528,6 +538,7 @@ def _master_filter_summary(
         "return_ids": [item.get("id") for item in entries.values() if _non_empty_string(item.get("id"))],
         "goal_ref": value.get("goal_ref"),
         "goal_dag": dag,
+        "currentness": copy.deepcopy(currentness) if currentness is not None else None,
         "new_required_obligations": _redacted_obligations(value.get("new_required_obligations", [])),
         "rejected_or_deferred_claims": [
             item for item in value.get("rejected_or_deferred_claims", []) if isinstance(item, str)
@@ -555,6 +566,7 @@ def _envelope(
     owner_contract: dict[str, Any] | None = None,
     filter_currentness: str,
     goal_currentness: str,
+    filter_currentness_observation: dict[str, Any] | None = None,
 ) -> CorrelationEnvelope:
     claim_limit = _base_claim_limit()
     expected_handoff_ref = filter_entry.get("handoff_ref")
@@ -821,6 +833,7 @@ def _envelope(
         "wake_receipt_ref": _string_or_none(filter_entry.get("wake_receipt_ref")),
         "ref": filter_summary["ref"],
         "reviewed_at": _string_or_none(filter_summary["reviewed_at"]),
+        "currentness": copy.deepcopy(filter_currentness_observation),
         "claim_limit": filter_summary["claim_limit"],
     }
     dag_view = {
@@ -966,9 +979,28 @@ def observe_current_correlation(
     )
     filter_snapshot = read_file_snapshot(
         filter_path,
-        expected_digest=current.get("master_filter_expected_sha256"),
+        expected_digest=(
+            None
+            if isinstance(current.get("master_filter_currentness"), dict)
+            else current.get("master_filter_expected_sha256")
+        ),
         parser="json",
     )
+    currentness_observation = resolve_master_filter_currentness(
+        config,
+        current,
+        filter_snapshot,
+        expected_thread=expected_thread,
+        expected_goal_ref=str(goal_anchor_path_obj),
+        task_root=task_root,
+    )
+    filter_currentness, currentness_degradation, currentness_missing_fields = filter_currentness_for_ref(
+        currentness_observation
+    )
+    if filter_snapshot.currentness == "missing":
+        filter_currentness = "missing"
+    elif filter_snapshot.currentness == "invalid":
+        filter_currentness = "invalid"
     anchor_digest = goal_anchor_snapshot.digest
     goal_anchor_ref = _file_ref(
         "Goal Anchor",
@@ -1007,8 +1039,15 @@ def observe_current_correlation(
         authority="master_decision",
         claim_policy="master_decision_disposition",
         claim_limit="The master filter is task-local disposition evidence, not proof or owner acceptance.",
+        currentness_override=filter_currentness,
+        freshness_override=filter_currentness,
+        extra_degradation=currentness_degradation,
+        extra_missing_fields=currentness_missing_fields,
     )
-    base_refs = [goal_anchor_ref, directory_ref, filter_ref]
+    currentness_refs = [
+        item for item in currentness_observation.get("evidence_refs", []) if isinstance(item, dict)
+    ]
+    base_refs = [goal_anchor_ref, directory_ref, filter_ref, *currentness_refs]
     claim_limit = _base_claim_limit()
     if not task_root.exists():
         return _source(
@@ -1019,7 +1058,12 @@ def observe_current_correlation(
                 "schema_version": CORRELATION_PROJECTION_VERSION,
                 "master_thread_id": expected_thread,
                 "current_holder": holder,
-                "master_filter": {"ref": filter_ref, "state": "missing", "claim_limit": claim_limit},
+                "master_filter": {
+                    "ref": filter_ref,
+                    "state": "missing",
+                    "currentness": currentness_observation,
+                    "claim_limit": claim_limit,
+                },
                 "envelopes": [],
                 "new_obligations": [],
                 "rejected_or_deferred_claims": [],
@@ -1055,7 +1099,12 @@ def observe_current_correlation(
                 "schema_version": CORRELATION_PROJECTION_VERSION,
                 "master_thread_id": expected_thread,
                 "current_holder": holder,
-                "master_filter": {"ref": filter_ref, "state": "missing" if filter_snapshot.currentness == "missing" else "invalid", "claim_limit": claim_limit},
+                "master_filter": {
+                    "ref": filter_ref,
+                    "state": "missing" if filter_snapshot.currentness == "missing" else "invalid",
+                    "currentness": currentness_observation,
+                    "claim_limit": claim_limit,
+                },
                 "envelopes": [],
                 "new_obligations": [],
                 "rejected_or_deferred_claims": [],
@@ -1083,7 +1132,13 @@ def observe_current_correlation(
         _, wake_ref_error = _direct_child(task_root, entry.get("wake_receipt_ref"))
         if wake_ref_error:
             filter_errors.append(f"master filter wake_receipt_ref is not exact/bounded: {wake_ref_error}")
-    filter_summary = _master_filter_summary(filter_value, filter_ref, dag, filter_entries)
+    filter_summary = _master_filter_summary(
+        filter_value,
+        filter_ref,
+        dag,
+        filter_entries,
+        currentness=currentness_observation,
+    )
     handoff_glob = (
         current.get("handoff_glob")
         if isinstance(current.get("handoff_glob"), str)
@@ -1181,8 +1236,9 @@ def observe_current_correlation(
                 wake_error=wake_error if len(wake_candidates) <= 1 else "duplicate wake receipts",
                 wake_candidates=wake_candidates or ([(wake_path, wake_snapshot, wake_value, wake_error)] if wake_path is not None and wake_snapshot is not None else []),
                 owner_contract=owner_contract,
-                filter_currentness=filter_snapshot.currentness,
+                filter_currentness=filter_currentness,
                 goal_currentness=goal_anchor_snapshot.currentness,
+                filter_currentness_observation=currentness_observation,
             )
         )
     filter_ref_set = set(filter_entries)
@@ -1223,8 +1279,9 @@ def observe_current_correlation(
                     wake_error=extra_wake_error,
                     wake_candidates=extra_wakes or ([(extra_wake_path, extra_wake_snapshot, extra_wake_value, extra_wake_error)] if extra_wake_path is not None and extra_wake_snapshot is not None else []),
                     owner_contract=owner_contract,
-                    filter_currentness=filter_snapshot.currentness,
+                    filter_currentness=filter_currentness,
                     goal_currentness=goal_anchor_snapshot.currentness,
+                    filter_currentness_observation=currentness_observation,
                 )
             )
     for wake_ref, candidates in wakes.items():
@@ -1244,6 +1301,7 @@ def observe_current_correlation(
     else:
         state = "bound"
     degradation = ["transport_delivery_only", "reentry_is_correlation_only"]
+    degradation.extend(currentness_degradation)
     if filter_errors:
         degradation.extend(filter_errors)
     degradation.extend(anomalies)
@@ -1251,10 +1309,10 @@ def observe_current_correlation(
     if not anchor_digest:
         state = "invalid"
         degradation.append("goal_anchor_missing")
-    if filter_snapshot.currentness != "current_at_read":
-        degradation.append(f"master_filter_currentness:{filter_snapshot.currentness}")
-        if filter_snapshot.currentness in {"invalid", "missing"}:
-            state = "invalid" if filter_snapshot.currentness == "invalid" else "missing"
+    if filter_currentness != "current_at_read":
+        degradation.append(f"master_filter_currentness:{filter_currentness}")
+        if filter_currentness in {"invalid", "missing"}:
+            state = "invalid" if filter_currentness == "invalid" else "missing"
         elif state == "bound":
             state = "deferred"
     if goal_anchor_snapshot.currentness != "current_at_read":

@@ -23,13 +23,17 @@ repository:
 2. dashboard annotations;
 3. deferred, non-executing action intents;
 4. task-local correlation projection and cursor/checkpoint;
-5. the P-infinity Pressure Inbox projection;
-6. task-local actor-activity projection.
+5. the owner-currentness observation for the mutable master filter, including
+   bounded current-head/history refs and diagnostics;
+6. the P-infinity Pressure Inbox projection;
+7. task-local actor-activity projection.
 
 It may read named owner surfaces, preserve source refs/digests, render
 missingness and freshness, and persist its own annotations. It cannot amend a
 sibling source record. An action intent describes a future owner route and has
-no executor in this organ.
+no executor in this organ. The master-thread current-head/history files remain
+owner-authored evidence; this organ only compares their declared digest with
+the filter bytes and renders the resulting currentness state.
 
 ## Constitutional limits
 

@@ -18,7 +18,22 @@
     "master_thread_id": "01a00722-0291-72e0-8310-559da802d6e1",
     "task_local_dir": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815",
     "master_filter_path": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
-    "master_filter_expected_sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
+    "master_filter_currentness": {
+      "schema_version": "aoa_dashboard_master_filter_currentness_binding_v1",
+      "owner": "master-thread",
+      "authority": "master_decision",
+      "access_scope": "owner_bounded",
+      "filter_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
+      "current_head_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-current-head.json",
+      "history_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-head-history.jsonl",
+      "claim_limit": "The master-thread current-head contract is owner evidence consumed by the dashboard; it is not dashboard authority, proof, acceptance, or a runtime action route."
+    },
+    "legacy_snapshot_binding": {
+      "schema_version": "aoa_dashboard_legacy_snapshot_binding_v1",
+      "expected_sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
+      "snapshot_role": "historical_bootstrap_only",
+      "claim_limit": "The former expected digest is retained as historical bootstrap evidence only; it is never used to decide currentness after migration."
+    },
     "handoff_glob": "*-luna-handoff.json",
     "wake_glob": "*.wake-receipt.json",
     "ignored_handoff_names": [],
@@ -68,13 +83,14 @@
           "owner": "master-thread",
           "kind": "task_local_master_filter",
           "sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
-          "currentness": "unknown",
+          "currentness": "deferred",
+          "freshness": "deferred",
           "access_scope": "owner_bounded",
           "authority": "master_decision",
           "claim_policy": "master_decision_disposition",
-          "expected_sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
-          "snapshot_role": "configured_snapshot",
-          "claim_limit": "The master filter is task-local disposition evidence, not proof or acceptance."
+          "snapshot_role": "historical_bootstrap_only",
+          "degradation": ["historical_bootstrap_only", "currentness_attestation"],
+          "claim_limit": "The former master-filter digest is historical bootstrap context only; currentness comes from the owner current-head contract."
         }
       ],
       "affected_goal_criterion": "D4 requires a deterministic Goal-local correlation rebuild with cursor/checkpoint drift detection and retained conflict provenance.",
@@ -173,13 +189,14 @@
           "owner": "master-thread",
           "kind": "task_local_master_filter",
           "sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
-          "currentness": "unknown",
+          "currentness": "deferred",
+          "freshness": "deferred",
           "access_scope": "owner_bounded",
           "authority": "master_decision",
           "claim_policy": "master_decision_disposition",
-          "expected_sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
-          "snapshot_role": "configured_snapshot",
-          "claim_limit": "The master filter carries candidate obligations and does not become dashboard action authority."
+          "snapshot_role": "historical_bootstrap_only",
+          "degradation": ["historical_bootstrap_only", "currentness_attestation"],
+          "claim_limit": "The former master-filter digest is historical bootstrap context only; currentness comes from the owner current-head contract."
         }
       ],
       "affected_goal_criterion": "P-infinity requires every discovered pressure to retain owner, evidence, omission consequence, independence, trigger strength, stop-line, wake condition, next route and outcome.",

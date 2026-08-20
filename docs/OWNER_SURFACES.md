@@ -30,6 +30,12 @@ owns only the thin translation and presentation layer.
   surface before v1 can be canonical or reenter. It does not take ownership of
   role, runtime, proof, return acceptance, parent resume, or semantic
   continuation.
+- The master filter's mutable currentness remains owner evidence: the
+  `master-thread` publishes a content-addressed current-head attestation and
+  append-only history, while `aoa-dashboard` only compares bytes, retains refs,
+  and reports bounded current/stale/missing/conflict/rollback state. The former
+  snapshot pin is historical bootstrap context and is never rewritten by the
+  dashboard.
 - The live actor-activity card is a second derived view over the same admitted
   envelopes. It may show allowlisted scalar process/session/terminal/usage
   observations and responsibility identifiers, but it cannot publish or

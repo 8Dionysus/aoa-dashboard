@@ -104,6 +104,7 @@
         "wake_receipt_ref": {"type": ["string", "null"]},
         "ref": {"$ref": "#/$defs/correlationRef"},
         "reviewed_at": {"type": ["string", "null"]},
+        "currentness": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/currentnessObservation"}]},
         "claim_limit": {"type": "string", "minLength": 1}
       }
     },
@@ -208,6 +209,91 @@
         "raw_owner_content_sha256": {"type": ["string", "null"]},
         "ref": {"$ref": "#/$defs/correlationRef"},
         "error": {"type": ["string", "null"]}
+      }
+    },
+    "currentnessObservation": {
+      "type": "object",
+      "required": ["schema_version", "state", "owner", "authority", "access_scope", "filter_ref", "current_head_ref", "history_ref", "head", "history", "provenance", "evidence_refs", "degradation", "legacy_snapshot_binding", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"const": "aoa_dashboard_master_filter_currentness_binding_v1"},
+        "state": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+        "owner": {"const": "master-thread"},
+        "authority": {"const": "master_decision"},
+        "access_scope": {"const": "owner_bounded"},
+        "filter_ref": {"type": "string", "minLength": 1},
+        "current_head_ref": {"type": ["string", "null"]},
+        "history_ref": {"type": ["string", "null"]},
+        "head": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/currentnessHead"}]},
+        "history": {"$ref": "#/$defs/currentnessHistory"},
+        "provenance": {"$ref": "#/$defs/currentnessProvenance"},
+        "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/correlationRef"}},
+        "degradation": {"type": "array", "items": {"type": "string"}},
+        "legacy_snapshot_binding": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/legacySnapshotBinding"}]},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "currentnessHead": {
+      "type": "object",
+      "required": ["sha256", "sequence", "reviewed_at", "transition", "previous_head_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "sequence": {"type": ["integer", "null"], "minimum": 0},
+        "reviewed_at": {"type": ["string", "null"]},
+        "transition": {"type": ["string", "null"], "enum": ["initial", "advance", "rollback", null]},
+        "previous_head_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "currentnessHistory": {
+      "type": "object",
+      "required": ["record_count", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "record_count": {"type": ["integer", "null"], "minimum": 0},
+        "first_sequence": {"type": ["integer", "null"], "minimum": 0},
+        "last_sequence": {"type": ["integer", "null"], "minimum": 0},
+        "head_digests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["sha256", "sequences"],
+            "additionalProperties": false,
+            "properties": {
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "sequences": {"type": "array", "items": {"type": "integer", "minimum": 0}}
+            }
+          }
+        },
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "currentnessProvenance": {
+      "type": "object",
+      "required": ["owner", "authority", "access_scope", "filter_ref", "filter_sha256", "current_head_ref", "current_head_sha256", "history_ref", "history_sha256", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": {"const": "master-thread"},
+        "authority": {"const": "master_decision"},
+        "access_scope": {"const": "owner_bounded"},
+        "filter_ref": {"type": "string", "minLength": 1},
+        "filter_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "current_head_ref": {"type": ["string", "null"]},
+        "current_head_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "history_ref": {"type": ["string", "null"]},
+        "history_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "claim_limit": {"type": "string", "minLength": 1}
+      }
+    },
+    "legacySnapshotBinding": {
+      "type": "object",
+      "required": ["schema_version", "expected_sha256", "snapshot_role", "claim_limit"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"type": "string", "minLength": 1},
+        "expected_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "snapshot_role": {"const": "historical_bootstrap_only"},
+        "claim_limit": {"type": "string", "minLength": 1}
       }
     },
     "redactedObligation": {

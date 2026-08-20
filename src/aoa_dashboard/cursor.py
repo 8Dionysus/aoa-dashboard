@@ -168,6 +168,7 @@ _PAYLOAD_ROOT_FIELDS = {
             "goal_ref",
             "return_ids",
             "goal_dag",
+            "currentness",
             "new_required_obligations",
             "rejected_or_deferred_claims",
             "claim_limit",
@@ -253,6 +254,23 @@ _PAYLOAD_NESTED_FIELDS = frozenset(
         "expected_sha256",
         "snapshot_role",
         "missing_fields",
+        "current_head_ref",
+        "history_ref",
+        "filter_ref",
+        "head",
+        "history",
+        "provenance",
+        "legacy_snapshot_binding",
+        "record_count",
+        "first_sequence",
+        "last_sequence",
+        "head_digests",
+        "sequences",
+        "transition",
+        "previous_head_sha256",
+        "filter_sha256",
+        "current_head_sha256",
+        "history_sha256",
     }
 )
 _FORBIDDEN_METADATA_KEY_PARTS = (
@@ -1633,6 +1651,25 @@ def migrate_legacy_correlation_input(config: dict[str, Any], correlation_source:
             "accepted": bool(current.get("master_filter_path")) and bool(master_filter),
             "ref": master_filter.get("ref"),
             "claim_limit": "Legacy master-filter input is a task-local disposition source; it is not proof or acceptance.",
+        },
+        "currentness_binding": {
+            "accepted": isinstance(current.get("master_filter_currentness"), dict),
+            "ref": (
+                current.get("master_filter_currentness", {}).get("current_head_ref")
+                if isinstance(current.get("master_filter_currentness"), dict)
+                else None
+            ),
+            "history_ref": (
+                current.get("master_filter_currentness", {}).get("history_ref")
+                if isinstance(current.get("master_filter_currentness"), dict)
+                else None
+            ),
+            "legacy_snapshot": (
+                current.get("legacy_snapshot_binding")
+                if isinstance(current.get("legacy_snapshot_binding"), dict)
+                else None
+            ),
+            "claim_limit": "The owner current-head contract replaces the historical snapshot pin; the legacy digest remains context only.",
         },
         "cursor_checkpoint": {
             "mode": "new_versioned_projection",

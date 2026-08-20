@@ -24,6 +24,9 @@ The slice is complete when a local operator can open the dashboard and see:
   missing or unknown values;
 - DAG progress, lifecycle steps, owner surfaces, source refs, and claim limits;
 - distinct lifecycle and data-quality vocabulary values;
+- master-filter currentness from the owner-authored current-head digest and
+  append-only transition history, including explicit stale, missing, conflict,
+  and rollback evidence;
 - a dashboard-owned annotation or deferred action intent recorded locally.
 
 The adapter is bounded to the configured direct directory and validates the
@@ -48,6 +51,13 @@ compatibility adapter. Existing `bootstrap.json` and
 migration record. Legacy pressure strings are shown only as redacted,
 digest-linked deferred candidates until all structured fields are present; raw
 legacy text is never emitted.
+
+The mutable master filter is not pinned to a changing snapshot digest. The
+configured `master_filter_currentness` binding names the master-thread-owned
+current-head attestation and history within the task-local root. A valid head
+must match the filter bytes, exact Goal/thread/ref contract, and the last
+append-only sequence; missing or ambiguous evidence remains deferred/invalid.
+The historical digest is retained as migration context only.
 
 The projection GET is read-only. When durable local retention is required, an
 owner-controlled caller may use the bounded materialization function to append
