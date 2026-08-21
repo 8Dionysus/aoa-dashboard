@@ -7,19 +7,115 @@ lifecycle, or any action execution route.
 
 from __future__ import annotations
 
+import json
+import locale
 import sys
 import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Literal, Sequence
+from typing import Any, Callable, Literal, Mapping, Sequence
 
 from .server import DashboardHTTPServer, DashboardHandler
 
 
 APPLICATION_ID = "org.aoa.AoaDashboard"
 LOOPBACK_HOST = "127.0.0.1"
+PRESENTATION_HANDLER_NAME = "aoaDashboardPresentation"
+PresentationLanguage = Literal["en", "ru"]
+PresentationTheme = Literal["system", "light", "dark"]
+PRESENTATION_LANGUAGES = frozenset({"en", "ru"})
+PRESENTATION_THEMES = frozenset({"system", "light", "dark"})
 BackendState = Literal["new", "running", "stopping", "stopped", "failed"]
 ServerFactory = Callable[[tuple[str, int], type[BaseHTTPRequestHandler]], ThreadingHTTPServer]
+
+
+_NATIVE_TEXT: dict[PresentationLanguage, dict[str, str]] = {
+    "en": {
+        "title": "AoA Dashboard",
+        "status.starting": "Starting dashboard…",
+        "status.loading": "Loading dashboard…",
+        "status.connected": "Connected · loading projection…",
+        "status.loaded": "Dashboard loaded",
+        "status.backend_error": "Backend unavailable",
+        "status.load_error": "Dashboard load error",
+        "message.starting": "Starting dashboard…",
+        "message.backend_error": "The dashboard backend could not start.",
+        "message.load_error": "The dashboard could not load.",
+    },
+    "ru": {
+        "title": "Панель AoA",
+        "status.starting": "Запуск панели…",
+        "status.loading": "Загрузка панели…",
+        "status.connected": "Подключено · загрузка проекции…",
+        "status.loaded": "Панель загружена",
+        "status.backend_error": "Сервер панели недоступен",
+        "status.load_error": "Ошибка загрузки панели",
+        "message.starting": "Запуск панели…",
+        "message.backend_error": "Не удалось запустить сервер панели.",
+        "message.load_error": "Не удалось загрузить панель.",
+    },
+}
+
+
+@dataclass(frozen=True)
+class PresentationPreference:
+    """The only values admitted across the WebKit-to-native bridge."""
+
+    language: PresentationLanguage
+    theme: PresentationTheme
+
+
+def startup_language(
+    locale_getter: Callable[[int], tuple[str | None, str | None]] = locale.getlocale,
+) -> PresentationLanguage:
+    """Return the honest native startup fallback derived from the host locale."""
+
+    try:
+        locale_name = locale_getter(locale.LC_MESSAGES)[0]
+    except (AttributeError, IndexError, locale.Error, TypeError, ValueError):
+        locale_name = None
+    normalized = str(locale_name or "").strip().lower().replace("_", "-")
+    return "ru" if normalized.startswith("ru") else "en"
+
+
+def parse_presentation_message(payload: object) -> PresentationPreference | None:
+    """Validate one exact, presentation-only bridge payload.
+
+    The strict key set prevents the web surface from smuggling arbitrary text,
+    commands, or operational data into the native shell.
+    """
+
+    if not isinstance(payload, Mapping) or set(payload) != {"language", "theme"}:
+        return None
+    language = payload.get("language")
+    theme = payload.get("theme")
+    if (
+        type(language) is not str
+        or language not in PRESENTATION_LANGUAGES
+        or type(theme) is not str
+        or theme not in PRESENTATION_THEMES
+    ):
+        return None
+    return PresentationPreference(language=language, theme=theme)  # type: ignore[arg-type]
+
+
+def presentation_from_javascript_value(value: object) -> PresentationPreference | None:
+    """Decode WebKitGTK 6.0's JavaScriptCore.Value and validate its payload."""
+
+    to_json = getattr(value, "to_json", None)
+    if not callable(to_json):
+        return None
+    try:
+        payload = json.loads(to_json(0))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return parse_presentation_message(payload)
+
+
+def native_text(language: PresentationLanguage, key: str) -> str:
+    """Look up a bounded native presentation string."""
+
+    return _NATIVE_TEXT[language][key]
 
 
 def _create_backend_server(
@@ -34,6 +130,10 @@ class DesktopDependencyError(RuntimeError):
 
 class BackendStartError(RuntimeError):
     """Raised when the application-owned HTTP backend cannot bind."""
+
+
+class PresentationBridgeError(RuntimeError):
+    """Raised when the native presentation message channel cannot be installed."""
 
 
 def dashboard_url(server_address: tuple[str, int] | tuple[str, int, int, int]) -> str:
@@ -182,18 +282,35 @@ if GTK_AVAILABLE:
     class DashboardApplication(Adw.Application):  # type: ignore[misc,valid-type]
         """Single-instance GTK application embedding the existing dashboard UI."""
 
-        def __init__(self, *, backend_factory: Callable[[], DashboardBackend] = DashboardBackend) -> None:
+        def __init__(
+            self,
+            *,
+            backend_factory: Callable[[], DashboardBackend] = DashboardBackend,
+            locale_getter: Callable[[int], tuple[str | None, str | None]] = locale.getlocale,
+            style_manager: Any | None = None,
+        ) -> None:
             # No NON_UNIQUE flag is set: Gio.Application provides single-instance
             # behavior for this stable application id.
             super().__init__(application_id=APPLICATION_ID)
             self._backend_factory = backend_factory
+            self._style_manager = style_manager if style_manager is not None else Adw.StyleManager.get_default()
             self._backend: DashboardBackend | None = None
             self._window: Any | None = None
             self._stack: Any | None = None
             self._web_view: Any | None = None
+            self._user_content_manager: Any | None = None
+            self._title_label: Any | None = None
             self._status_label: Any | None = None
             self._status_state = "starting"
-            self._status_text = "Starting dashboard…"
+            self._status_key = "status.starting"
+            initial_language = startup_language(locale_getter)
+            self._status_text = native_text(initial_language, self._status_key)
+            self._message_specs: dict[str, tuple[str, str | None]] = {}
+            self._presentation = PresentationPreference(
+                language=initial_language,
+                theme="system",
+            )
+            self._apply_color_scheme(self._presentation.theme)
 
         @property
         def backend(self) -> DashboardBackend | None:
@@ -206,6 +323,14 @@ if GTK_AVAILABLE:
         @property
         def load_status(self) -> str:
             return self._status_text
+
+        @property
+        def language(self) -> PresentationLanguage:
+            return self._presentation.language
+
+        @property
+        def theme_mode(self) -> PresentationTheme:
+            return self._presentation.theme
 
         def do_activate(self) -> None:
             if self._window is None:
@@ -223,12 +348,12 @@ if GTK_AVAILABLE:
 
         def _build_window(self) -> Any:
             window = Adw.ApplicationWindow(application=self)
-            window.set_title("AoA Dashboard")
+            window.set_title(native_text(self.language, "title"))
             window.set_default_size(1280, 900)
 
             toolbar = Adw.ToolbarView()
             header = Adw.HeaderBar()
-            title = Gtk.Label(label="AoA Dashboard")
+            title = Gtk.Label(label=native_text(self.language, "title"))
             title.add_css_class("title")
             header.set_title_widget(title)
             self._status_label = Gtk.Label(label=self._status_text)
@@ -240,14 +365,17 @@ if GTK_AVAILABLE:
             self._stack = Gtk.Stack()
             self._stack.set_hexpand(True)
             self._stack.set_vexpand(True)
-            self._stack.add_named(self._message_view("Starting dashboard…"), "starting")
+            self._message_specs["starting"] = ("message.starting", None)
+            self._stack.add_named(self._message_view("message.starting"), "starting")
             self._stack.set_visible_child_name("starting")
             toolbar.set_content(self._stack)
             window.set_content(toolbar)
+            self._window = window
+            self._title_label = title
             return window
 
-        def _message_view(self, message: str) -> Any:
-            view = Gtk.Label(label=message)
+        def _message_view(self, message_key: str, detail: str | None = None) -> Any:
+            view = Gtk.Label(label=self._message_text(message_key, detail))
             view.set_wrap(True)
             view.set_margin_top(36)
             view.set_margin_bottom(36)
@@ -256,35 +384,90 @@ if GTK_AVAILABLE:
             view.set_selectable(True)
             return view
 
-        def _set_status(self, state: str, message: str) -> None:
+        def _message_text(self, message_key: str, detail: str | None = None) -> str:
+            message = native_text(self.language, message_key)
+            return f"{message}\n\n{detail}" if detail else message
+
+        def _set_status(self, state: str, message_key: str) -> None:
             self._status_state = state
-            self._status_text = message
+            self._status_key = message_key
+            self._status_text = native_text(self.language, message_key)
             if self._status_label is not None:
-                self._status_label.set_text(message)
-                self._status_label.set_tooltip_text(message)
+                self._status_label.set_text(self._status_text)
+                self._status_label.set_tooltip_text(self._status_text)
                 self._status_label.remove_css_class("error")
                 if state == "error":
                     self._status_label.add_css_class("error")
 
-        def _show_message(self, name: str, message: str) -> None:
+        def _show_message(self, name: str, message_key: str, detail: str | None = None) -> None:
+            self._message_specs[name] = (message_key, detail)
             if self._stack is None:
                 return
             child = self._stack.get_child_by_name(name)
             if child is None:
-                self._stack.add_named(self._message_view(message), name)
+                self._stack.add_named(self._message_view(message_key, detail), name)
+            else:
+                child.set_text(self._message_text(message_key, detail))
             self._stack.set_visible_child_name(name)
 
+        def _apply_color_scheme(self, theme: PresentationTheme) -> None:
+            scheme = {
+                "system": Adw.ColorScheme.PREFER_LIGHT,
+                "light": Adw.ColorScheme.FORCE_LIGHT,
+                "dark": Adw.ColorScheme.FORCE_DARK,
+            }[theme]
+            self._style_manager.set_color_scheme(scheme)
+
+        def _apply_presentation(self, preference: PresentationPreference) -> None:
+            """Apply web-owned preferences without changing native lifecycle state."""
+
+            self._presentation = preference
+            self._apply_color_scheme(preference.theme)
+            self._status_text = native_text(self.language, self._status_key)
+            if self._window is not None:
+                self._window.set_title(native_text(self.language, "title"))
+            if self._title_label is not None:
+                self._title_label.set_text(native_text(self.language, "title"))
+            if self._status_label is not None:
+                self._status_label.set_text(self._status_text)
+                self._status_label.set_tooltip_text(self._status_text)
+            if self._stack is not None:
+                for name, (message_key, detail) in self._message_specs.items():
+                    child = self._stack.get_child_by_name(name)
+                    if child is not None:
+                        child.set_text(self._message_text(message_key, detail))
+
+        def _on_presentation_message(self, _manager: Any, value: Any) -> None:
+            preference = presentation_from_javascript_value(value)
+            if preference is not None:
+                self._apply_presentation(preference)
+
+        def _create_presentation_bridge(self) -> Any:
+            manager = WebKit.UserContentManager()
+            manager.connect(
+                f"script-message-received::{PRESENTATION_HANDLER_NAME}",
+                self._on_presentation_message,
+            )
+            if not manager.register_script_message_handler(PRESENTATION_HANDLER_NAME):
+                raise PresentationBridgeError("could not register presentation message handler")
+            return manager
+
         def _start_backend(self) -> None:
+            backend: DashboardBackend | None = None
             try:
                 backend = self._backend_factory()
                 url = backend.start()
-            except (BackendStartError, OSError, RuntimeError, ValueError) as exc:
-                self._set_status("error", "Backend unavailable")
-                self._show_message("backend-error", f"The dashboard backend could not start.\n\n{exc}")
+                manager = self._create_presentation_bridge()
+            except (BackendStartError, PresentationBridgeError, OSError, RuntimeError, ValueError) as exc:
+                if backend is not None:
+                    backend.stop()
+                self._set_status("error", "status.backend_error")
+                self._show_message("backend-error", "message.backend_error", str(exc))
                 return
             self._backend = backend
-            self._set_status("loading", "Loading dashboard…")
-            self._web_view = WebKit.WebView()
+            self._user_content_manager = manager
+            self._set_status("loading", "status.loading")
+            self._web_view = WebKit.WebView(user_content_manager=manager)
             self._web_view.set_hexpand(True)
             self._web_view.set_vexpand(True)
             self._web_view.connect("load-changed", self._on_load_changed)
@@ -295,16 +478,16 @@ if GTK_AVAILABLE:
 
         def _on_load_changed(self, _web_view: Any, event: Any) -> None:
             if event == WebKit.LoadEvent.STARTED:
-                self._set_status("loading", "Loading dashboard…")
+                self._set_status("loading", "status.loading")
             elif event == WebKit.LoadEvent.COMMITTED:
-                self._set_status("loading", "Connected · loading projection…")
+                self._set_status("loading", "status.connected")
             elif event == WebKit.LoadEvent.FINISHED:
-                self._set_status("loaded", "Dashboard loaded")
+                self._set_status("loaded", "status.loaded")
 
         def _on_load_failed(self, _web_view: Any, _event: Any, _failing_uri: str, error: Any) -> bool:
             detail = getattr(error, "message", None) or str(error)
-            self._set_status("error", "Dashboard load error")
-            self._show_message("web-error", f"The dashboard could not load.\n\n{detail}")
+            self._set_status("error", "status.load_error")
+            self._show_message("web-error", "message.load_error", detail)
             return False
 
 else:
