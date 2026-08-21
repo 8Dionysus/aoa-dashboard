@@ -56,6 +56,26 @@ The correlation ledger and checkpoint paths are configured under
 Open `http://127.0.0.1:8765/`. The UI reads `/api/projection` and polls it
 periodically; no fixture data is bundled or loaded.
 
+### Native desktop shell
+
+The same UI can run in a small native GTK shell. From a checkout, use:
+
+```text
+python3 scripts/run_desktop.py
+```
+
+An installed package exposes the equivalent `aoa-dashboard-desktop` command.
+The shell uses GTK4, Libadwaita 1, and WebKitGTK 6.0 from the host; those
+libraries are intentionally not vendored. It starts the existing Python server
+inside the application on `127.0.0.1` with an OS-assigned ephemeral port,
+hands that URL to the embedded WebView, and stops the server when the
+application exits. The stable application id is
+`org.aoa.AoaDashboard`, so normal Gio single-instance behavior applies.
+
+The graphical shell is a presentation/lifecycle wrapper only. The Python
+projection and the existing HTML/CSS/JavaScript remain the source surface, and
+the dashboard's provenance, missingness, and claim limits are unchanged.
+
 ## Validation
 
 ```text

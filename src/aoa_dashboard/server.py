@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import sysconfig
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,8 +15,31 @@ from .state_store import create_action_intent, create_annotation
 
 
 ROOT = Path(__file__).resolve().parents[2]
-WEB_ROOT = ROOT / "web"
+SOURCE_WEB_ROOT = ROOT / "web"
 MAX_BODY_BYTES = 32 * 1024
+
+
+class DashboardHTTPServer(ThreadingHTTPServer):
+    """The dashboard server owns only request threads, never owner actions."""
+
+    daemon_threads = True
+
+
+def resolve_web_root() -> Path:
+    """Find the existing UI in a checkout or in the installed data location."""
+
+    configured = os.environ.get("AOA_DASHBOARD_WEB_ROOT")
+    candidates = [Path(configured)] if configured else []
+    candidates.extend(
+        [
+            SOURCE_WEB_ROOT,
+            Path(sysconfig.get_path("data")) / "share" / "aoa-dashboard" / "web",
+        ]
+    )
+    for candidate in candidates:
+        if (candidate / "index.html").is_file():
+            return candidate
+    return candidates[0] if candidates else SOURCE_WEB_ROOT
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -23,12 +47,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _json(self, value: Any, status: int = HTTPStatus.OK) -> None:
         body = json.dumps(value, ensure_ascii=False, indent=2).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # A WebView can close a poll while the projection is being built.
+            # The client is gone; there is no response or owner fact to recover.
+            return
 
     def _body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
@@ -55,8 +84,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if route.startswith("/api/"):
             self._json({"error": "not_found"}, HTTPStatus.NOT_FOUND)
             return
-        candidate = (WEB_ROOT / route.lstrip("/")).resolve()
-        if WEB_ROOT not in candidate.parents and candidate != WEB_ROOT:
+        web_root = resolve_web_root()
+        candidate = (web_root / route.lstrip("/")).resolve()
+        if web_root not in candidate.parents and candidate != web_root:
             self._json({"error": "forbidden"}, HTTPStatus.FORBIDDEN)
             return
         if not candidate.is_file():
@@ -102,8 +132,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             super().log_message(format, *args)
 
 
+def create_server(host: str = "127.0.0.1", port: int = 8765) -> DashboardHTTPServer:
+    """Create a server without starting it so an owning application can stop it."""
+
+    return DashboardHTTPServer((host, port), DashboardHandler)
+
+
 def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
-    server = ThreadingHTTPServer((host, port), DashboardHandler)
+    server = create_server(host, port)
     print(f"aoa-dashboard listening on http://{host}:{port}/", flush=True)
     try:
         server.serve_forever()
