@@ -36,6 +36,12 @@ owns only the thin translation and presentation layer.
   and reports bounded current/stale/missing/conflict/rollback state. The former
   snapshot pin is historical bootstrap context and is never rewritten by the
   dashboard.
+- The owner-side advancement procedure is content-derived and explicit. It
+  receives the configured source binding, computes identifiers from the
+  selected bytes, and appends a typed transition; version, PID, checkout path,
+  and caller-supplied digest are not currentness policy. Invalid legacy
+  history is preserved and can be replaced only by a separately bound valid
+  lineage.
 - The live actor-activity card is a second derived view over the same admitted
   envelopes. It may show allowlisted scalar process/session/terminal/usage
   observations and responsibility identifiers, but it cannot publish or

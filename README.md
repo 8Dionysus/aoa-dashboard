@@ -120,3 +120,12 @@ only as historical bootstrap context and is never used to decide currentness.
 Missing, conflicting, ambiguous, stale, or unannounced rollback evidence stays
 deferred or invalid with bounded refs and claim limits; the dashboard does not
 rewrite the binding after a master transition.
+
+The owner-controlled `scripts/advance_currentness.py` procedure is the
+advancement path. Given the configured binding and an explicit owner-reviewed
+transition, it derives the filter SHA-256 and next sequence from the selected
+bytes, appends one history record, and atomically replaces the mutable head
+pointer. It never accepts a caller-supplied digest, edits the filter, or edits
+bootstrap configuration. If an old lineage contains invalid manual records,
+bind a new lineage and retain the old files as historical evidence instead of
+rewriting them.

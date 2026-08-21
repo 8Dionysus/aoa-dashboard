@@ -74,6 +74,12 @@ rollback, provenance, and claim limits. Missing or conflicting owner evidence is
 deferred or invalid; the historical snapshot digest is context only and is not
 rewritten after a transition.
 
+Current-head advancement remains an explicit owner procedure, not dashboard
+automation. `scripts/advance_currentness.py` derives the head digest and
+sequence from the selected filter bytes and requires an explicit transition
+meaning. A malformed legacy lineage is not normalized in place; a new binding
+may start a valid lineage while the old head/history remain evidence.
+
 ## Cursor and pressure stop-lines
 
 The cursor is computed from sorted canonical observation identities, payload

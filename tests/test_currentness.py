@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aoa_dashboard.correlation import observe_current_correlation  # noqa: E402
+from aoa_dashboard.currentness import advance_master_filter_currentness  # noqa: E402
 
 
 CORRELATION_SCHEMA = Draft202012Validator(
@@ -222,6 +223,91 @@ class CurrentnessTests(unittest.TestCase):
         self.assertEqual(currentness["history"]["last_sequence"], 1)
         self.assertEqual(currentness["legacy_snapshot_binding"]["snapshot_role"], "historical_bootstrap_only")
         self.assertTrue(any(ref["ref"] == str(self.fixture.current_head.resolve()) for ref in currentness["evidence_refs"]))
+
+    def test_content_derived_helper_advances_idempotently_and_preserves_history(self) -> None:
+        history_before = self.fixture.history.read_bytes()
+        self.fixture._write_filter("2026-08-20T20:06:00Z")
+        receipt = advance_master_filter_currentness(
+            filter_path=self.fixture.filter,
+            current_head_path=self.fixture.current_head,
+            history_path=self.fixture.history,
+            master_thread_id=self.fixture.thread,
+            goal_ref=str(self.fixture.anchor.resolve()),
+            reviewed_at="2026-08-20T20:06:01Z",
+        )
+        self.assertEqual(receipt["status"], "advanced")
+        self.assertTrue(receipt["changed"])
+        self.assertEqual(receipt["filter_sha256"], hashlib.sha256(self.fixture.filter.read_bytes()).hexdigest())
+        self.assertEqual(receipt["head"]["sequence"], 1)
+        self.assertEqual(receipt["head"]["previous_head_sha256"], self.fixture.initial_digest)
+        self.assertTrue(self.fixture.history.read_bytes().startswith(history_before))
+
+        unchanged = advance_master_filter_currentness(
+            filter_path=self.fixture.filter,
+            current_head_path=self.fixture.current_head,
+            history_path=self.fixture.history,
+            master_thread_id=self.fixture.thread,
+            goal_ref=str(self.fixture.anchor.resolve()),
+            reviewed_at="2026-08-20T20:06:02Z",
+        )
+        self.assertEqual(unchanged["status"], "unchanged")
+        self.assertFalse(unchanged["changed"])
+        self.assertEqual(self.fixture.history.read_bytes().count(b"\n"), 2)
+
+    def test_content_derived_helper_requires_explicit_rollback_for_prior_bytes(self) -> None:
+        self.fixture._write_filter("2026-08-20T20:07:00Z")
+        advance_master_filter_currentness(
+            filter_path=self.fixture.filter,
+            current_head_path=self.fixture.current_head,
+            history_path=self.fixture.history,
+            master_thread_id=self.fixture.thread,
+            goal_ref=str(self.fixture.anchor.resolve()),
+            reviewed_at="2026-08-20T20:07:01Z",
+        )
+        self.fixture.filter.write_bytes(self.fixture.initial_filter_bytes)
+        with self.assertRaisesRegex(ValueError, "declare rollback"):
+            advance_master_filter_currentness(
+                filter_path=self.fixture.filter,
+                current_head_path=self.fixture.current_head,
+                history_path=self.fixture.history,
+                master_thread_id=self.fixture.thread,
+                goal_ref=str(self.fixture.anchor.resolve()),
+                reviewed_at="2026-08-20T20:07:02Z",
+            )
+        rollback = advance_master_filter_currentness(
+            filter_path=self.fixture.filter,
+            current_head_path=self.fixture.current_head,
+            history_path=self.fixture.history,
+            master_thread_id=self.fixture.thread,
+            goal_ref=str(self.fixture.anchor.resolve()),
+            reviewed_at="2026-08-20T20:07:03Z",
+            transition="rollback",
+        )
+        self.assertEqual(rollback["status"], "advanced")
+        self.assertEqual(rollback["head"]["sequence"], 2)
+        self.assertEqual(rollback["head"]["transition"], "rollback")
+        self.assertEqual(rollback["filter_sha256"], self.fixture.initial_digest)
+
+    def test_new_lineage_starts_from_selected_filter_without_rewriting_old_material(self) -> None:
+        current_head = self.fixture.task_local / "migrated-current-head.json"
+        history = self.fixture.task_local / "migrated-head-history.jsonl"
+        receipt = advance_master_filter_currentness(
+            filter_path=self.fixture.filter,
+            current_head_path=current_head,
+            history_path=history,
+            master_thread_id=self.fixture.thread,
+            goal_ref=str(self.fixture.anchor.resolve()),
+            reviewed_at="2026-08-20T20:08:00Z",
+            transition="initial",
+        )
+        self.assertEqual(receipt["status"], "initialized")
+        self.assertEqual(receipt["head"]["sequence"], 0)
+        self.assertEqual(receipt["head"]["transition"], "initial")
+        self.assertEqual(
+            json.loads(current_head.read_text(encoding="utf-8"))["head_sha256"],
+            hashlib.sha256(self.fixture.filter.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(len(history.read_text(encoding="utf-8").splitlines()), 1)
 
     def test_filter_change_without_new_head_is_stale_and_deferred(self) -> None:
         self.fixture._write_filter("2026-08-20T20:03:00Z")
