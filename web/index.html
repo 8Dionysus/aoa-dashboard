@@ -3,19 +3,24 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>aoa-dashboard · Goal Space</title>
+    <title data-i18n="app.title">aoa-dashboard · Goal Space</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header class="shell masthead">
       <div>
-        <p class="eyebrow">AOA / GOAL SPACE / OPERATOR READ MODEL</p>
-        <h1>One truthful surface for a moving Goal</h1>
-        <p class="lede">A derived view of the current Goal, its session source, owner boundaries, and what is still unknown.</p>
+        <p class="eyebrow" data-i18n="app.eyebrow">AOA / GOAL SPACE / OPERATOR READ MODEL</p>
+        <h1 data-i18n="app.heading">One truthful surface for a moving Goal</h1>
+        <p class="lede" data-i18n="app.lede">A derived view of the current Goal, its session source, owner boundaries, and what is still unknown.</p>
       </div>
       <div class="mast-meta">
-        <span id="connection" class="badge state-deferred">loading</span>
-        <span id="generated" class="mono">projection pending</span>
+        <div class="language-switch" role="group" aria-label="Language" data-i18n-aria-label="language.label">
+          <span data-i18n="language.label">Language</span>
+          <button type="button" class="secondary" data-language="ru" aria-label="Switch to Russian" data-i18n-aria-label="language.switchToRussian" aria-pressed="false">RU</button>
+          <button type="button" class="secondary" data-language="en" aria-label="Switch to English" data-i18n-aria-label="language.switchToEnglish" aria-pressed="true">EN</button>
+        </div>
+        <span id="connection" class="badge state-deferred" data-i18n="connection.loading">loading</span>
+        <span id="generated" class="mono" data-i18n="connection.projectionPending">projection pending</span>
       </div>
     </header>
 
@@ -24,45 +29,45 @@
 
       <section class="hero-grid">
         <article class="panel goal-card">
-          <div class="section-kicker">CURRENT GOAL</div>
-          <h2 id="goal-title">Loading Goal Anchor…</h2>
+          <div class="section-kicker" data-i18n="section.currentGoal">CURRENT GOAL</div>
+          <h2 id="goal-title" data-i18n="goal.loadingAnchor">Loading Goal Anchor…</h2>
           <p id="goal-id" class="mono muted"></p>
           <div class="goal-digest">
-            <span>Anchor digest</span>
+            <span data-i18n="goal.anchorDigest">Anchor digest</span>
             <code id="goal-digest">—</code>
           </div>
           <p id="goal-limit" class="claim"></p>
         </article>
         <article class="panel posture-card">
-          <div class="section-kicker">POSTURE</div>
-          <div class="posture-line"><span>read model</span><strong>derived</strong></div>
-          <div class="posture-line"><span>action execution</span><strong>disabled</strong></div>
-          <div class="posture-line"><span>freshness</span><strong>per source</strong></div>
-          <div class="posture-line"><span>unknown</span><strong>is not zero</strong></div>
-          <p class="claim">The cards below preserve source authority and claim limits. A green-looking local check is not a live verdict.</p>
+          <div class="section-kicker" data-i18n="section.posture">POSTURE</div>
+          <div class="posture-line"><span data-i18n="posture.readModel">read model</span><strong data-i18n="posture.derived">derived</strong></div>
+          <div class="posture-line"><span data-i18n="posture.actionExecution">action execution</span><strong data-i18n="posture.disabled">disabled</strong></div>
+          <div class="posture-line"><span data-i18n="posture.freshness">freshness</span><strong data-i18n="posture.perSource">per source</strong></div>
+          <div class="posture-line"><span data-i18n="posture.unknown">unknown</span><strong data-i18n="posture.notZero">is not zero</strong></div>
+          <p class="claim" data-i18n="posture.claim">The cards below preserve source authority and claim limits. A green-looking local check is not a live verdict.</p>
         </article>
       </section>
 
       <section class="panel">
         <div class="section-heading">
           <div>
-            <div class="section-kicker">STATUS VOCABULARY</div>
-            <h2>Every state stays separate</h2>
+            <div class="section-kicker" data-i18n="section.statusVocabulary">STATUS VOCABULARY</div>
+            <h2 data-i18n="statusVocabulary.heading">Every state stays separate</h2>
           </div>
-          <p class="claim">Lifecycle and observation quality are distinct dimensions.</p>
+          <p class="claim" data-i18n="statusVocabulary.claim">Lifecycle and observation quality are distinct dimensions.</p>
         </div>
         <div id="inventory" class="inventory"></div>
       </section>
 
       <section class="two-col">
         <article class="panel">
-          <div class="section-kicker">GOAL LIFECYCLE</div>
-          <h2>From plan to re-entry</h2>
+          <div class="section-kicker" data-i18n="section.goalLifecycle">GOAL LIFECYCLE</div>
+          <h2 data-i18n="goalLifecycle.heading">From plan to re-entry</h2>
           <div id="lifecycle" class="timeline"></div>
         </article>
         <article class="panel">
-          <div class="section-kicker">OPEN DAG</div>
-          <h2>What advanced, what did not</h2>
+          <div class="section-kicker" data-i18n="section.openDag">OPEN DAG</div>
+          <h2 data-i18n="openDag.heading">What advanced, what did not</h2>
           <div id="dag" class="dag-list"></div>
         </article>
       </section>
@@ -70,10 +75,10 @@
       <section class="panel">
         <div class="section-heading">
           <div>
-            <div class="section-kicker">CURRENT CORRELATION</div>
-            <h2>Goal → Luna returns → wake admission → master filter → re-entry</h2>
+            <div class="section-kicker" data-i18n="section.currentCorrelation">CURRENT CORRELATION</div>
+            <h2 data-i18n="currentCorrelation.heading">Goal → Luna returns → wake admission → master filter → re-entry</h2>
           </div>
-          <p class="claim">Transport delivery and filtered re-entry are shown with their limits; neither is acceptance or semantic continuation.</p>
+          <p class="claim" data-i18n="currentCorrelation.claim">Transport delivery and filtered re-entry are shown with their limits; neither is acceptance or semantic continuation.</p>
         </div>
         <div id="correlation" class="correlation-list"></div>
       </section>
@@ -81,19 +86,19 @@
       <section class="panel">
         <div class="section-heading">
           <div>
-            <div class="section-kicker">P∞ / PRESSURE INBOX</div>
-            <h2>Pressure becomes a bounded route</h2>
+            <div class="section-kicker" data-i18n="section.pressureInbox">P∞ / PRESSURE INBOX</div>
+            <h2 data-i18n="pressureInbox.heading">Pressure becomes a bounded route</h2>
           </div>
-          <p class="claim">Critical next-routes are displayed as effect:none observations. This dashboard does not wake, branch, approve, or execute them.</p>
+          <p class="claim" data-i18n="pressureInbox.claim">Critical next-routes are displayed as effect:none observations. This dashboard does not wake, branch, approve, or execute them.</p>
         </div>
         <div id="pressure-summary" class="pressure-summary"></div>
         <div id="pressure-inbox" class="pressure-list"></div>
         <div class="section-heading">
           <div>
-            <div class="section-kicker">LIVE ACTIVITY / EXTERNAL ACTORS</div>
-            <h2>One bounded card per task-local actor</h2>
+            <div class="section-kicker" data-i18n="section.liveActivity">LIVE ACTIVITY / EXTERNAL ACTORS</div>
+            <h2 data-i18n="liveActivity.heading">One bounded card per task-local actor</h2>
           </div>
-          <p class="claim">Identity, responsibility, process/session/terminal posture, wake/return, usage, provenance, and unknowns stay separate. This is observation, not runtime health.</p>
+          <p class="claim" data-i18n="liveActivity.claim">Identity, responsibility, process/session/terminal posture, wake/return, usage, provenance, and unknowns stay separate. This is observation, not runtime health.</p>
         </div>
         <div id="actor-activity" class="actor-activity"></div>
       </section>
@@ -101,20 +106,20 @@
       <section class="panel">
         <div class="section-heading">
           <div>
-            <div class="section-kicker">SOURCE / PROVENANCE</div>
-            <h2>Read the evidence boundary</h2>
+            <div class="section-kicker" data-i18n="section.sourceProvenance">SOURCE / PROVENANCE</div>
+            <h2 data-i18n="sourceProvenance.heading">Read the evidence boundary</h2>
           </div>
-          <p class="claim">Metadata only where raw bodies could be private or semantically stronger than this organ.</p>
+          <p class="claim" data-i18n="sourceProvenance.claim">Metadata only where raw bodies could be private or semantically stronger than this organ.</p>
         </div>
         <div id="sources" class="source-grid"></div>
       </section>
 
       <section class="panel">
-        <div class="section-kicker">OWNER MAP</div>
-        <h2>Presence is not acceptance</h2>
+        <div class="section-kicker" data-i18n="section.ownerMap">OWNER MAP</div>
+        <h2 data-i18n="ownerMap.heading">Presence is not acceptance</h2>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Owner</th><th>Authority</th><th>Source</th><th>Observed binding</th><th>KAG</th></tr></thead>
+            <thead><tr><th data-i18n="table.owner">Owner</th><th data-i18n="table.authority">Authority</th><th data-i18n="table.source">Source</th><th data-i18n="table.observedBinding">Observed binding</th><th data-i18n="table.kag">KAG</th></tr></thead>
             <tbody id="owners"></tbody>
           </table>
         </div>
@@ -122,39 +127,40 @@
 
       <section class="two-col action-area">
         <article class="panel">
-          <div class="section-kicker">ANNOTATIONS</div>
-          <h2>Operator notes</h2>
-          <p class="claim">Annotations belong to this dashboard and do not amend an owner record.</p>
+          <div class="section-kicker" data-i18n="section.annotations">ANNOTATIONS</div>
+          <h2 data-i18n="annotations.heading">Operator notes</h2>
+          <p class="claim" data-i18n="annotations.claim">Annotations belong to this dashboard and do not amend an owner record.</p>
           <form id="annotation-form">
-            <label>Author ref<input name="author_ref" value="operator:local" /></label>
-            <label>Target ref<input name="target_ref" value="goal:aoa-dashboard-goal-01a00722-20260815" /></label>
-            <label>Note<textarea name="body" required placeholder="Record an observation, not an owner verdict."></textarea></label>
-            <button type="submit">Record annotation</button>
+            <label><span data-i18n="form.authorRef">Author ref</span><input name="author_ref" value="operator:local" /></label>
+            <label><span data-i18n="form.targetRef">Target ref</span><input name="target_ref" value="goal:aoa-dashboard-goal-01a00722-20260815" /></label>
+            <label><span data-i18n="form.note">Note</span><textarea name="body" required placeholder="Record an observation, not an owner verdict." data-i18n-placeholder="form.notePlaceholder"></textarea></label>
+            <button type="submit" data-i18n="form.recordAnnotation">Record annotation</button>
           </form>
           <div id="annotation-summary" class="record-summary"></div>
         </article>
         <article class="panel">
-          <div class="section-kicker">ACTION INTENTS</div>
-          <h2>Route a request without executing it</h2>
-          <p class="claim">The intent is stored as <code>deferred</code> with <code>effect: none</code>. An owner must decide and execute it.</p>
+          <div class="section-kicker" data-i18n="section.actionIntents">ACTION INTENTS</div>
+          <h2 data-i18n="actionIntents.heading">Route a request without executing it</h2>
+          <p class="claim"><span data-i18n="actionIntents.prefix">The intent is stored as</span> <code>deferred</code> <span data-i18n="actionIntents.middle">with</span> <code>effect: none</code><span data-i18n="actionIntents.suffix">. An owner must decide and execute it.</span></p>
           <form id="intent-form">
-            <label>Requested by<input name="requested_by" value="operator:local" /></label>
-            <label>Target ref<input name="target_ref" value="goal:aoa-dashboard-goal-01a00722-20260815" /></label>
-            <label>Owner route<input name="owner_route" placeholder="owner:aoa-agents/..." required /></label>
-            <label>Request<textarea name="summary" required placeholder="Describe the requested owner action and why."></textarea></label>
-            <button type="submit" class="secondary">Record deferred intent</button>
+            <label><span data-i18n="form.requestedBy">Requested by</span><input name="requested_by" value="operator:local" /></label>
+            <label><span data-i18n="form.targetRef">Target ref</span><input name="target_ref" value="goal:aoa-dashboard-goal-01a00722-20260815" /></label>
+            <label><span data-i18n="form.ownerRoute">Owner route</span><input name="owner_route" placeholder="owner:aoa-agents/..." data-i18n-placeholder="form.ownerRoutePlaceholder" required /></label>
+            <label><span data-i18n="form.request">Request</span><textarea name="summary" required placeholder="Describe the requested owner action and why." data-i18n-placeholder="form.requestPlaceholder"></textarea></label>
+            <button type="submit" class="secondary" data-i18n="form.recordIntent">Record deferred intent</button>
           </form>
           <div id="intent-summary" class="record-summary"></div>
         </article>
       </section>
 
       <section class="panel limits">
-        <div class="section-kicker">CLAIM LIMITS</div>
-        <h2>What this dashboard refuses to claim</h2>
+        <div class="section-kicker" data-i18n="section.claimLimits">CLAIM LIMITS</div>
+        <h2 data-i18n="claimLimits.heading">What this dashboard refuses to claim</h2>
         <ul id="limits"></ul>
       </section>
     </main>
-    <footer class="shell footer"><span>aoa-dashboard v0.1 · host-local dogfood</span><span id="refresh-note">refreshing every 5s</span></footer>
+    <footer class="shell footer"><span data-i18n="footer.version">aoa-dashboard v0.1 · host-local dogfood</span><span id="refresh-note" data-i18n="footer.refreshing">refreshing every 5s</span></footer>
+    <script src="/i18n.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>
