@@ -5,6 +5,9 @@ const LIFECYCLE = [
   "planned", "bound", "running", "paused", "returned", "reviewed", "accepted", "wake requested", "reentered",
 ];
 const QUALITY = ["missing", "unknown", "stale", "deferred", "invalid"];
+const PRESENTATION_HANDLER_NAME = "aoaDashboardPresentation";
+const PRESENTATION_LANGUAGES = new Set(["en", "ru"]);
+const PRESENTATION_THEMES = new Set(["system", "light", "dark"]);
 
 let currentProjection = null;
 
@@ -48,6 +51,15 @@ function applyStaticTranslations() {
   for (const button of document.querySelectorAll("[data-language]")) {
     button.setAttribute("aria-pressed", String(button.dataset.language === i18n.language));
   }
+}
+
+function publishNativePresentationPreference() {
+  const language = i18n.language;
+  const theme = window.AoaDashboardTheme?.getMode?.();
+  const handler = window.webkit?.messageHandlers?.[PRESENTATION_HANDLER_NAME];
+  if (!PRESENTATION_LANGUAGES.has(language) || !PRESENTATION_THEMES.has(theme)) return;
+  if (!handler || typeof handler.postMessage !== "function") return;
+  handler.postMessage({ language, theme });
 }
 
 function activityValue(group, key) {
@@ -565,8 +577,11 @@ for (const button of document.querySelectorAll("[data-language]")) {
 i18n.subscribe(() => {
   applyStaticTranslations();
   if (currentProjection) renderProjection(currentProjection);
+  publishNativePresentationPreference();
 });
+window.AoaDashboardTheme?.subscribe?.(publishNativePresentationPreference);
 applyStaticTranslations();
+publishNativePresentationPreference();
 
 byId("annotation-form").addEventListener("submit", (event) => submitForm(event, "/api/annotations", event.currentTarget).catch((error) => { byId("alert").textContent = error.message; byId("alert").classList.remove("hidden"); }));
 byId("intent-form").addEventListener("submit", (event) => submitForm(event, "/api/action-intents", event.currentTarget).catch((error) => { byId("alert").textContent = error.message; byId("alert").classList.remove("hidden"); }));

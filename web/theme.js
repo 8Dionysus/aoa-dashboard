@@ -19,6 +19,7 @@
   var currentMode = "system";
   var mediaQuery = null;
   var control = null;
+  var listeners = [];
 
   function isMode(value) {
     return modes.indexOf(value) !== -1;
@@ -82,6 +83,8 @@
   }
 
   function applyMode(mode, persist) {
+    var previousMode = currentMode;
+    var previousResolved = root.dataset.theme;
     currentMode = isMode(mode) ? mode : "system";
     root.dataset.themeMode = currentMode;
     root.dataset.theme = resolvedMode(currentMode);
@@ -89,6 +92,11 @@
       persistMode(currentMode);
     }
     updateControl();
+    if (previousMode !== currentMode || previousResolved !== root.dataset.theme) {
+      listeners.slice().forEach(function (listener) {
+        listener(currentMode, root.dataset.theme);
+      });
+    }
   }
 
   function handleSystemChange() {
@@ -163,6 +171,15 @@
     modes: modes.slice(),
     storageKey: storageKey,
     getMode: function () { return currentMode; },
+    subscribe: function (listener) {
+      if (typeof listener !== "function") {
+        return function () {};
+      }
+      listeners.push(listener);
+      return function () {
+        listeners = listeners.filter(function (candidate) { return candidate !== listener; });
+      };
+    },
     setLabels: setLabels,
     setMode: function (mode) {
       applyMode(mode, true);

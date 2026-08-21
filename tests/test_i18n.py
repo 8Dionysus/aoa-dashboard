@@ -111,6 +111,88 @@ process.stdout.write(JSON.stringify({ russian: russian.language, english: englis
         self.assertIn("document.documentElement.lang = i18n.language", javascript)
         self.assertIn("AoaDashboardTheme.setLabels", javascript)
 
+    def test_native_presentation_bridge_publishes_startup_and_live_changes(self) -> None:
+        script = """
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync("web/app.js", "utf8");
+const posts = [];
+const i18nListeners = [];
+const themeListeners = [];
+let language = "en";
+let theme = "system";
+let i18nInstance;
+const node = {
+  classList: { add() {}, remove() {} },
+  addEventListener() {},
+  textContent: "",
+  className: "",
+};
+const context = {
+  document: {
+    documentElement: { lang: "" },
+    querySelectorAll() { return []; },
+    getElementById() { return node; },
+  },
+  fetch() { return new Promise(() => {}); },
+  setInterval() {},
+  console,
+  AoaDashboardI18n: {
+    createI18n() {
+      i18nInstance = {
+        get language() { return language; },
+        t(key) { return key; },
+        status(value) { return value; },
+        setLanguage(value) {
+          language = value;
+          i18nListeners.forEach((listener) => listener());
+        },
+        subscribe(listener) { i18nListeners.push(listener); },
+      };
+      return i18nInstance;
+    },
+  },
+  AoaDashboardTheme: {
+    getMode() { return theme; },
+    setLabels() {},
+    subscribe(listener) { themeListeners.push(listener); },
+  },
+  webkit: {
+    messageHandlers: {
+      aoaDashboardPresentation: { postMessage(value) { posts.push(value); } },
+    },
+  },
+};
+context.window = context;
+vm.runInNewContext(source, context, { filename: "app.js" });
+i18nInstance.setLanguage("ru");
+theme = "dark";
+themeListeners.forEach((listener) => listener("dark", "dark"));
+i18nInstance.setLanguage("fr");
+theme = "invalid";
+themeListeners.forEach((listener) => listener("invalid", "invalid"));
+process.stdout.write(JSON.stringify(posts));
+"""
+        result = subprocess.run(
+            ["node", "-e", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            json.loads(result.stdout),
+            [
+                {"language": "en", "theme": "system"},
+                {"language": "ru", "theme": "system"},
+                {"language": "ru", "theme": "dark"},
+            ],
+        )
+        javascript = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("aoaDashboardPresentation", javascript)
+        self.assertIn("handler.postMessage({ language, theme })", javascript)
+        self.assertIn("AoaDashboardTheme?.subscribe", javascript)
+
     def test_canonical_values_and_owner_text_are_not_translated_in_logic(self) -> None:
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         javascript = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
