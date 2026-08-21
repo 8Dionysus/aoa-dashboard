@@ -24,8 +24,8 @@
       "authority": "master_decision",
       "access_scope": "owner_bounded",
       "filter_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
-      "current_head_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-current-head.json",
-      "history_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-head-history.jsonl",
+      "current_head_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-current-head.attested.json",
+      "history_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-head-history.attested.jsonl",
       "claim_limit": "The master-thread current-head contract is owner evidence consumed by the dashboard; it is not dashboard authority, proof, acceptance, or a runtime action route."
     },
     "legacy_snapshot_binding": {

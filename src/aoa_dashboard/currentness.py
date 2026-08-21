@@ -1,14 +1,17 @@
-"""Owner-authored current-head admission for mutable task-local sources.
+"""Owner-authored current-head admission and explicit advancement procedure.
 
 The master return disposition is intentionally mutable: every accepted return
-may extend it.  This module does not turn that file into dashboard authority.
-It only verifies the source-owner's current-head attestation, the content
-digest it names, and the append-only history that makes transitions auditable.
+may extend it.  The dashboard resolver does not turn that file into dashboard
+authority; the explicit owner procedure below only derives a new attestation
+from selected filter bytes and preserves append-only history.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +68,12 @@ _HEAD_FIELDS = frozenset(
     }
 )
 _TRANSITIONS = frozenset({"initial", "advance", "rollback"})
+ADVANCEMENT_RECEIPT_SCHEMA_VERSION = "aoa_dashboard_currentness_advancement_receipt_v1"
+ADVANCEMENT_CLAIM_LIMIT = (
+    "This receipt records a bounded owner procedure that derived a current-head "
+    "digest from selected filter bytes. It is not master acceptance, proof, "
+    "semantic continuation, runtime health, or human acceptance."
+)
 
 
 def _non_empty(value: Any) -> bool:
@@ -86,6 +95,308 @@ def _within(root: Path, candidate: Path) -> bool:
     except ValueError:
         return False
     return candidate != root
+
+
+def _required_path(value: Path | str, *, label: str) -> Path:
+    path = Path(value)
+    if not path.is_absolute():
+        raise ValueError(f"{label} must be an absolute path")
+    resolved = path.resolve(strict=False)
+    if str(resolved) != str(path):
+        raise ValueError(f"{label} must be the exact canonical path")
+    if not resolved.parent.is_dir():
+        raise ValueError(f"{label} parent directory is missing")
+    return resolved
+
+
+def _read_json_object(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label} is not readable JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    return value
+
+
+def _atomic_replace(path: Path, payload: bytes) -> None:
+    mode = path.stat().st_mode if path.exists() else None
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if mode is not None:
+            os.chmod(temporary_path, mode & 0o7777)
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+
+def _head_record(
+    *,
+    schema_version: str,
+    owner: str,
+    authority: str,
+    access_scope: str,
+    master_thread_id: str,
+    goal_ref: str,
+    filter_ref: str,
+    history_ref: str,
+    head_sha256: str,
+    sequence: int,
+    reviewed_at: str,
+    transition: str,
+    previous_head_sha256: str | None,
+    claim_limit: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": schema_version,
+        "owner": owner,
+        "authority": authority,
+        "access_scope": access_scope,
+        "master_thread_id": master_thread_id,
+        "goal_ref": goal_ref,
+        "filter_ref": filter_ref,
+        "history_ref": history_ref,
+        "head_sha256": head_sha256,
+        "sequence": sequence,
+        "reviewed_at": reviewed_at,
+        "transition": transition,
+        "previous_head_sha256": previous_head_sha256,
+        "claim_limit": claim_limit,
+    }
+
+
+def _validate_lineage_tail(head: dict[str, Any], records: list[dict[str, Any]]) -> list[str]:
+    errors: list[str] = []
+    if not records:
+        return ["current_head_history_missing"]
+    sequences = [record.get("sequence") for record in records]
+    if sequences != list(range(len(records))):
+        errors.append("current_head_history_conflict")
+    last = records[-1]
+    if head.get("sequence") != last.get("sequence") or head.get("head_sha256") != last.get("head_sha256"):
+        errors.append("current_head_history_conflict")
+    if head.get("sequence") == 0:
+        if head.get("previous_head_sha256") is not None:
+            errors.append("current_head_history_conflict")
+    elif head.get("previous_head_sha256") != records[-2].get("head_sha256"):
+        errors.append("current_head_history_conflict")
+    return list(dict.fromkeys(errors))
+
+
+def _advancement_receipt(
+    *,
+    status: str,
+    changed: bool,
+    filter_path: Path,
+    filter_sha256: str,
+    current_head_path: Path,
+    history_path: Path,
+    head: dict[str, Any],
+    history_record_count: int,
+) -> dict[str, Any]:
+    return {
+        "schema_version": ADVANCEMENT_RECEIPT_SCHEMA_VERSION,
+        "status": status,
+        "changed": changed,
+        "filter_ref": str(filter_path),
+        "filter_sha256": filter_sha256,
+        "current_head_ref": str(current_head_path),
+        "history_ref": str(history_path),
+        "head": _safe_head(head),
+        "history_record_count": history_record_count,
+        "claim_limit": ADVANCEMENT_CLAIM_LIMIT,
+    }
+
+
+def advance_master_filter_currentness(
+    *,
+    filter_path: Path | str,
+    current_head_path: Path | str,
+    history_path: Path | str,
+    master_thread_id: str,
+    goal_ref: str,
+    reviewed_at: str,
+    transition: str = "advance",
+) -> dict[str, Any]:
+    """Publish one content-derived owner current-head transition.
+
+    The caller selects the owner-reviewed filter bytes and transition meaning;
+    this procedure derives the filter digest, sequence, and previous digest.
+    It never edits the filter or any runtime configuration. An existing
+    invalid lineage is rejected so migration can bind a new lineage while
+    retaining the old append-only material as evidence.
+    """
+
+    if transition not in _TRANSITIONS:
+        raise ValueError(f"unsupported transition: {transition}")
+    if not _non_empty(master_thread_id) or not _non_empty(goal_ref) or not _non_empty(reviewed_at):
+        raise ValueError("master_thread_id, goal_ref, and reviewed_at are required")
+
+    filter_path = _required_path(filter_path, label="filter_path")
+    current_head_path = _required_path(current_head_path, label="current_head_path")
+    history_path = _required_path(history_path, label="history_path")
+    if not filter_path.is_file():
+        raise ValueError("filter_path is missing")
+    try:
+        filter_bytes = filter_path.read_bytes()
+        filter_value = json.loads(filter_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("filter_path is not readable JSON") from exc
+    if not isinstance(filter_value, dict):
+        raise ValueError("filter_path must contain a JSON object")
+    filter_sha256 = hashlib.sha256(filter_bytes).hexdigest()
+
+    current_head_exists = current_head_path.exists()
+    history_exists = history_path.exists()
+    if not current_head_exists and not history_exists:
+        if transition != "initial":
+            raise ValueError("a new lineage must start with initial")
+        head = _head_record(
+            schema_version=CURRENT_HEAD_SCHEMA_VERSION,
+            owner="master-thread",
+            authority="master_decision",
+            access_scope="owner_bounded",
+            master_thread_id=master_thread_id,
+            goal_ref=goal_ref,
+            filter_ref=str(filter_path),
+            history_ref=str(history_path),
+            head_sha256=filter_sha256,
+            sequence=0,
+            reviewed_at=reviewed_at,
+            transition="initial",
+            previous_head_sha256=None,
+            claim_limit=CURRENT_HEAD_CLAIM_LIMIT,
+        )
+        history_record = dict(head)
+        history_record["schema_version"] = HISTORY_RECORD_SCHEMA_VERSION
+        history_line = json.dumps(history_record, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+        with history_path.open("ab") as stream:
+            stream.write(history_line)
+            stream.flush()
+            os.fsync(stream.fileno())
+        _atomic_replace(current_head_path, json.dumps(head, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n")
+        return _advancement_receipt(
+            status="initialized",
+            changed=True,
+            filter_path=filter_path,
+            filter_sha256=filter_sha256,
+            current_head_path=current_head_path,
+            history_path=history_path,
+            head=head,
+            history_record_count=1,
+        )
+
+    if not history_exists:
+        raise ValueError("current-head exists without append-only history")
+
+    history_snapshot = read_file_snapshot(history_path, parser="text")
+    records, history_read_errors = _history_records(history_snapshot)
+    if history_read_errors:
+        raise ValueError("existing history is invalid: " + ", ".join(history_read_errors))
+    history_errors, _ = _validate_history(
+        records,
+        expected_owner="master-thread",
+        expected_thread=master_thread_id,
+        expected_goal_ref=goal_ref,
+        expected_filter_ref=str(filter_path),
+        expected_history_ref=str(history_path),
+    )
+    if history_errors:
+        raise ValueError("existing history is invalid: " + ", ".join(history_errors))
+
+    if not current_head_exists:
+        last = records[-1]
+        if last.get("head_sha256") != filter_sha256:
+            raise ValueError("current-head is missing and history does not attest the selected filter")
+        head = dict(last)
+        head["schema_version"] = CURRENT_HEAD_SCHEMA_VERSION
+        _atomic_replace(current_head_path, json.dumps(head, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n")
+        return _advancement_receipt(
+            status="recovered",
+            changed=True,
+            filter_path=filter_path,
+            filter_sha256=filter_sha256,
+            current_head_path=current_head_path,
+            history_path=history_path,
+            head=head,
+            history_record_count=len(records),
+        )
+
+    head = _read_json_object(current_head_path, label="current_head_path")
+    head_errors = _validate_head_shape(
+        head,
+        expected_owner="master-thread",
+        expected_thread=master_thread_id,
+        expected_goal_ref=goal_ref,
+        expected_filter_ref=str(filter_path),
+        expected_history_ref=str(history_path),
+        schema_version=CURRENT_HEAD_SCHEMA_VERSION,
+    )
+    if head_errors:
+        raise ValueError("current head is invalid: " + ", ".join(head_errors))
+
+    lineage_errors = _validate_lineage_tail(head, records)
+    if lineage_errors:
+        raise ValueError("current head/history lineage is invalid: " + ", ".join(lineage_errors))
+
+    if head["head_sha256"] == filter_sha256:
+        return _advancement_receipt(
+            status="unchanged",
+            changed=False,
+            filter_path=filter_path,
+            filter_sha256=filter_sha256,
+            current_head_path=current_head_path,
+            history_path=history_path,
+            head=head,
+            history_record_count=len(records),
+        )
+
+    known_digests = {record["head_sha256"] for record in records}
+    if filter_sha256 in known_digests and transition != "rollback":
+        raise ValueError("selected filter is a prior head; declare rollback")
+    if transition == "rollback" and filter_sha256 not in known_digests:
+        raise ValueError("rollback target is absent from history")
+
+    next_head = _head_record(
+        schema_version=CURRENT_HEAD_SCHEMA_VERSION,
+        owner=head["owner"],
+        authority=head["authority"],
+        access_scope=head["access_scope"],
+        master_thread_id=master_thread_id,
+        goal_ref=goal_ref,
+        filter_ref=str(filter_path),
+        history_ref=str(history_path),
+        head_sha256=filter_sha256,
+        sequence=head["sequence"] + 1,
+        reviewed_at=reviewed_at,
+        transition=transition,
+        previous_head_sha256=head["head_sha256"],
+        claim_limit=head["claim_limit"],
+    )
+    history_record = dict(next_head)
+    history_record["schema_version"] = HISTORY_RECORD_SCHEMA_VERSION
+    history_line = json.dumps(history_record, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+    with history_path.open("ab") as stream:
+        stream.write(history_line)
+        stream.flush()
+        os.fsync(stream.fileno())
+    _atomic_replace(current_head_path, json.dumps(next_head, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n")
+    return _advancement_receipt(
+        status="advanced",
+        changed=True,
+        filter_path=filter_path,
+        filter_sha256=filter_sha256,
+        current_head_path=current_head_path,
+        history_path=history_path,
+        head=next_head,
+        history_record_count=len(records) + 1,
+    )
 
 
 def _safe_head(value: dict[str, Any] | None) -> dict[str, Any] | None:
