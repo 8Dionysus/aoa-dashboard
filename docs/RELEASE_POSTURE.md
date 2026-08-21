@@ -13,6 +13,12 @@
 | proof/eval verdict | no independent eval packet is attached here | absent |
 | human acceptance | remains with the operator and natural owner | absent |
 
+The native desktop shell adds a source-level launcher, desktop metadata, and
+host-runtime documentation. Its graphical canary can establish bounded local
+process, URL/health, render, and clean-close observations; it does not promote
+the dashboard to a deployed service, proof/eval result, owner acceptance, or
+Goal completion.
+
 GitHub validation protects source landing. It does not promote a repository to
 runtime or private admission. Any future release must preserve the owner map,
 run the local contract gate, and carry exact source, registry, deployment,

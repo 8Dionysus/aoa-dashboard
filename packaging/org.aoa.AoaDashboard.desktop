@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AoA Dashboard
+Comment=Owner-bounded AoA Goal Space operator read model
+Exec=aoa-dashboard-desktop
+Icon=org.aoa.AoaDashboard
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=true
+StartupWMClass=org.aoa.AoaDashboard
