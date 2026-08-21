@@ -111,6 +111,10 @@ listeners.forEach((listener) => listener({ matches: true }));
 if (root.dataset.theme !== "dark") throw new Error("system change was not observed");
 
 if (context.AoaDashboardTheme.setMode("invalid") !== "system") throw new Error("invalid mode was not normalized");
+context.AoaDashboardTheme.setLabels({ label: "Тема", ariaLabel: "Цветовая тема", system: "Системная", light: "Светлая", dark: "Тёмная" });
+if (mastMeta.children[0].children[0].textContent !== "Тема") throw new Error("theme legend was not localized");
+if (select.children.map((option) => option.textContent).join(",") !== "Системная,Светлая,Тёмная") throw new Error("theme options were not localized");
+if (select.attributes["aria-label"] !== "Цветовая тема: Системная") throw new Error("theme aria label was not localized");
 process.stdout.write(JSON.stringify({ mode: context.AoaDashboardTheme.getMode(), resolved: root.dataset.theme }));
 """
         completed = subprocess.run(
@@ -122,6 +126,14 @@ process.stdout.write(JSON.stringify({ mode: context.AoaDashboardTheme.getMode(),
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertEqual(json.loads(completed.stdout), {"mode": "system", "resolved": "dark"})
+
+    def test_index_wires_theme_before_app_and_theme_labels_are_extensible(self) -> None:
+        html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        theme = html.index('<script src="/theme.js" defer></script>')
+        app = html.index('<script src="/app.js" defer></script>')
+        self.assertLess(theme, app)
+        source = THEME_JS.read_text(encoding="utf-8")
+        self.assertIn("setLabels", source)
 
 
 if __name__ == "__main__":

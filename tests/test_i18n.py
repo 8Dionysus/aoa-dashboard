@@ -68,6 +68,28 @@ process.stdout.write(JSON.stringify({ before, stored: storage.value, restart: af
         self.assertEqual(observed["restart"], "en")
         self.assertEqual(observed["russian"], "ru")
 
+    def test_system_locale_default_and_unknown_locale_fallback(self) -> None:
+        script = """
+const fs = require("fs");
+const vm = require("vm");
+const context = { globalThis: null };
+context.globalThis = context;
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+const noStoredPreference = { getItem() { return null; } };
+const russian = context.AoaDashboardI18n.createI18n({ locale: "ru-MX", storage: noStoredPreference });
+const english = context.AoaDashboardI18n.createI18n({ locale: "en-US", storage: noStoredPreference });
+const fallback = context.AoaDashboardI18n.createI18n({ locale: "fr-FR", storage: noStoredPreference });
+process.stdout.write(JSON.stringify({ russian: russian.language, english: english.language, fallback: fallback.language }));
+"""
+        result = subprocess.run(
+            ["node", "-e", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(json.loads(result.stdout), {"russian": "ru", "english": "en", "fallback": "en"})
+
     def test_all_declared_html_and_app_translation_keys_exist(self) -> None:
         keys = set(dictionary_snapshot()["en"])
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
@@ -87,6 +109,7 @@ process.stdout.write(JSON.stringify({ before, stored: storage.value, restart: af
         self.assertIn("i18n.subscribe", javascript)
         self.assertIn("renderProjection(currentProjection)", javascript)
         self.assertIn("document.documentElement.lang = i18n.language", javascript)
+        self.assertIn("AoaDashboardTheme.setLabels", javascript)
 
     def test_canonical_values_and_owner_text_are_not_translated_in_logic(self) -> None:
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
@@ -94,6 +117,7 @@ process.stdout.write(JSON.stringify({ before, stored: storage.value, restart: af
         self.assertIn("<code>deferred</code>", html)
         self.assertIn("<code>effect: none</code>", html)
         self.assertIn("canonicalValue.replaceAll", javascript)
+        self.assertIn("statusLabel(canonicalValue)", javascript)
         self.assertIn("text(\"p\", item.observation)", javascript)
         self.assertIn("text(\"li\", item)", javascript)
         self.assertIn("JSON.stringify(sourceSummary, null, 2)", javascript)

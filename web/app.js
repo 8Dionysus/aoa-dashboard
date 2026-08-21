@@ -27,6 +27,15 @@ function badge(value) {
 
 function applyStaticTranslations() {
   document.documentElement.lang = i18n.language;
+  if (window.AoaDashboardTheme?.setLabels) {
+    window.AoaDashboardTheme.setLabels({
+      label: t("theme.label"),
+      ariaLabel: t("theme.ariaLabel"),
+      system: t("theme.system"),
+      light: t("theme.light"),
+      dark: t("theme.dark"),
+    });
+  }
   for (const node of document.querySelectorAll("[data-i18n]")) {
     node.textContent = t(node.dataset.i18n);
   }

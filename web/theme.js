@@ -9,7 +9,13 @@
   var root = document.documentElement;
   var storageKey = "aoa-dashboard-theme-mode";
   var modes = ["system", "light", "dark"];
-  var labels = { system: "System", light: "Light", dark: "Dark" };
+  var labels = {
+    label: "Theme",
+    ariaLabel: "Color theme",
+    system: "System",
+    light: "Light",
+    dark: "Dark"
+  };
   var currentMode = "system";
   var mediaQuery = null;
   var control = null;
@@ -55,7 +61,24 @@
       return;
     }
     control.select.value = currentMode;
-    control.select.setAttribute("aria-label", "Color theme: " + labels[currentMode]);
+    control.legend.textContent = labels.label;
+    control.select.setAttribute("aria-label", labels.ariaLabel + ": " + labels[currentMode]);
+    var options = control.select.options || control.select.children || [];
+    Array.prototype.forEach.call(options, function (option) {
+      option.textContent = labels[option.value];
+    });
+  }
+
+  function setLabels(nextLabels) {
+    if (!nextLabels || typeof nextLabels !== "object") {
+      return;
+    }
+    ["label", "ariaLabel", "system", "light", "dark"].forEach(function (key) {
+      if (typeof nextLabels[key] === "string" && nextLabels[key]) {
+        labels[key] = nextLabels[key];
+      }
+    });
+    updateControl();
   }
 
   function applyMode(mode, persist) {
@@ -92,7 +115,13 @@
 
   function makeControl() {
     var host = document.querySelector(".mast-meta");
-    if (!host || host.querySelector("[data-theme-control]")) {
+    if (!host) {
+      return;
+    }
+    var existing = host.querySelector("[data-theme-control]");
+    if (existing) {
+      control = { fieldset: existing, legend: existing.children[0], select: existing.children[1] };
+      updateControl();
       return;
     }
 
@@ -102,12 +131,12 @@
 
     var legend = document.createElement("legend");
     legend.className = "theme-control-label";
-    legend.textContent = "Theme";
+    legend.textContent = labels.label;
 
     var select = document.createElement("select");
     select.id = "theme-mode";
     select.name = "theme-mode";
-    select.setAttribute("aria-label", "Color theme");
+    select.setAttribute("aria-label", labels.ariaLabel);
     modes.forEach(function (mode) {
       var option = document.createElement("option");
       option.value = mode;
@@ -120,7 +149,7 @@
 
     fieldset.append(legend, select);
     host.append(fieldset);
-    control = { fieldset: fieldset, select: select };
+    control = { fieldset: fieldset, legend: legend, select: select };
     updateControl();
   }
 
@@ -134,6 +163,7 @@
     modes: modes.slice(),
     storageKey: storageKey,
     getMode: function () { return currentMode; },
+    setLabels: setLabels,
     setMode: function (mode) {
       applyMode(mode, true);
       return currentMode;
