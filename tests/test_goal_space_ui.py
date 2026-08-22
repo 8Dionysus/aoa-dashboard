@@ -61,23 +61,27 @@ const base = {
   evidence: [{ ref: "evidence:p2" }],
 };
 const check = (currentness) => context.AoaDashboardApp.routeReadiness({ ...base, pressure_ref: { ...base.pressure_ref, currentness } }, selection);
-const wrongThread = context.AoaDashboardApp.routeReadiness({ ...base, pressure_ref: { id: "p2", currentness: "current" } }, { ...selection, thread_ref: "thread:other" });
+const missingThread = { ...base };
+delete missingThread.master_thread_id;
+const conflictingThread = context.AoaDashboardApp.routeReadiness({ ...base, pressure_ref: { id: "p2", currentness: "current" } }, { ...selection, thread_ref: "thread:other" });
 const wrongFocus = context.AoaDashboardApp.routeReadiness({ ...base, pressure_ref: { id: "p3", currentness: "current" } }, selection);
 process.stdout.write(JSON.stringify({
+  matchingThread: check("current").ready,
+  missingThread: context.AoaDashboardApp.routeReadiness(missingThread, selection).ready,
+  conflictingThread: conflictingThread.ready,
   current: check("current").ready,
   currentAtRead: check("current_at_read").ready,
   unknown: check("unknown").ready,
   stale: check("stale").ready,
   invented: check("invented").ready,
   absent: check(null).ready,
-  wrongThread: wrongThread.ready,
   wrongFocus: wrongFocus.ready,
 }));
 '''
         )
         self.assertEqual(
             observed,
-            {"current": True, "currentAtRead": True, "unknown": False, "stale": False, "invented": False, "absent": False, "wrongThread": False, "wrongFocus": False},
+            {"matchingThread": True, "missingThread": False, "conflictingThread": False, "current": True, "currentAtRead": True, "unknown": False, "stale": False, "invented": False, "absent": False, "wrongFocus": False},
         )
 
     def test_selection_route_round_trip_is_complete_and_malformed_routes_fail_closed(self) -> None:

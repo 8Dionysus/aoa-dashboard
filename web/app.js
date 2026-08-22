@@ -1206,7 +1206,7 @@ function routeMatchesSelection(item, selected = selection) {
   const itemGoal = item.goal_id || item.goal_ref || item.goal?.goal_id;
   if (!itemGoal || itemGoal !== selected.goal_ref) return false;
   const itemThread = item.thread_ref || item.master_thread_id || item.context_thread_ref;
-  if (selected.thread_ref && itemThread && itemThread !== selected.thread_ref) return false;
+  if (selected.thread_ref && itemThread !== selected.thread_ref) return false;
   const selectedFocus = selected.focus_ref;
   if (!selectedFocus) return true;
   const pressureRef = item.pressure_ref || {};
