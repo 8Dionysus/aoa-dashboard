@@ -20,11 +20,11 @@ class ServerTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         html = (root / "web" / "index.html").read_text(encoding="utf-8")
         javascript = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('id="actor-activity"', html)
-        self.assertIn("function renderActorActivity", javascript)
+        self.assertIn('data-lens="participants"', html)
+        self.assertIn("function participantItems", javascript)
         self.assertIn("data.actor_activity", javascript)
-        self.assertIn("master-filter current-head evidence", javascript)
         self.assertIn("currentness.evidence_refs", javascript)
+        self.assertIn("renderDiagnosticRoutes", javascript)
 
     def test_health_endpoint_is_read_model_only(self) -> None:
         server = __import__("http.server", fromlist=["ThreadingHTTPServer"]).ThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)

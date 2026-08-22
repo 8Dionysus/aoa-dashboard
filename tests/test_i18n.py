@@ -63,7 +63,7 @@ process.stdout.write(JSON.stringify({ before, stored: values.get("aoa-dashboard.
         observed = json.loads(result.stdout)
         self.assertEqual(observed["before"]["language"], "ru")
         self.assertNotEqual(observed["before"]["heading"], "One truthful surface for a moving Goal")
-        self.assertEqual(observed["before"]["status"], "запрошено wake")
+        self.assertEqual(observed["before"]["status"], "Запрошено пробуждение")
         self.assertEqual(observed["stored"], "en")
         self.assertEqual(observed["restart"], "en")
         self.assertEqual(observed["russian"], "ru")
@@ -152,12 +152,13 @@ process.stdout.write(JSON.stringify({ migrated, written, restarted, invalid, raw
             "branch_path",
             "thread_ref",
             "observation_cursor_or_generation",
-            "MAX_CORRELATION_ENVELOPES",
-            "MAX_ACTOR_CARDS",
+            "MAX_DIRECTIONS",
+            "MAX_PEOPLE",
             "lastGoodProjection",
-            'refreshState = "stale"',
-            "thread.rawUnavailable",
-            "effectCeiling",
+            'refreshState = lastGoodProjection ? "stale"',
+            "contextThreadOpen = false",
+            "formatHumanRecency",
+            "diagnostics.developer",
         ):
             self.assertIn(marker, javascript)
         for marker in (
@@ -259,13 +260,21 @@ process.stdout.write(JSON.stringify(posts));
     def test_canonical_values_and_owner_text_are_not_translated_in_logic(self) -> None:
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         javascript = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("<code>deferred</code>", html)
-        self.assertIn("<code>effect: none</code>", html)
-        self.assertIn("canonicalValue.replaceAll", javascript)
-        self.assertIn("statusLabel(canonicalValue)", javascript)
-        self.assertIn("text(\"p\", item.observation)", javascript)
-        self.assertIn("text(\"li\", item)", javascript)
-        self.assertIn("JSON.stringify(sourceSummary, null, 2)", javascript)
+        self.assertNotIn("<code>", html)
+        self.assertIn("data-theme-host", html)
+        self.assertIn('id="settings-panel"', html)
+        self.assertIn('id="diagnostics-surface"', html)
+        self.assertEqual(html.count('data-i18n="nav.goals"'), 1)
+        self.assertNotIn('data-i18n="home.kicker"', html)
+        self.assertNotIn("schema_version", html)
+        self.assertNotIn("claim_limit", html)
+        self.assertNotIn("sha256", html)
+        self.assertNotIn("master-thread:", html)
+        self.assertNotIn("Create aoa-dashboard first working vertical slice", html)
+        self.assertIn("developer-details", javascript)
+        self.assertIn("JSON.stringify(entry.value, null, 2)", javascript)
+        self.assertIn('developer.addEventListener("toggle"', javascript)
+        self.assertNotIn("boundedJson", javascript)
 
 
 if __name__ == "__main__":

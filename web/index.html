@@ -13,153 +13,161 @@
           var dark = mode === "dark" || (mode !== "light" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
           document.documentElement.dataset.themeMode = ["system", "light", "dark"].indexOf(mode) >= 0 ? mode : "system";
           document.documentElement.dataset.theme = dark ? "dark" : "light";
+          document.documentElement.dataset.density = preferences.density || "comfortable";
         } catch (_error) {
           document.documentElement.dataset.themeMode = "system";
           document.documentElement.dataset.theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          document.documentElement.dataset.density = "comfortable";
         }
       }());
     </script>
-    <title data-i18n="app.title">aoa-dashboard · Goal Space</title>
+    <title data-i18n="app.title">Goal Space</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <a class="skip-link" href="#main-content" data-i18n="a11y.skipToMain">Skip to Goal workspace</a>
-    <header class="shell masthead" role="banner">
-      <div class="masthead-title">
-        <p class="eyebrow" data-i18n="app.eyebrow">AOA / GOAL SPACE / OPERATOR READ MODEL</p>
-        <h1 data-i18n="app.heading">One truthful surface for a moving Goal</h1>
-        <p class="lede" data-i18n="app.lede">A derived view of the current Goal, its session source, owner boundaries, and what is still unknown.</p>
-      </div>
-      <div class="mast-meta">
-        <div class="language-switch" role="group" aria-label="Language" data-i18n-aria-label="language.label">
-          <span data-i18n="language.label">Language</span>
-          <button type="button" class="secondary" data-language="ru" aria-label="Switch to Russian" data-i18n-aria-label="language.switchToRussian" aria-pressed="false">RU</button>
-          <button type="button" class="secondary" data-language="en" aria-label="Switch to English" data-i18n-aria-label="language.switchToEnglish" aria-pressed="true">EN</button>
+
+    <header class="app-bar" role="banner">
+      <div class="app-bar-inner shell">
+        <a class="brand" href="#" data-i18n="app.name">Goal Space</a>
+        <nav class="primary-nav" aria-label="Primary navigation" data-i18n-aria-label="nav.primaryLabel">
+          <button id="home-button" type="button" class="nav-button active" data-i18n="nav.goals">Goals</button>
+        </nav>
+        <div class="app-actions">
+          <span id="connection" class="connection-state state-loading" role="status" data-i18n="connection.loading">Checking</span>
+          <details id="settings-panel" class="settings-panel">
+            <summary data-i18n="settings.label">Settings</summary>
+            <div class="settings-content">
+              <div class="settings-theme-host" data-theme-host></div>
+              <fieldset class="language-switch" role="group" aria-label="Language" data-i18n-aria-label="language.label">
+                <legend data-i18n="language.label">Language</legend>
+                <div class="segmented-control">
+                  <button type="button" data-language="ru" aria-label="Switch to Russian" data-i18n-aria-label="language.switchToRussian" aria-pressed="false">RU</button>
+                  <button type="button" data-language="en" aria-label="Switch to English" data-i18n-aria-label="language.switchToEnglish" aria-pressed="true">EN</button>
+                </div>
+              </fieldset>
+              <label class="density-control" for="density-mode">
+                <span data-i18n="settings.density">Density</span>
+                <select id="density-mode" name="density-mode">
+                  <option value="comfortable" data-i18n="settings.comfortable">Comfortable</option>
+                  <option value="compact" data-i18n="settings.compact">Compact</option>
+                </select>
+              </label>
+            </div>
+          </details>
         </div>
-        <span id="connection" class="badge state-deferred" data-i18n="connection.loading">loading</span>
-        <span id="generated" class="mono" data-i18n="connection.projectionPending">projection pending</span>
       </div>
     </header>
 
     <main id="main-content" class="shell" tabindex="-1">
       <section id="alert" class="alert hidden" role="alert" aria-live="assertive"></section>
       <div id="route-status" class="route-status hidden" role="status"></div>
-      <section id="refresh-status" class="quality-banner state-loading" role="status" aria-live="polite">
-        <strong data-i18n="refresh.loading">Loading the Goal projection…</strong>
-        <span data-i18n="refresh.noCounts">No counts are shown until a source response is available.</span>
+      <section id="refresh-status" class="refresh-note state-loading" role="status" aria-live="polite">
+        <strong data-i18n="refresh.loading">Loading the Goal view</strong>
+        <span data-i18n="refresh.noCounts">Waiting for the source.</span>
       </section>
       <div id="live-region" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
       <section id="home-view" class="home-view" aria-labelledby="home-heading">
-        <div class="home-intro">
+        <div class="page-intro">
           <div>
-            <div class="section-kicker" data-i18n="home.kicker">GOAL SELECTOR</div>
-            <h2 id="home-heading" data-i18n="home.heading">Choose one admitted Goal</h2>
-            <p class="claim" data-i18n="home.claim">This surface shows only Goals published by an admitted source. A missing catalog is not an empty catalog.</p>
+            <h1 id="home-heading" data-i18n="home.heading">Choose a Goal</h1>
+            <p class="page-summary" data-i18n="home.summary">A calm view of the work that is moving now.</p>
           </div>
-          <details class="source-disclosure">
-            <summary data-i18n="home.sourceDetails">Availability and source limits</summary>
-            <p data-i18n="home.sourceLimit">The current binding provides one selectable Goal. Goal history, multi-Goal selection, and canonical branches are not published here.</p>
-          </details>
+          <p class="page-note" data-i18n="home.sourceNote">The current Goal is available from its source.</p>
         </div>
         <div id="goal-selector" class="goal-selector"></div>
         <div id="catalog-state" class="empty-state"></div>
       </section>
 
       <section id="workspace-view" class="workspace-view hidden" aria-labelledby="workspace-heading">
-        <header class="workspace-bar">
-          <div class="workspace-orientation">
-            <button id="home-button" type="button" class="quiet-button" data-i18n="workspace.backToGoals">Goals</button>
-            <nav id="breadcrumb" class="breadcrumb" aria-label="Goal focus path" data-i18n-aria-label="workspace.breadcrumbLabel"></nav>
-          </div>
+        <div class="workspace-topline">
+          <nav id="breadcrumb" class="breadcrumb" aria-label="Selected path" data-i18n-aria-label="workspace.breadcrumbLabel"></nav>
           <div class="workspace-controls">
-            <div class="workspace-status" aria-label="Goal status" data-i18n-aria-label="workspace.statusLabel">
-              <span id="workspace-lifecycle" class="badge state-unknown">unknown</span>
-              <span id="workspace-quality" class="badge state-unknown">unknown</span>
-            </div>
             <div class="mode-switch" role="group" aria-label="Workspace mode" data-i18n-aria-label="mode.label">
               <button type="button" class="mode-button active" data-mode="observe" data-i18n="mode.observe" aria-pressed="true">Observe</button>
-              <button type="button" class="mode-button" data-mode="operate" data-i18n="mode.operate" aria-pressed="false">Operate</button>
+              <button type="button" class="mode-button" data-mode="operate" data-i18n="mode.operate" aria-pressed="false">Record</button>
             </div>
-            <button id="thread-toggle" type="button" class="secondary thread-toggle" data-i18n="thread.toggle" aria-expanded="true" aria-controls="context-thread">Context</button>
+            <button id="thread-toggle" type="button" class="quiet-button" data-i18n="thread.toggle" aria-expanded="false" aria-controls="context-thread">Inspect</button>
           </div>
-        </header>
+        </div>
+
+        <div class="goal-hero">
+          <div class="goal-hero-copy">
+            <p class="eyebrow" data-i18n="workspace.kicker">Goal</p>
+            <h1 id="workspace-heading">Goal</h1>
+            <p id="workspace-summary" class="goal-summary-copy"></p>
+          </div>
+          <div class="goal-hero-meta" aria-label="Goal status" data-i18n-aria-label="workspace.statusLabel">
+            <span id="workspace-lifecycle" class="badge state-unknown">Unknown</span>
+            <span id="workspace-quality" class="status-link state-unknown">Unknown</span>
+            <time id="workspace-recency" class="recency"></time>
+          </div>
+        </div>
+
+        <section id="goal-summary" class="summary-grid" aria-label="Goal overview" data-i18n-aria-label="workspace.summaryLabel"></section>
+        <section id="attention-strip" class="attention-strip" aria-label="Current attention" data-i18n-aria-label="workspace.attentionLabel"></section>
 
         <div class="workspace-grid">
-          <aside class="workspace-rail" aria-label="Goal navigation" data-i18n-aria-label="workspace.navigationLabel">
-            <div class="rail-block">
-              <div class="section-kicker" data-i18n="rail.goal">GOAL</div>
-              <button id="workspace-goal-button" type="button" class="goal-rail-button"></button>
-              <span id="workspace-goal-id" class="mono muted"></span>
-            </div>
-            <nav class="lens-nav" aria-label="Goal lenses" data-i18n-aria-label="rail.lensesLabel">
-              <div class="section-kicker" data-i18n="rail.withinGoal">WITHIN THIS GOAL</div>
-              <button type="button" class="lens-button active" data-lens="trajectory" aria-current="page"><span data-i18n="lens.trajectory">Trajectory</span><span class="lens-hint" data-i18n="lens.trajectoryHint">path and focus</span></button>
-              <button type="button" class="lens-button" data-lens="attention"><span data-i18n="lens.attention">Attention</span><span class="lens-hint" data-i18n="lens.attentionHint">pressure and quality</span></button>
-              <button type="button" class="lens-button" data-lens="participants"><span data-i18n="lens.participants">Participants</span><span class="lens-hint" data-i18n="lens.participantsHint">bounded identities</span></button>
-              <button type="button" class="lens-button" data-lens="evidence"><span data-i18n="lens.evidence">Evidence</span><span class="lens-hint" data-i18n="lens.evidenceHint">sources and refs</span></button>
-              <button type="button" class="lens-button" data-lens="records"><span data-i18n="lens.records">Records</span><span class="lens-hint" data-i18n="lens.recordsHint">dashboard-owned notes</span></button>
+          <aside class="workspace-rail" aria-label="Goal views" data-i18n-aria-label="workspace.navigationLabel">
+            <p class="rail-heading" data-i18n="rail.heading">Within this Goal</p>
+            <nav class="lens-nav" aria-label="Goal views" data-i18n-aria-label="rail.lensesLabel">
+              <button type="button" class="lens-button active" data-lens="trajectory" aria-current="page"><span data-i18n="lens.trajectory">Trajectory</span><span class="lens-hint" data-i18n="lens.trajectoryHint">what moves next</span></button>
+              <button type="button" class="lens-button" data-lens="attention"><span data-i18n="lens.attention">Attention</span><span class="lens-hint" data-i18n="lens.attentionHint">what needs care</span></button>
+              <button type="button" class="lens-button" data-lens="participants"><span data-i18n="lens.participants">People</span><span class="lens-hint" data-i18n="lens.participantsHint">who is carrying it</span></button>
+              <button type="button" class="lens-button" data-lens="evidence"><span data-i18n="lens.evidence">Evidence</span><span class="lens-hint" data-i18n="lens.evidenceHint">where it comes from</span></button>
+              <button type="button" class="lens-button" data-lens="records"><span data-i18n="lens.records">Notes</span><span class="lens-hint" data-i18n="lens.recordsHint">local records</span></button>
             </nav>
             <div id="rail-quality" class="rail-quality"></div>
           </aside>
 
           <section id="center-surface" class="workspace-center" aria-labelledby="workspace-heading" tabindex="-1">
-            <div class="workspace-heading-row">
-              <div>
-                <div class="section-kicker" data-i18n="workspace.kicker">SELECTED GOAL</div>
-                <h2 id="workspace-heading">Goal workspace</h2>
-              </div>
-              <span id="workspace-generated" class="mono muted"></span>
-            </div>
-            <section id="goal-summary" class="goal-summary" aria-label="Goal summary" data-i18n-aria-label="workspace.summaryLabel"></section>
-            <section id="attention-strip" class="attention-strip" aria-label="Current attention" data-i18n-aria-label="workspace.attentionLabel"></section>
-            <section id="lens-surface" class="lens-surface"></section>
+            <div id="lens-surface" class="lens-surface"></div>
+            <section id="diagnostics-surface" class="diagnostics-surface" aria-label="Diagnostics" data-i18n-aria-label="diagnostics.label"></section>
           </section>
 
-          <aside id="context-thread" class="workspace-thread" aria-labelledby="thread-heading">
+          <aside id="context-thread" class="workspace-thread collapsed" aria-labelledby="thread-heading" aria-hidden="true">
             <div class="thread-heading-row">
               <div>
-                <div class="section-kicker" data-i18n="thread.kicker">CONTEXT THREAD</div>
-                <h2 id="thread-heading" data-i18n="thread.heading">Selected context</h2>
+                <p class="eyebrow" data-i18n="thread.kicker">Selected object</p>
+                <h2 id="thread-heading" data-i18n="thread.heading">Inspect</h2>
               </div>
-              <span id="thread-quality" class="badge state-missing">missing</span>
+              <span id="thread-quality" class="status-link state-missing">Missing</span>
             </div>
-            <p id="thread-selection" class="mono muted"></p>
+            <p id="thread-selection" class="thread-selection"></p>
             <div id="thread-items" class="thread-items"></div>
             <section id="operate-panel" class="operate-panel hidden" aria-labelledby="operate-heading">
-              <div class="section-kicker" data-i18n="operate.kicker">DASHBOARD-OWNED OPERATE</div>
-              <h3 id="operate-heading" data-i18n="operate.heading">Record a bounded request</h3>
-              <p class="claim"><span data-i18n="operate.claim">This dashboard records the request; the owner decides and executes it.</span> Stored as <code>deferred</code> with <code>effect: none</code>.</p>
+              <p class="eyebrow" data-i18n="operate.kicker">Local record</p>
+              <h3 id="operate-heading" data-i18n="operate.heading">Add a note</h3>
+              <p class="operate-copy" data-i18n="operate.copy">Record an observation or route a request for the responsible owner.</p>
               <div id="operate-route-card" class="operate-route-card"></div>
               <form id="annotation-form">
-                <label><span data-i18n="form.authorRef">Author ref</span><input name="author_ref" value="operator:local" /></label>
-                <label><span data-i18n="form.targetRef">Target ref</span><input name="target_ref" value="goal:aoa-dashboard-goal-01a00722-20260815" /></label>
-                <label><span data-i18n="form.note">Note</span><textarea name="body" required placeholder="Record an observation, not an owner verdict." data-i18n-placeholder="form.notePlaceholder"></textarea></label>
-                <button type="submit" data-i18n="form.recordAnnotation">Record annotation</button>
+                <label><span data-i18n="form.note">Note</span><textarea name="body" required placeholder="Write an observation" data-i18n-placeholder="form.notePlaceholder"></textarea></label>
+                <input type="hidden" name="author_ref" value="operator:local" />
+                <input type="hidden" name="target_ref" value="goal:unknown" />
+                <button type="submit" data-i18n="form.recordAnnotation">Save note</button>
                 <span class="form-status" data-form-status="annotation" role="status"></span>
               </form>
-              <div id="annotation-summary" class="record-summary"></div>
               <form id="intent-form">
-                <label><span data-i18n="form.requestedBy">Requested by</span><input name="requested_by" value="operator:local" /></label>
-                <label><span data-i18n="form.intentTargetRef">Intent target ref</span><input name="target_ref" value="goal:aoa-dashboard-goal-01a00722-20260815" /></label>
-                <label><span data-i18n="form.ownerRoute">Natural owner route</span><input name="owner_route" placeholder="owner:aoa-agents/..." data-i18n-placeholder="form.ownerRoutePlaceholder" required /></label>
-                <label><span data-i18n="form.request">Request</span><textarea name="summary" required placeholder="Describe the requested owner action and why." data-i18n-placeholder="form.requestPlaceholder"></textarea></label>
-                <button type="submit" class="secondary" data-i18n="form.recordIntent">Record deferred intent</button>
+                <label><span data-i18n="form.request">Request for owner</span><textarea name="summary" required placeholder="Describe the request" data-i18n-placeholder="form.requestPlaceholder"></textarea></label>
+                <input type="hidden" name="requested_by" value="operator:local" />
+                <input type="hidden" name="target_ref" value="goal:unknown" />
+                <input type="hidden" name="owner_route" value="owner:unresolved" />
+                <button type="submit" class="secondary" data-i18n="form.recordIntent">Save request</button>
                 <span class="form-status" data-form-status="intent" role="status"></span>
               </form>
-              <div id="intent-summary" class="record-summary"></div>
             </section>
           </aside>
         </div>
       </section>
 
-      <section id="fallback-evidence" class="panel hidden" aria-labelledby="fallback-heading">
-        <h2 id="fallback-heading" data-i18n="fallback.heading">Projection evidence</h2>
-        <p data-i18n="fallback.claim">The workspace is unavailable; retained evidence and its quality remain visible below.</p>
-        <div id="fallback-content"><div id="actor-activity" class="actor-activity visually-hidden" aria-hidden="true"></div></div>
+      <section id="fallback-evidence" class="empty-state hidden" aria-labelledby="fallback-heading">
+        <h2 id="fallback-heading" data-i18n="fallback.heading">Goal view unavailable</h2>
+        <p id="fallback-content" data-i18n="fallback.claim">The view will try again when its source responds.</p>
       </section>
     </main>
-    <footer class="shell footer"><span data-i18n="footer.version">aoa-dashboard v0.1 · host-local dogfood</span><span id="refresh-note" data-i18n="footer.refreshing">refreshing every 5s</span></footer>
+
+    <footer class="shell footer"><span data-i18n="footer.version">Goal Space · local view</span><span id="refresh-note" data-i18n="footer.refreshing">updates automatically</span></footer>
     <script src="/i18n.js" defer></script>
     <script src="/theme.js" defer></script>
     <script src="/ui_state.js" defer></script>

@@ -186,7 +186,7 @@
   }
 
   function makeControl() {
-    var host = document.querySelector(".mast-meta");
+    var host = document.querySelector("[data-theme-host]") || document.querySelector(".mast-meta");
     if (!host) {
       return;
     }

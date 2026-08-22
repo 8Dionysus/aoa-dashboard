@@ -25,12 +25,16 @@ class GoalSpaceUiStateTests(unittest.TestCase):
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
         self.assertNotIn("|| envelopes[0]", source)
         self.assertNotIn("|| arrayOrEmpty(data.pressure_inbox?.items)[0]", source)
-        self.assertIn("function envelopeMatchesSelection", source)
+        self.assertIn("function contextForSelection", source)
+        self.assertIn("function directionItems", source)
+        self.assertIn("function participantItems", source)
         self.assertIn("function routeReadiness", source)
         self.assertIn("selectionQuality === \"missing\"", source)
         self.assertIn("clearAlert()", source)
         self.assertIn("setProjectionBusy(true)", source)
         self.assertIn("renderDiagnosticRoutes", source)
+        self.assertIn("function formatHumanRecency", source)
+        self.assertIn("contextThreadOpen = false", source)
 
     def test_operate_route_requires_admitted_currentness_and_exact_context(self) -> None:
         observed = run_node(
@@ -171,8 +175,8 @@ const malformed = context.AoaDashboardPreferences.read(storage);
 const en = context.AoaDashboardI18n.createI18n({ locale: "en", storage: { getItem() { return null; }, setItem() {} } });
 const ru = context.AoaDashboardI18n.createI18n({ locale: "ru", storage: { getItem() { return null; }, setItem() {} } });
 process.stdout.write(JSON.stringify({ legacy, future, malformed, unknownCategories: [null, undefined, "not-a-number", "2"].map((count) => context.AoaDashboardI18n.pluralCategory("en", count)), categories: {
-  en: [0, 1, 2].map((count) => en.plural("plural.actor", count)),
-  ru: [0, 1, 2, 5, 1.2].map((count) => ({ category: context.AoaDashboardI18n.pluralCategory("ru", count), text: ru.plural("plural.actor", count) })),
+  en: [0, 1, 2].map((count) => en.plural("plural.person", count)),
+  ru: [0, 1, 2, 5, 1.2].map((count) => ({ category: context.AoaDashboardI18n.pluralCategory("ru", count), text: ru.plural("plural.person", count) })),
 } }));
 '''
         )
@@ -180,10 +184,117 @@ process.stdout.write(JSON.stringify({ legacy, future, malformed, unknownCategori
         self.assertEqual(observed["future"]["theme"], "system")
         self.assertEqual(observed["malformed"]["theme"], "system")
         self.assertEqual(observed["unknownCategories"], ["unknown", "unknown", "unknown", "unknown"])
-        self.assertIn("No actors", observed["categories"]["en"][0])
-        self.assertIn("1 actor", observed["categories"]["en"][1])
-        self.assertIn("2 actors", observed["categories"]["en"][2])
+        self.assertIn("No people", observed["categories"]["en"][0])
+        self.assertIn("1 person", observed["categories"]["en"][1])
+        self.assertIn("2 people", observed["categories"]["en"][2])
         self.assertEqual([item["category"] for item in observed["categories"]["ru"]], ["zero", "one", "few", "many", "other"])
+
+    def test_local_recency_and_goal_title_are_human_and_minute_bounded(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  globalThis: null,
+  document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; } },
+  localStorage: { getItem() { return null; }, setItem() {} },
+  navigator: { language: "en-US" },
+  location: { hash: "" },
+  history: { replaceState() {} },
+  fetch() { return new Promise(() => {}); },
+  setInterval() {},
+  addEventListener() {},
+};
+context.globalThis = context;
+context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const app = context.AoaDashboardApp;
+const goal = { goal: { goal_id: "aoa-dashboard-goal-01a00722-20260815", title: "Create aoa-dashboard first working vertical slice" } };
+const recent = app.formatHumanRecency("2026-08-22T16:17:00Z", "2026-08-22T16:29:00Z");
+const old = app.formatHumanRecency("2026-08-01T09:10:45.123Z", "2026-08-22T16:29:00Z");
+const enTitle = app.goalTitle(goal);
+context.AoaDashboardI18n.createI18n;
+process.stdout.write(JSON.stringify({ recent, old, enTitle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasIso: /T|Z/.test(old) }));
+'''
+        )
+        self.assertIn("12", observed["recent"])
+        self.assertNotRegex(observed["recent"], r"T|Z|\.\d")
+        self.assertFalse(observed["hasSeconds"])
+        self.assertFalse(observed["hasIso"])
+        self.assertEqual(observed["enTitle"], "Create the first Goal Space slice")
+
+    def test_default_human_projection_hides_machine_identity_and_source_keys(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  globalThis: null,
+  document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; } },
+  localStorage: { getItem() { return null; }, setItem() {} },
+  navigator: { language: "en-US" },
+  location: { hash: "" },
+  history: { replaceState() {} },
+  fetch() { return new Promise(() => {}); },
+  setInterval() {},
+  addEventListener() {},
+};
+context.globalThis = context;
+context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const projection = {
+  actor_activity: { actors: [{ actor_key: "actor:abc", identity: { label: "actor:abc", role_id: "external_codex_incarnation", model_id: "gpt-5" }, task: { task_id: "task:private" }, responsibility: { holder: "actor:abc", responsibility_state: "not_independent" } }] },
+  sources: [{ id: "aoa-session-memory", owner: "aoa-session-memory", state: "missing", evidence_refs: [] }],
+};
+const person = context.AoaDashboardApp.participantItems(projection)[0];
+const source = context.AoaDashboardApp.sourceItems(projection)[0];
+process.stdout.write(JSON.stringify({ person: { title: person.title, role: person.role, task: person.task }, source: { title: source.title, owner: source.owner } }));
+'''
+        )
+        self.assertEqual(observed["person"]["title"], "Participant 1")
+        self.assertEqual(observed["person"]["role"], "Working agent")
+        self.assertNotIn("actor:", json.dumps(observed["person"]))
+        self.assertNotIn("task:", json.dumps(observed["person"]))
+        self.assertEqual(observed["source"]["title"], "Session history")
+        self.assertEqual(observed["source"]["owner"], "Session history")
+        self.assertNotIn("aoa-session-memory", json.dumps(observed["source"]))
+
+    def test_diagnostics_materializes_raw_detail_only_after_developer_disclosure(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function node(tag) {
+  const listeners = {};
+  return { tagName: tag, children: [], dataset: {}, className: "", open: false, textContent: "", append(...items) { this.children.push(...items); }, addEventListener(name, listener) { listeners[name] = listener; }, setAttribute() {}, trigger(name) { if (listeners[name]) listeners[name](); } };
+}
+const context = { globalThis: null, document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; }, createElement: node }, localStorage: { getItem() { return null; }, setItem() {} }, location: { hash: "" }, history: { replaceState() {} }, fetch() { return new Promise(() => {}); }, setInterval() {}, addEventListener() {}, navigator: { language: "en-US" } };
+context.globalThis = context; context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const target = node("section");
+context.AoaDashboardApp.renderDiagnosticRoutes({ goal: { goal_id: "goal:test", title: "Goal", source_refs: [{ ref: "source:goal", sha256: "abc" }] }, correlation: { evidence_refs: [] } }, target);
+const inspector = target.children[0];
+const developer = inspector.children[1].children[1].children[2];
+const before = JSON.stringify(target).includes('"tagName":"pre"');
+developer.open = true;
+developer.trigger("toggle");
+const after = developer.children.some((child) => child.tagName === "pre");
+process.stdout.write(JSON.stringify({ before, after, inspectorClass: inspector.className, developerClass: developer.className }));
+'''
+        )
+        self.assertFalse(observed["before"])
+        self.assertTrue(observed["after"])
+        self.assertEqual(observed["inspectorClass"], "diagnostics-inspector")
+        self.assertEqual(observed["developerClass"], "developer-details")
 
     def test_refresh_interaction_snapshot_restores_details_scroll_drafts_and_focus(self) -> None:
         observed = run_node(
