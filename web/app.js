@@ -37,6 +37,7 @@ const MAX_PRESSURE_ITEMS = 12;
 const MAX_SOURCE_CARDS = 18;
 const MAX_OWNER_ROWS = 24;
 const MAX_REFS_PER_ITEM = 8;
+const ADMITTED_ROUTE_CURRENTNESS = new Set(["current", "current_at_read"]);
 const SelectionContext = dashboardUI.SelectionContext;
 
 let currentProjection = null;
@@ -1200,26 +1201,26 @@ function envelopeMatchesSelection(envelope) {
   return `return:${envelope.return_observation?.return_id || envelope.correlation_id || t("fallback.return")}` === selection.focus_ref;
 }
 
-function routeMatchesSelection(item) {
-  if (!selection.goal_ref || !item) return false;
+function routeMatchesSelection(item, selected = selection) {
+  if (!selected.goal_ref || !item) return false;
   const itemGoal = item.goal_id || item.goal_ref || item.goal?.goal_id;
-  if (!itemGoal || itemGoal !== selection.goal_ref) return false;
+  if (!itemGoal || itemGoal !== selected.goal_ref) return false;
   const itemThread = item.thread_ref || item.master_thread_id || item.context_thread_ref;
-  if (selection.thread_ref && itemThread && itemThread !== selection.thread_ref) return false;
-  const selected = selection.focus_ref;
-  if (!selected) return true;
+  if (selected.thread_ref && itemThread && itemThread !== selected.thread_ref) return false;
+  const selectedFocus = selected.focus_ref;
+  if (!selectedFocus) return true;
   const pressureRef = item.pressure_ref || {};
-  return [item.context_ref, item.target_ref, item.focus_ref, pressureRef.id, pressureRef.ref, `pressure:${pressureRef.id || pressureRef.ref || ""}`].filter(Boolean).includes(selected);
+  return [item.context_ref, item.target_ref, item.focus_ref, pressureRef.id, pressureRef.ref, `pressure:${pressureRef.id || pressureRef.ref || ""}`].filter(Boolean).includes(selectedFocus);
 }
 
-function routeReadiness(item) {
-  if (!routeMatchesSelection(item)) return { ready: false, reason: "context" };
+function routeReadiness(item, selected = selection) {
+  if (!routeMatchesSelection(item, selected)) return { ready: false, reason: "context" };
   const route = item.next_route || {};
   const currentness = route.currentness || item.currentness || item.pressure_ref?.currentness;
   const ready = Boolean(
     route.owner && route.route && route.effect === "none" && route.authority
     && item.stop_line && item.wake_condition && arrayOrEmpty(item.evidence).length
-    && currentness
+    && ADMITTED_ROUTE_CURRENTNESS.has(currentness)
   );
   return { ready, route, currentness, reason: ready ? null : "contract" };
 }
@@ -1466,6 +1467,7 @@ window.AoaDashboardApp = Object.freeze({
   captureInteractionState,
   restoreInteractionState,
   setProjectionBusy,
+  routeReadiness,
   refresh,
   getSelection: () => ({ ...selection, branch_path: [...selection.branch_path], expanded_branch_refs: [...selection.expanded_branch_refs], page_by_list: { ...selection.page_by_list } }),
 });

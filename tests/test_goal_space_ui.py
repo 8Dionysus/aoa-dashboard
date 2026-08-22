@@ -32,6 +32,54 @@ class GoalSpaceUiStateTests(unittest.TestCase):
         self.assertIn("setProjectionBusy(true)", source)
         self.assertIn("renderDiagnosticRoutes", source)
 
+    def test_operate_route_requires_admitted_currentness_and_exact_context(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; }, createElement() { return {}; } },
+  globalThis: null,
+  console,
+  fetch() { return new Promise(() => {}); },
+  setInterval() {},
+  location: { hash: "" },
+  history: { replaceState() {} },
+  AoaDashboardI18n: { createI18n() { return { language: "en", t(key) { return key; }, status(value) { return value; }, plural(key, count) { return `${key}:${count}`; }, subscribe() {} }; } },
+};
+context.globalThis = context;
+context.window = context;
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const selection = { goal_ref: "goal:test", thread_ref: "thread:test", focus_ref: "pressure:p2" };
+const base = {
+  goal_id: "goal:test",
+  master_thread_id: "thread:test",
+  pressure_ref: { id: "p2" },
+  next_route: { owner: "aoa-agents", route: "review", effect: "none", authority: "master_decision" },
+  stop_line: "stop",
+  wake_condition: "wake",
+  evidence: [{ ref: "evidence:p2" }],
+};
+const check = (currentness) => context.AoaDashboardApp.routeReadiness({ ...base, pressure_ref: { ...base.pressure_ref, currentness } }, selection);
+const wrongThread = context.AoaDashboardApp.routeReadiness({ ...base, pressure_ref: { id: "p2", currentness: "current" } }, { ...selection, thread_ref: "thread:other" });
+const wrongFocus = context.AoaDashboardApp.routeReadiness({ ...base, pressure_ref: { id: "p3", currentness: "current" } }, selection);
+process.stdout.write(JSON.stringify({
+  current: check("current").ready,
+  currentAtRead: check("current_at_read").ready,
+  unknown: check("unknown").ready,
+  stale: check("stale").ready,
+  invented: check("invented").ready,
+  absent: check(null).ready,
+  wrongThread: wrongThread.ready,
+  wrongFocus: wrongFocus.ready,
+}));
+'''
+        )
+        self.assertEqual(
+            observed,
+            {"current": True, "currentAtRead": True, "unknown": False, "stale": False, "invented": False, "absent": False, "wrongThread": False, "wrongFocus": False},
+        )
+
     def test_selection_route_round_trip_is_complete_and_malformed_routes_fail_closed(self) -> None:
         observed = run_node(
             r'''
@@ -75,13 +123,12 @@ const context = { globalThis: null };
 context.globalThis = context;
 vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 const ui = context.AoaDashboardUiState;
-const qualified = { items: [], source: { ref: "owner://catalog", owner: "goal-owner", currentness: "current_at_read" }, claim_limit: "derived catalog only" };
+const fabricated = { items: [{ goal_ref: "goal:1" }], source: { ref: "fixture://not-owner", owner: "fabricated-owner", currentness: "invented" }, claim_limit: "fabricated claim" };
 const page = ui.pageWindow([{ ref: "a" }, { ref: "b" }, { ref: "c" }, { ref: "d" }], 0, 2, "d");
 process.stdout.write(JSON.stringify({
   arrayCatalog: ui.qualifiedCatalog([]),
   unqualifiedCatalog: ui.qualifiedCatalog({ items: [], claim_limit: "missing source" }),
-  emptyCatalog: ui.qualifiedCatalog(qualified),
-  boundCatalog: ui.qualifiedCatalog({ ...qualified, items: [{ goal_ref: "goal:1" }] }),
+  fabricatedCatalog: ui.qualifiedCatalog(fabricated),
   missingRecord: ui.optionalRecord(null),
   zeroRecord: ui.optionalRecord({ count: 0, latest: [] }),
   unknownRecord: ui.optionalRecord({ latest: [] }),
@@ -91,8 +138,8 @@ process.stdout.write(JSON.stringify({
         )
         self.assertEqual(observed["arrayCatalog"]["state"], "missing")
         self.assertEqual(observed["unqualifiedCatalog"]["state"], "missing")
-        self.assertEqual(observed["emptyCatalog"]["state"], "admitted-empty")
-        self.assertEqual(observed["boundCatalog"]["state"], "bound")
+        self.assertEqual(observed["fabricatedCatalog"]["state"], "missing")
+        self.assertEqual(observed["fabricatedCatalog"]["reason"], "publisher_unqualified")
         self.assertEqual(observed["missingRecord"], {"state": "missing", "count": None, "latest": [], "evidence_refs": [], "claim_limit": None})
         self.assertEqual(observed["zeroRecord"]["state"], "bound")
         self.assertEqual(observed["zeroRecord"]["count"], 0)
@@ -119,7 +166,7 @@ storageMap.set("aoa-dashboard.preferences.v1", "{bad");
 const malformed = context.AoaDashboardPreferences.read(storage);
 const en = context.AoaDashboardI18n.createI18n({ locale: "en", storage: { getItem() { return null; }, setItem() {} } });
 const ru = context.AoaDashboardI18n.createI18n({ locale: "ru", storage: { getItem() { return null; }, setItem() {} } });
-process.stdout.write(JSON.stringify({ legacy, future, malformed, categories: {
+process.stdout.write(JSON.stringify({ legacy, future, malformed, unknownCategories: [null, undefined, "not-a-number", "2"].map((count) => context.AoaDashboardI18n.pluralCategory("en", count)), categories: {
   en: [0, 1, 2].map((count) => en.plural("plural.actor", count)),
   ru: [0, 1, 2, 5, 1.2].map((count) => ({ category: context.AoaDashboardI18n.pluralCategory("ru", count), text: ru.plural("plural.actor", count) })),
 } }));
@@ -128,6 +175,7 @@ process.stdout.write(JSON.stringify({ legacy, future, malformed, categories: {
         self.assertEqual(observed["legacy"]["theme"], "dark")
         self.assertEqual(observed["future"]["theme"], "system")
         self.assertEqual(observed["malformed"]["theme"], "system")
+        self.assertEqual(observed["unknownCategories"], ["unknown", "unknown", "unknown", "unknown"])
         self.assertIn("No actors", observed["categories"]["en"][0])
         self.assertIn("1 actor", observed["categories"]["en"][1])
         self.assertIn("2 actors", observed["categories"]["en"][2])

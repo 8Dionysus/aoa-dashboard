@@ -8,6 +8,7 @@ import threading
 import unittest
 from http.client import HTTPConnection
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -54,6 +55,37 @@ class ServerTests(unittest.TestCase):
                 self.assertEqual(annotation["authority"], "dashboard_owned")
                 self.assertEqual(intent["state"], "deferred")
                 self.assertEqual(intent["effect"], "none")
+            finally:
+                if previous is None:
+                    os.environ.pop("AOA_DASHBOARD_STATE_ROOT", None)
+                else:
+                    os.environ["AOA_DASHBOARD_STATE_ROOT"] = previous
+
+    def test_record_summaries_keep_missing_unavailable_and_empty_distinct(self) -> None:
+        with tempfile.TemporaryDirectory() as state_dir:
+            previous = os.environ.get("AOA_DASHBOARD_STATE_ROOT")
+            os.environ["AOA_DASHBOARD_STATE_ROOT"] = state_dir
+            try:
+                from aoa_dashboard.state_store import action_intent_summary, annotation_summary
+
+                for summary in (annotation_summary(), action_intent_summary()):
+                    self.assertEqual(summary["state"], "missing")
+                    self.assertEqual(summary["availability"], "missing")
+                    self.assertIsNone(summary["count"])
+
+                state_path = Path(state_dir)
+                (state_path / "annotations.jsonl").write_text("", encoding="utf-8")
+                (state_path / "action_intents.jsonl").write_text("", encoding="utf-8")
+                for summary in (annotation_summary(), action_intent_summary()):
+                    self.assertEqual(summary["state"], "bound")
+                    self.assertEqual(summary["availability"], "present")
+                    self.assertEqual(summary["count"], 0)
+
+                with patch.object(Path, "open", side_effect=PermissionError("state file denied")):
+                    for summary in (annotation_summary(), action_intent_summary()):
+                        self.assertEqual(summary["state"], "unknown")
+                        self.assertEqual(summary["availability"], "unavailable")
+                        self.assertIsNone(summary["count"])
             finally:
                 if previous is None:
                     os.environ.pop("AOA_DASHBOARD_STATE_ROOT", None)

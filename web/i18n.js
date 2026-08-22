@@ -1003,8 +1003,8 @@
   }
 
   function pluralCategory(language, count) {
-    const numeric = Number(count);
-    if (!Number.isFinite(numeric)) return "unknown";
+    if (typeof count !== "number" || !Number.isFinite(count)) return "unknown";
+    const numeric = count;
     if (numeric === 0) return "zero";
     try {
       return new Intl.PluralRules(language).select(numeric);

@@ -146,25 +146,9 @@
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
       return { state: "missing", items: [], source: null, currentness: "missing", claim_limit: null, reason: "publisher_missing" };
     }
-    const items = Array.isArray(candidate.items) ? candidate.items : [];
-    const source = candidate.source && typeof candidate.source === "object" ? candidate.source : {};
-    const refs = Array.isArray(candidate.source_refs) ? candidate.source_refs : Array.isArray(candidate.evidence_refs) ? candidate.evidence_refs : [];
-    const sourceRef = source.ref || refs.find((ref) => ref && ref.ref)?.ref || null;
-    const owner = source.owner || candidate.owner || null;
-    const currentness = source.currentness || candidate.currentness || null;
-    const claimLimit = candidate.claim_limit || source.claim_limit || null;
-    if (!sourceRef || !owner || !currentness || !claimLimit || !Array.isArray(candidate.items)) {
-      return { state: "missing", items: [], source: null, currentness: "missing", claim_limit: null, reason: "publisher_unqualified" };
-    }
-    const qualifiedSource = { ...source, ref: sourceRef, owner, currentness, claim_limit: claimLimit };
-    return {
-      state: items.length ? "bound" : "admitted-empty",
-      items,
-      source: qualifiedSource,
-      currentness,
-      claim_limit: claimLimit,
-      reason: null,
-    };
+    // No owner-published Goal catalog/schema is admitted by this source yet.
+    // A shaped candidate remains unqualified rather than creating authority.
+    return { state: "missing", items: [], source: null, currentness: "missing", claim_limit: null, reason: "publisher_unqualified" };
   }
 
   function optionalRecord(value) {
@@ -173,13 +157,15 @@
     }
     const hasCount = Number.isInteger(value.count) && value.count >= 0;
     const state = hasCount ? (value.state || "bound") : (QUALITY.includes(value.state) ? value.state : "unknown");
-    return {
+    const result = {
       state,
       count: hasCount ? value.count : null,
       latest: Array.isArray(value.latest) ? value.latest : [],
       evidence_refs: Array.isArray(value.evidence_refs) ? value.evidence_refs : [],
       claim_limit: typeof value.claim_limit === "string" ? value.claim_limit : null,
     };
+    if (["missing", "unavailable", "present"].includes(value.availability)) result.availability = value.availability;
+    return result;
   }
 
   root.AoaDashboardUiState = Object.freeze({
