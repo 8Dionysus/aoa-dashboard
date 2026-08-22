@@ -2,12 +2,138 @@
   "use strict";
 
   const STORAGE_KEY = "aoa-dashboard.language";
+  const PREFERENCES_STORAGE_KEY = "aoa-dashboard.preferences.v1";
+  const PREFERENCE_VERSION = 1;
+  const LEGACY_THEME_STORAGE_KEY = "aoa-dashboard-theme-mode";
+  const DENSITIES = new Set(["comfortable", "compact"]);
   const translations = {
     en: {
       "app.title": "aoa-dashboard · Goal Space",
       "app.eyebrow": "AOA / GOAL SPACE / OPERATOR READ MODEL",
       "app.heading": "One truthful surface for a moving Goal",
       "app.lede": "A derived view of the current Goal, its session source, owner boundaries, and what is still unknown.",
+      "a11y.skipToMain": "Skip to Goal workspace",
+      "refresh.loading": "Loading the Goal projection…",
+      "refresh.noCounts": "No counts are shown until a source response is available.",
+      "refresh.current": "Projection current at read.",
+      "refresh.stale": "Showing the last good projection; the latest refresh failed.",
+      "refresh.disconnected": "Projection disconnected; no last-good response is available.",
+      "refresh.retry": "Retrying on the next refresh.",
+      "refresh.lastGood": "last good: {{value}}",
+      "refresh.updated": "Projection refreshed.",
+      "refresh.failed": "Refresh failed: {{value}}",
+      "home.kicker": "GOAL SELECTOR",
+      "home.heading": "Choose one admitted Goal",
+      "home.claim": "This surface shows only Goals published by an admitted source. A missing catalog is not an empty catalog.",
+      "home.sourceDetails": "Availability and source limits",
+      "home.sourceLimit": "The current binding provides one selectable Goal. Goal history, multi-Goal selection, and canonical branches are not published here.",
+      "home.currentGoal": "Current Goal",
+      "home.goalUnavailable": "No Goal binding is available.",
+      "home.catalogMissing": "Goal catalog/history publisher unavailable; the one current Goal remains selectable.",
+      "home.categoryLimit": "Current, attention, paused, completed, and historical categories are unavailable without that publisher.",
+      "home.catalogReady": "Goal catalog is source-backed.",
+      "home.openWorkspace": "Open Goal workspace",
+      "home.historical": "historical",
+      "workspace.backToGoals": "Goals",
+      "workspace.breadcrumbLabel": "Goal focus path",
+      "workspace.statusLabel": "Goal status",
+      "workspace.navigationLabel": "Goal navigation",
+      "workspace.summaryLabel": "Goal summary",
+      "workspace.attentionLabel": "Current attention",
+      "workspace.kicker": "SELECTED GOAL",
+      "workspace.currentness": "currentness: {{value}}",
+      "workspace.quality": "observation quality",
+      "workspace.focus": "focus: {{value}}",
+      "workspace.noFocus": "No trajectory item selected; choose one to bind the context thread.",
+      "workspace.source": "source: {{value}}",
+      "workspace.goalId": "Goal id: {{value}}",
+      "workspace.digest": "Anchor digest: {{value}}",
+      "workspace.historyLimit": "History/catalog: {{value}}",
+      "workspace.claim": "The dashboard presents derived evidence and dashboard-owned records; it does not create Goal, branch, role, runtime, proof, or acceptance authority.",
+      "selection.stale": "The selected context ref is no longer in the latest projection; it is retained as stale.",
+      "selection.missing": "The previously selected Goal is missing from the latest projection; it is retained as missing.",
+      "selection.ref": "retained selection: {{value}}",
+      "mode.label": "Workspace mode",
+      "mode.observe": "Observe",
+      "mode.operate": "Operate",
+      "rail.goal": "GOAL",
+      "rail.withinGoal": "WITHIN THIS GOAL",
+      "rail.lensesLabel": "Goal lenses",
+      "lens.trajectory": "Trajectory",
+      "lens.trajectoryHint": "path and focus",
+      "lens.attention": "Attention",
+      "lens.attentionHint": "pressure and quality",
+      "lens.participants": "Participants",
+      "lens.participantsHint": "bounded identities",
+      "lens.evidence": "Evidence",
+      "lens.evidenceHint": "sources and refs",
+      "lens.records": "Records",
+      "lens.recordsHint": "dashboard-owned notes",
+      "lens.trajectoryHeading": "Focused trajectory",
+      "lens.trajectoryClaim": "DAG items are a derived navigation aid, not canonical branches or executable responsibilities.",
+      "lens.attentionHeading": "Attention and quality",
+      "lens.attentionClaim": "Pressure and source quality remain observations with effect:none; a critical route is not a command.",
+      "lens.participantsHeading": "Participants observed",
+      "lens.participantsClaim": "Identity and technical posture are shown only when published; missing usage is unknown, not zero.",
+      "lens.evidenceHeading": "Evidence fabric",
+      "lens.evidenceClaim": "Open bounded source metadata and claim limits without exposing private transcript bodies.",
+      "lens.recordsHeading": "Dashboard records",
+      "lens.recordsClaim": "Annotations and action intents are local records. Intents remain deferred with effect:none.",
+      "trajectory.item": "trajectory item",
+      "trajectory.selected": "selected",
+      "trajectory.select": "Select trajectory item {{value}}",
+      "trajectory.noItems": "No trajectory items are published.",
+      "trajectory.more": "Show {{count}} more trajectory items",
+      "trajectory.moreClaim": "Additional items remain bounded and can be opened without treating them as canonical branches.",
+      "trajectory.focusHelp": "Selecting an item preserves Goal, lens, path, and thread identity across refreshes.",
+      "attention.noPressure": "No admitted pressure item is available; absence is not proof that no pressure exists.",
+      "attention.quality": "quality: {{value}}",
+      "participants.bounded": "Showing {{shown}} of {{total}} observed participant cards.",
+      "participants.more": "{{count}} participant cards remain bounded until selected.",
+      "evidence.noSources": "No source publisher is available.",
+      "evidence.ownerMap": "Owner/source observations",
+      "evidence.correlation": "Correlation evidence",
+      "records.annotations": "Dashboard annotations",
+      "records.intents": "Deferred action intents",
+      "records.noSelection": "Select a Goal or trajectory item before recording a contextual note.",
+      "thread.toggle": "Context",
+      "thread.kicker": "CONTEXT THREAD",
+      "thread.heading": "Selected context",
+      "thread.unavailable": "No public thread publisher is connected.",
+      "thread.rawUnavailable": "Raw private session content is unavailable to this dashboard.",
+      "thread.noSelection": "No Goal or trajectory item is selected.",
+      "thread.selection": "bound to {{value}}",
+      "thread.metadataOnly": "Metadata-only context item",
+      "thread.returnItem": "Return observation",
+      "thread.wakeItem": "Wake observation",
+      "thread.evidenceItem": "Evidence reference",
+      "thread.annotationItem": "Dashboard annotation",
+      "thread.intentItem": "Deferred action intent",
+      "thread.claimLimit": "Thread content remains bounded by source refs and claim limits.",
+      "operate.kicker": "DASHBOARD-OWNED OPERATE",
+      "operate.heading": "Record a bounded request",
+      "operate.claim": "This dashboard records the request; the owner decides and executes it.",
+      "operate.routeMissing": "Natural owner, stop-line, or return route is missing; intent remains deferred and the control is informational.",
+      "operate.routeReady": "Owner route is present as metadata only; this dashboard still cannot execute it.",
+      "operate.effectCeiling": "effect ceiling: none",
+      "operate.target": "target: {{value}}",
+      "operate.owner": "natural owner: {{value}}",
+      "operate.stopLine": "stop-line: {{value}}",
+      "operate.returnRoute": "expected return: {{value}}",
+      "form.intentTargetRef": "Intent target ref",
+      "form.submitPending": "Recording…",
+      "form.submitSuccess": "Recorded locally.",
+      "form.submitFailed": "Record failed: {{value}}",
+      "fallback.heading": "Projection evidence",
+      "fallback.claim": "The workspace is unavailable; retained evidence and its quality remain visible below.",
+      "bounded.truncated": "bounded preview truncated",
+      "bounded.refsOmitted": "{{count}} additional reference(s) remain bounded.",
+      "bounded.envelopesOmitted": "{{count}} additional correlation envelope(s) remain bounded.",
+      "bounded.pressureOmitted": "{{count}} additional pressure item(s) remain bounded.",
+      "bounded.sourcesOmitted": "{{count}} additional source card(s) remain bounded.",
+      "bounded.ownersOmitted": "{{count}} additional owner row(s) remain bounded.",
+      "evidence.metadata": "metadata and bounded evidence",
+      "activity.technicalDetails": "technical identity, provenance and usage details",
       "language.label": "Language",
       "language.switchToRussian": "Switch to Russian",
       "language.switchToEnglish": "Switch to English",
@@ -116,6 +242,7 @@
       "fallback.dirty": "dirty",
       "fallback.actorIdentityUnknown": "actor identity unknown",
       "fallback.actorKeyUnknown": "actor key unknown",
+      "fallback.masterHolderUnknown": "Master context · holder unknown",
       "fallback.actorActivityUnavailable": "Actor activity is not available; absence is not zero.",
       "fallback.noActorEnvelope": "No actor envelope is admitted by the current task-local correlation surface; actor count remains unknown.",
       "label.generated": "generated {{value}}",
@@ -158,13 +285,17 @@
       "pressure.missingFields": "Missing structured fields: {{value}}",
       "pressure.noAdmitted": "No pressure is admitted. Absence is not proof that no pressure exists.",
       "activity.observed": "{{count}} actor(s) observed",
+      "activity.masterContext": "Master/current-holder context: {{value}}",
       "activity.wakeReturn": "Wake / return posture",
       "activity.wakeReentryAccepted": "wake: {{wake}} · re-entry: {{reentry}} · accepted turn: {{turn}}",
       "activity.identity": "Identity",
       "activity.actorId": "actor id",
       "activity.incarnation": "incarnation",
       "activity.role": "role",
+      "activity.model": "model",
+      "activity.task": "task",
       "activity.responsibility": "Responsibility",
+      "activity.assignment": "Task assignment",
       "activity.state": "state",
       "activity.holder": "holder",
       "activity.mandate": "mandate",
@@ -223,6 +354,128 @@
       "app.eyebrow": "AOA / ПРОСТРАНСТВО ЦЕЛИ / ОПЕРАТОРСКАЯ МОДЕЛЬ",
       "app.heading": "Единая достоверная поверхность для меняющейся цели",
       "app.lede": "Производное представление текущей цели, источника сессии, границ владельцев и того, что пока неизвестно.",
+      "a11y.skipToMain": "Перейти к рабочей области цели",
+      "refresh.loading": "Загрузка проекции цели…",
+      "refresh.noCounts": "Числа не показываются до ответа источника.",
+      "refresh.current": "Проекция актуальна на момент чтения.",
+      "refresh.stale": "Показана последняя хорошая проекция; последний запрос не выполнен.",
+      "refresh.disconnected": "Проекция отключена; последнего хорошего ответа нет.",
+      "refresh.retry": "Повторная попытка будет при следующем обновлении.",
+      "refresh.lastGood": "последний хороший ответ: {{value}}",
+      "refresh.updated": "Проекция обновлена.",
+      "refresh.failed": "Обновление не выполнено: {{value}}",
+      "home.kicker": "ВЫБОР ЦЕЛИ",
+      "home.heading": "Выберите одну допущенную цель",
+      "home.claim": "Здесь показаны только цели, опубликованные допущенным источником. Отсутствующий каталог не является пустым каталогом.",
+      "home.sourceDetails": "Доступность и пределы источника",
+      "home.sourceLimit": "Текущая привязка предоставляет одну выбираемую цель. История целей, выбор нескольких целей и канонические ветви здесь не публикуются.",
+      "home.currentGoal": "Текущая цель",
+      "home.goalUnavailable": "Привязка цели недоступна.",
+      "home.catalogMissing": "Издатель каталога/истории целей недоступен; одна текущая цель остаётся выбираемой.",
+      "home.categoryLimit": "Категории current, attention, paused, completed и historical недоступны без этого издателя.",
+      "home.catalogReady": "Каталог целей подтверждён источником.",
+      "home.openWorkspace": "Открыть рабочую область цели",
+      "home.historical": "историческая",
+      "workspace.backToGoals": "Цели",
+      "workspace.breadcrumbLabel": "Путь фокуса цели",
+      "workspace.statusLabel": "Состояние цели",
+      "workspace.navigationLabel": "Навигация цели",
+      "workspace.summaryLabel": "Сводка цели",
+      "workspace.attentionLabel": "Текущее внимание",
+      "workspace.kicker": "ВЫБРАННАЯ ЦЕЛЬ",
+      "workspace.currentness": "текущесть: {{value}}",
+      "workspace.quality": "качество наблюдения",
+      "workspace.focus": "фокус: {{value}}",
+      "workspace.noFocus": "Элемент траектории не выбран; выберите его, чтобы привязать контекстный поток.",
+      "workspace.source": "источник: {{value}}",
+      "workspace.goalId": "Идентификатор цели: {{value}}",
+      "workspace.digest": "Дайджест якоря: {{value}}",
+      "workspace.historyLimit": "История/каталог: {{value}}",
+      "workspace.claim": "Панель показывает производные свидетельства и собственные записи; она не создаёт полномочий цели, ветви, роли, runtime, доказательства или принятия.",
+      "selection.stale": "Выбранная ссылка контекста отсутствует в последней проекции; она сохранена как stale.",
+      "selection.missing": "Ранее выбранная цель отсутствует в последней проекции; она сохранена как missing.",
+      "selection.ref": "сохранённый выбор: {{value}}",
+      "mode.label": "Режим рабочей области",
+      "mode.observe": "Наблюдать",
+      "mode.operate": "Оперировать",
+      "rail.goal": "ЦЕЛЬ",
+      "rail.withinGoal": "ВНУТРИ ЭТОЙ ЦЕЛИ",
+      "rail.lensesLabel": "Линзы цели",
+      "lens.trajectory": "Траектория",
+      "lens.trajectoryHint": "путь и фокус",
+      "lens.attention": "Внимание",
+      "lens.attentionHint": "давление и качество",
+      "lens.participants": "Участники",
+      "lens.participantsHint": "ограниченные идентичности",
+      "lens.evidence": "Свидетельства",
+      "lens.evidenceHint": "источники и ссылки",
+      "lens.records": "Записи",
+      "lens.recordsHint": "локальные заметки панели",
+      "lens.trajectoryHeading": "Сфокусированная траектория",
+      "lens.trajectoryClaim": "Элементы DAG — производная навигация, а не канонические ветви или исполняемые обязанности.",
+      "lens.attentionHeading": "Внимание и качество",
+      "lens.attentionClaim": "Давление и качество источника остаются наблюдениями effect:none; критический маршрут не является командой.",
+      "lens.participantsHeading": "Наблюдаемые участники",
+      "lens.participantsClaim": "Идентичность и техническая позиция показываются только при наличии издателя; отсутствие usage — неизвестность, не ноль.",
+      "lens.evidenceHeading": "Слой свидетельств",
+      "lens.evidenceClaim": "Открывайте ограниченные метаданные источников и пределы утверждений без раскрытия приватных тел транскриптов.",
+      "lens.recordsHeading": "Записи панели",
+      "lens.recordsClaim": "Аннотации и намерения — локальные записи. Намерения остаются deferred с effect:none.",
+      "trajectory.item": "элемент траектории",
+      "trajectory.selected": "выбран",
+      "trajectory.select": "Выбрать элемент траектории {{value}}",
+      "trajectory.noItems": "Элементы траектории не опубликованы.",
+      "trajectory.more": "Показать ещё элементов траектории: {{count}}",
+      "trajectory.moreClaim": "Остальные элементы остаются ограниченными и могут быть открыты без представления их каноническими ветвями.",
+      "trajectory.focusHelp": "Выбор элемента сохраняет цель, линзу, путь и идентичность потока между обновлениями.",
+      "attention.noPressure": "Допущенное давление отсутствует; отсутствие не доказывает отсутствия давления.",
+      "attention.quality": "качество: {{value}}",
+      "participants.bounded": "Показано карточек участников: {{shown}} из {{total}}.",
+      "participants.more": "Ограничено карточек участников: {{count}}; выберите элемент для открытия.",
+      "evidence.noSources": "Издатель источников недоступен.",
+      "evidence.ownerMap": "Наблюдения владельцев/источников",
+      "evidence.correlation": "Свидетельства корреляции",
+      "records.annotations": "Аннотации панели",
+      "records.intents": "Отложенные намерения действий",
+      "records.noSelection": "Выберите цель или элемент траектории перед записью контекстной заметки.",
+      "thread.toggle": "Контекст",
+      "thread.kicker": "КОНТЕКСТНЫЙ ПОТОК",
+      "thread.heading": "Выбранный контекст",
+      "thread.unavailable": "Публичный издатель потока не подключён.",
+      "thread.rawUnavailable": "Приватное тело сессии недоступно этой панели.",
+      "thread.noSelection": "Цель или элемент траектории не выбран.",
+      "thread.selection": "привязан к {{value}}",
+      "thread.metadataOnly": "Контекстный элемент только с метаданными",
+      "thread.returnItem": "Наблюдение возврата",
+      "thread.wakeItem": "Наблюдение wake",
+      "thread.evidenceItem": "Ссылка на свидетельство",
+      "thread.annotationItem": "Аннотация панели",
+      "thread.intentItem": "Отложенное намерение действия",
+      "thread.claimLimit": "Содержимое потока ограничено ссылками источников и пределами утверждений.",
+      "operate.kicker": "ОПЕРАЦИИ ВЛАДЕЛЬЦА ПАНЕЛИ",
+      "operate.heading": "Записать ограниченный запрос",
+      "operate.claim": "Панель записывает запрос; владелец принимает решение и исполняет его.",
+      "operate.routeMissing": "Естественный владелец, stop-line или маршрут возврата отсутствует; намерение остаётся deferred и имеет только информационный смысл.",
+      "operate.routeReady": "Маршрут владельца присутствует только как метаданные; панель всё равно не может его исполнить.",
+      "operate.effectCeiling": "предел эффекта: none",
+      "operate.target": "цель: {{value}}",
+      "operate.owner": "естественный владелец: {{value}}",
+      "operate.stopLine": "stop-line: {{value}}",
+      "operate.returnRoute": "ожидаемый возврат: {{value}}",
+      "form.intentTargetRef": "Ссылка цели намерения",
+      "form.submitPending": "Запись…",
+      "form.submitSuccess": "Записано локально.",
+      "form.submitFailed": "Запись не выполнена: {{value}}",
+      "fallback.heading": "Свидетельства проекции",
+      "fallback.claim": "Рабочая область недоступна; сохранённые свидетельства и их качество остаются видимыми ниже.",
+      "bounded.truncated": "ограниченный просмотр усечён",
+      "bounded.refsOmitted": "Дополнительных ссылок ограничено: {{count}}.",
+      "bounded.envelopesOmitted": "Дополнительных envelope корреляции ограничено: {{count}}.",
+      "bounded.pressureOmitted": "Дополнительных элементов давления ограничено: {{count}}.",
+      "bounded.sourcesOmitted": "Дополнительных карточек источников ограничено: {{count}}.",
+      "bounded.ownersOmitted": "Дополнительных строк владельцев ограничено: {{count}}.",
+      "evidence.metadata": "метаданные и ограниченные свидетельства",
+      "activity.technicalDetails": "техническая идентичность, происхождение и usage",
       "language.label": "Язык",
       "language.switchToRussian": "Переключить на русский",
       "language.switchToEnglish": "Переключить на английский",
@@ -331,6 +584,7 @@
       "fallback.dirty": "изменено",
       "fallback.actorIdentityUnknown": "идентичность actor неизвестна",
       "fallback.actorKeyUnknown": "ключ actor неизвестен",
+      "fallback.masterHolderUnknown": "Контекст master · держатель неизвестен",
       "fallback.actorActivityUnavailable": "Активность actor недоступна; отсутствие не равно нулю.",
       "fallback.noActorEnvelope": "Текущая task-local поверхность корреляции не допускает envelope actor; число actor остаётся неизвестным.",
       "label.generated": "сформировано {{value}}",
@@ -373,13 +627,17 @@
       "pressure.missingFields": "Отсутствующие структурированные поля: {{value}}",
       "pressure.noAdmitted": "Давление не допущено. Отсутствие не доказывает отсутствия давления.",
       "activity.observed": "Наблюдается actor: {{count}}",
+      "activity.masterContext": "Контекст master/current-holder: {{value}}",
       "activity.wakeReturn": "Позиция wake / возврата",
       "activity.wakeReentryAccepted": "wake: {{wake}} · повторный вход: {{reentry}} · принятый turn: {{turn}}",
       "activity.identity": "Идентичность",
       "activity.actorId": "id actor",
       "activity.incarnation": "incarnation",
       "activity.role": "роль",
+      "activity.model": "model",
+      "activity.task": "задача",
       "activity.responsibility": "Ответственность",
+      "activity.assignment": "Назначение задачи",
       "activity.state": "состояние",
       "activity.holder": "держатель",
       "activity.mandate": "мандат",
@@ -444,6 +702,57 @@
     return null;
   }
 
+  function normalizeTheme(value) {
+    return ["system", "light", "dark"].includes(value) ? value : null;
+  }
+
+  function safeStorage(store) {
+    return store && typeof store.getItem === "function" && typeof store.setItem === "function" ? store : null;
+  }
+
+  function readPresentationPreferences(store) {
+    const storage = safeStorage(store);
+    const preferences = { version: PREFERENCE_VERSION, language: null, theme: "system", density: "comfortable" };
+    if (!storage) return preferences;
+    try {
+      const raw = storage.getItem(PREFERENCES_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === "object" && parsed.version === PREFERENCE_VERSION) {
+        preferences.language = normalizeLanguage(parsed.language);
+        preferences.theme = normalizeTheme(parsed.theme) || "system";
+        preferences.density = DENSITIES.has(parsed.density) ? parsed.density : "comfortable";
+        return preferences;
+      }
+    } catch (_error) {
+      // Malformed or private storage falls back to a bounded presentation record.
+    }
+    try {
+      preferences.language = normalizeLanguage(storage.getItem(STORAGE_KEY));
+      preferences.theme = normalizeTheme(storage.getItem(LEGACY_THEME_STORAGE_KEY)) || "system";
+    } catch (_error) {
+      // Legacy storage is optional and never blocks rendering.
+    }
+    return preferences;
+  }
+
+  function writePresentationPreferences(store, updates = {}) {
+    const storage = safeStorage(store);
+    const current = readPresentationPreferences(storage);
+    const next = {
+      version: PREFERENCE_VERSION,
+      language: normalizeLanguage(updates.language) || current.language || "en",
+      theme: normalizeTheme(updates.theme) || current.theme || "system",
+      density: DENSITIES.has(updates.density) ? updates.density : current.density,
+    };
+    if (!storage) return next;
+    try {
+      storage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(next));
+    } catch (_error) {
+      // Storage is a convenience, never presentation authority.
+    }
+    return next;
+  }
+
   function interpolate(value, variables) {
     return value.replace(/\{\{(\w+)\}\}/g, (_match, key) => (
       hasOwn(variables, key) ? String(variables[key]) : ""
@@ -461,25 +770,16 @@
     }
     const storage = hasOwn(options, "storage") ? options.storage : browserStorage;
     const locale = options.locale || root.navigator?.language || root.navigator?.languages?.[0] || "en";
-    let language = normalizeLanguage(readStored(storage)) || normalizeLanguage(locale) || "en";
+    const preferences = readPresentationPreferences(storage);
+    let language = preferences.language || normalizeLanguage(locale) || "en";
     const listeners = new Set();
 
-    function readStored(store) {
-      if (!store || typeof store.getItem !== "function") return null;
-      try {
-        return store.getItem(STORAGE_KEY);
-      } catch (_error) {
-        return null;
-      }
-    }
-
     function writeStored(value) {
+      writePresentationPreferences(storage, { language: value });
+      // Keep the legacy key readable for older embedded shells while the v1
+      // record remains the only source for new preference fields.
       if (!storage || typeof storage.setItem !== "function") return;
-      try {
-        storage.setItem(STORAGE_KEY, value);
-      } catch (_error) {
-        // A storage failure must not prevent the presentation layer from switching.
-      }
+      try { storage.setItem(STORAGE_KEY, value); } catch (_error) { /* optional */ }
     }
 
     function lookup(key) {
@@ -524,8 +824,14 @@
 
   root.AoaDashboardI18n = {
     STORAGE_KEY,
+    PREFERENCES_STORAGE_KEY,
+    PREFERENCE_VERSION,
+    DENSITIES: Array.from(DENSITIES),
     dictionaries: translations,
     normalizeLanguage,
+    normalizeTheme,
+    readPresentationPreferences,
+    writePresentationPreferences,
     createI18n
   };
 })(typeof window === "undefined" ? globalThis : window);

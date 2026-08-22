@@ -3,12 +3,29 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      /* Resolve the persisted presentation mode before the stylesheet paints. */
+      (function () {
+        try {
+          var record = JSON.parse(localStorage.getItem("aoa-dashboard.preferences.v1") || "null");
+          var legacy = localStorage.getItem("aoa-dashboard-theme-mode");
+          var mode = record && ["system", "light", "dark"].indexOf(record.theme) >= 0 ? record.theme : legacy;
+          var dark = mode === "dark" || (mode !== "light" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.themeMode = ["system", "light", "dark"].indexOf(mode) >= 0 ? mode : "system";
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+        } catch (_error) {
+          document.documentElement.dataset.themeMode = "system";
+          document.documentElement.dataset.theme = "light";
+        }
+      }());
+    </script>
     <title data-i18n="app.title">aoa-dashboard · Goal Space</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header class="shell masthead">
-      <div>
+    <a class="skip-link" href="#main-content" data-i18n="a11y.skipToMain">Skip to Goal workspace</a>
+    <header class="shell masthead" role="banner">
+      <div class="masthead-title">
         <p class="eyebrow" data-i18n="app.eyebrow">AOA / GOAL SPACE / OPERATOR READ MODEL</p>
         <h1 data-i18n="app.heading">One truthful surface for a moving Goal</h1>
         <p class="lede" data-i18n="app.lede">A derived view of the current Goal, its session source, owner boundaries, and what is still unknown.</p>
@@ -24,139 +41,121 @@
       </div>
     </header>
 
-    <main class="shell">
-      <section id="alert" class="alert hidden" role="status"></section>
-
-      <section class="hero-grid">
-        <article class="panel goal-card">
-          <div class="section-kicker" data-i18n="section.currentGoal">CURRENT GOAL</div>
-          <h2 id="goal-title" data-i18n="goal.loadingAnchor">Loading Goal Anchor…</h2>
-          <p id="goal-id" class="mono muted"></p>
-          <div class="goal-digest">
-            <span data-i18n="goal.anchorDigest">Anchor digest</span>
-            <code id="goal-digest">—</code>
-          </div>
-          <p id="goal-limit" class="claim"></p>
-        </article>
-        <article class="panel posture-card">
-          <div class="section-kicker" data-i18n="section.posture">POSTURE</div>
-          <div class="posture-line"><span data-i18n="posture.readModel">read model</span><strong data-i18n="posture.derived">derived</strong></div>
-          <div class="posture-line"><span data-i18n="posture.actionExecution">action execution</span><strong data-i18n="posture.disabled">disabled</strong></div>
-          <div class="posture-line"><span data-i18n="posture.freshness">freshness</span><strong data-i18n="posture.perSource">per source</strong></div>
-          <div class="posture-line"><span data-i18n="posture.unknown">unknown</span><strong data-i18n="posture.notZero">is not zero</strong></div>
-          <p class="claim" data-i18n="posture.claim">The cards below preserve source authority and claim limits. A green-looking local check is not a live verdict.</p>
-        </article>
+    <main id="main-content" class="shell" tabindex="-1">
+      <section id="alert" class="alert hidden" role="alert" aria-live="assertive"></section>
+      <section id="refresh-status" class="quality-banner state-loading" role="status" aria-live="polite">
+        <strong data-i18n="refresh.loading">Loading the Goal projection…</strong>
+        <span data-i18n="refresh.noCounts">No counts are shown until a source response is available.</span>
       </section>
+      <div id="live-region" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-      <section class="panel">
-        <div class="section-heading">
+      <section id="home-view" class="home-view" aria-labelledby="home-heading">
+        <div class="home-intro">
           <div>
-            <div class="section-kicker" data-i18n="section.statusVocabulary">STATUS VOCABULARY</div>
-            <h2 data-i18n="statusVocabulary.heading">Every state stays separate</h2>
+            <div class="section-kicker" data-i18n="home.kicker">GOAL SELECTOR</div>
+            <h2 id="home-heading" data-i18n="home.heading">Choose one admitted Goal</h2>
+            <p class="claim" data-i18n="home.claim">This surface shows only Goals published by an admitted source. A missing catalog is not an empty catalog.</p>
           </div>
-          <p class="claim" data-i18n="statusVocabulary.claim">Lifecycle and observation quality are distinct dimensions.</p>
+          <details class="source-disclosure">
+            <summary data-i18n="home.sourceDetails">Availability and source limits</summary>
+            <p data-i18n="home.sourceLimit">The current binding provides one selectable Goal. Goal history, multi-Goal selection, and canonical branches are not published here.</p>
+          </details>
         </div>
-        <div id="inventory" class="inventory"></div>
+        <div id="goal-selector" class="goal-selector" aria-live="polite"></div>
+        <div id="catalog-state" class="empty-state"></div>
       </section>
 
-      <section class="two-col">
-        <article class="panel">
-          <div class="section-kicker" data-i18n="section.goalLifecycle">GOAL LIFECYCLE</div>
-          <h2 data-i18n="goalLifecycle.heading">From plan to re-entry</h2>
-          <div id="lifecycle" class="timeline"></div>
-        </article>
-        <article class="panel">
-          <div class="section-kicker" data-i18n="section.openDag">OPEN DAG</div>
-          <h2 data-i18n="openDag.heading">What advanced, what did not</h2>
-          <div id="dag" class="dag-list"></div>
-        </article>
-      </section>
-
-      <section class="panel">
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker" data-i18n="section.currentCorrelation">CURRENT CORRELATION</div>
-            <h2 data-i18n="currentCorrelation.heading">Goal → Luna returns → wake admission → master filter → re-entry</h2>
+      <section id="workspace-view" class="workspace-view hidden" aria-labelledby="workspace-heading">
+        <header class="workspace-bar">
+          <div class="workspace-orientation">
+            <button id="home-button" type="button" class="quiet-button" data-i18n="workspace.backToGoals">Goals</button>
+            <nav id="breadcrumb" class="breadcrumb" aria-label="Goal focus path" data-i18n-aria-label="workspace.breadcrumbLabel"></nav>
           </div>
-          <p class="claim" data-i18n="currentCorrelation.claim">Transport delivery and filtered re-entry are shown with their limits; neither is acceptance or semantic continuation.</p>
-        </div>
-        <div id="correlation" class="correlation-list"></div>
-      </section>
-
-      <section class="panel">
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker" data-i18n="section.pressureInbox">P∞ / PRESSURE INBOX</div>
-            <h2 data-i18n="pressureInbox.heading">Pressure becomes a bounded route</h2>
+          <div class="workspace-controls">
+            <div class="workspace-status" aria-label="Goal status" data-i18n-aria-label="workspace.statusLabel">
+              <span id="workspace-lifecycle" class="badge state-unknown">unknown</span>
+              <span id="workspace-quality" class="badge state-unknown">unknown</span>
+            </div>
+            <div class="mode-switch" role="group" aria-label="Workspace mode" data-i18n-aria-label="mode.label">
+              <button type="button" class="mode-button active" data-mode="observe" data-i18n="mode.observe" aria-pressed="true">Observe</button>
+              <button type="button" class="mode-button" data-mode="operate" data-i18n="mode.operate" aria-pressed="false">Operate</button>
+            </div>
+            <button id="thread-toggle" type="button" class="secondary thread-toggle" data-i18n="thread.toggle" aria-expanded="true" aria-controls="context-thread">Context</button>
           </div>
-          <p class="claim" data-i18n="pressureInbox.claim">Critical next-routes are displayed as effect:none observations. This dashboard does not wake, branch, approve, or execute them.</p>
+        </header>
+
+        <div class="workspace-grid">
+          <aside class="workspace-rail" aria-label="Goal navigation" data-i18n-aria-label="workspace.navigationLabel">
+            <div class="rail-block">
+              <div class="section-kicker" data-i18n="rail.goal">GOAL</div>
+              <button id="workspace-goal-button" type="button" class="goal-rail-button"></button>
+              <span id="workspace-goal-id" class="mono muted"></span>
+            </div>
+            <nav class="lens-nav" aria-label="Goal lenses" data-i18n-aria-label="rail.lensesLabel">
+              <div class="section-kicker" data-i18n="rail.withinGoal">WITHIN THIS GOAL</div>
+              <button type="button" class="lens-button active" data-lens="trajectory" aria-current="page"><span data-i18n="lens.trajectory">Trajectory</span><span class="lens-hint" data-i18n="lens.trajectoryHint">path and focus</span></button>
+              <button type="button" class="lens-button" data-lens="attention"><span data-i18n="lens.attention">Attention</span><span class="lens-hint" data-i18n="lens.attentionHint">pressure and quality</span></button>
+              <button type="button" class="lens-button" data-lens="participants"><span data-i18n="lens.participants">Participants</span><span class="lens-hint" data-i18n="lens.participantsHint">bounded identities</span></button>
+              <button type="button" class="lens-button" data-lens="evidence"><span data-i18n="lens.evidence">Evidence</span><span class="lens-hint" data-i18n="lens.evidenceHint">sources and refs</span></button>
+              <button type="button" class="lens-button" data-lens="records"><span data-i18n="lens.records">Records</span><span class="lens-hint" data-i18n="lens.recordsHint">dashboard-owned notes</span></button>
+            </nav>
+            <div id="rail-quality" class="rail-quality"></div>
+          </aside>
+
+          <section id="center-surface" class="workspace-center" aria-labelledby="workspace-heading" tabindex="-1">
+            <div class="workspace-heading-row">
+              <div>
+                <div class="section-kicker" data-i18n="workspace.kicker">SELECTED GOAL</div>
+                <h2 id="workspace-heading">Goal workspace</h2>
+              </div>
+              <span id="workspace-generated" class="mono muted"></span>
+            </div>
+            <section id="goal-summary" class="goal-summary" aria-label="Goal summary" data-i18n-aria-label="workspace.summaryLabel"></section>
+            <section id="attention-strip" class="attention-strip" aria-label="Current attention" data-i18n-aria-label="workspace.attentionLabel"></section>
+            <section id="lens-surface" class="lens-surface" aria-live="polite"></section>
+          </section>
+
+          <aside id="context-thread" class="workspace-thread" aria-labelledby="thread-heading">
+            <div class="thread-heading-row">
+              <div>
+                <div class="section-kicker" data-i18n="thread.kicker">CONTEXT THREAD</div>
+                <h2 id="thread-heading" data-i18n="thread.heading">Selected context</h2>
+              </div>
+              <span id="thread-quality" class="badge state-missing">missing</span>
+            </div>
+            <p id="thread-selection" class="mono muted"></p>
+            <div id="thread-items" class="thread-items"></div>
+            <section id="operate-panel" class="operate-panel hidden" aria-labelledby="operate-heading">
+              <div class="section-kicker" data-i18n="operate.kicker">DASHBOARD-OWNED OPERATE</div>
+              <h3 id="operate-heading" data-i18n="operate.heading">Record a bounded request</h3>
+              <p class="claim"><span data-i18n="operate.claim">This dashboard records the request; the owner decides and executes it.</span> Stored as <code>deferred</code> with <code>effect: none</code>.</p>
+              <div id="operate-route-card" class="operate-route-card"></div>
+              <form id="annotation-form">
+                <label><span data-i18n="form.authorRef">Author ref</span><input name="author_ref" value="operator:local" /></label>
+                <label><span data-i18n="form.targetRef">Target ref</span><input name="target_ref" value="goal:aoa-dashboard-goal-01a00722-20260815" /></label>
+                <label><span data-i18n="form.note">Note</span><textarea name="body" required placeholder="Record an observation, not an owner verdict." data-i18n-placeholder="form.notePlaceholder"></textarea></label>
+                <button type="submit" data-i18n="form.recordAnnotation">Record annotation</button>
+                <span class="form-status" data-form-status="annotation" role="status"></span>
+              </form>
+              <div id="annotation-summary" class="record-summary"></div>
+              <form id="intent-form">
+                <label><span data-i18n="form.requestedBy">Requested by</span><input name="requested_by" value="operator:local" /></label>
+                <label><span data-i18n="form.intentTargetRef">Intent target ref</span><input name="target_ref" value="goal:aoa-dashboard-goal-01a00722-20260815" /></label>
+                <label><span data-i18n="form.ownerRoute">Natural owner route</span><input name="owner_route" placeholder="owner:aoa-agents/..." data-i18n-placeholder="form.ownerRoutePlaceholder" required /></label>
+                <label><span data-i18n="form.request">Request</span><textarea name="summary" required placeholder="Describe the requested owner action and why." data-i18n-placeholder="form.requestPlaceholder"></textarea></label>
+                <button type="submit" class="secondary" data-i18n="form.recordIntent">Record deferred intent</button>
+                <span class="form-status" data-form-status="intent" role="status"></span>
+              </form>
+              <div id="intent-summary" class="record-summary"></div>
+            </section>
+          </aside>
         </div>
-        <div id="pressure-summary" class="pressure-summary"></div>
-        <div id="pressure-inbox" class="pressure-list"></div>
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker" data-i18n="section.liveActivity">LIVE ACTIVITY / EXTERNAL ACTORS</div>
-            <h2 data-i18n="liveActivity.heading">One bounded card per task-local actor</h2>
-          </div>
-          <p class="claim" data-i18n="liveActivity.claim">Identity, responsibility, process/session/terminal posture, wake/return, usage, provenance, and unknowns stay separate. This is observation, not runtime health.</p>
-        </div>
-        <div id="actor-activity" class="actor-activity"></div>
       </section>
 
-      <section class="panel">
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker" data-i18n="section.sourceProvenance">SOURCE / PROVENANCE</div>
-            <h2 data-i18n="sourceProvenance.heading">Read the evidence boundary</h2>
-          </div>
-          <p class="claim" data-i18n="sourceProvenance.claim">Metadata only where raw bodies could be private or semantically stronger than this organ.</p>
-        </div>
-        <div id="sources" class="source-grid"></div>
-      </section>
-
-      <section class="panel">
-        <div class="section-kicker" data-i18n="section.ownerMap">OWNER MAP</div>
-        <h2 data-i18n="ownerMap.heading">Presence is not acceptance</h2>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th data-i18n="table.owner">Owner</th><th data-i18n="table.authority">Authority</th><th data-i18n="table.source">Source</th><th data-i18n="table.observedBinding">Observed binding</th><th data-i18n="table.kag">KAG</th></tr></thead>
-            <tbody id="owners"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="two-col action-area">
-        <article class="panel">
-          <div class="section-kicker" data-i18n="section.annotations">ANNOTATIONS</div>
-          <h2 data-i18n="annotations.heading">Operator notes</h2>
-          <p class="claim" data-i18n="annotations.claim">Annotations belong to this dashboard and do not amend an owner record.</p>
-          <form id="annotation-form">
-            <label><span data-i18n="form.authorRef">Author ref</span><input name="author_ref" value="operator:local" /></label>
-            <label><span data-i18n="form.targetRef">Target ref</span><input name="target_ref" value="goal:aoa-dashboard-goal-01a00722-20260815" /></label>
-            <label><span data-i18n="form.note">Note</span><textarea name="body" required placeholder="Record an observation, not an owner verdict." data-i18n-placeholder="form.notePlaceholder"></textarea></label>
-            <button type="submit" data-i18n="form.recordAnnotation">Record annotation</button>
-          </form>
-          <div id="annotation-summary" class="record-summary"></div>
-        </article>
-        <article class="panel">
-          <div class="section-kicker" data-i18n="section.actionIntents">ACTION INTENTS</div>
-          <h2 data-i18n="actionIntents.heading">Route a request without executing it</h2>
-          <p class="claim"><span data-i18n="actionIntents.prefix">The intent is stored as</span> <code>deferred</code> <span data-i18n="actionIntents.middle">with</span> <code>effect: none</code><span data-i18n="actionIntents.suffix">. An owner must decide and execute it.</span></p>
-          <form id="intent-form">
-            <label><span data-i18n="form.requestedBy">Requested by</span><input name="requested_by" value="operator:local" /></label>
-            <label><span data-i18n="form.targetRef">Target ref</span><input name="target_ref" value="goal:aoa-dashboard-goal-01a00722-20260815" /></label>
-            <label><span data-i18n="form.ownerRoute">Owner route</span><input name="owner_route" placeholder="owner:aoa-agents/..." data-i18n-placeholder="form.ownerRoutePlaceholder" required /></label>
-            <label><span data-i18n="form.request">Request</span><textarea name="summary" required placeholder="Describe the requested owner action and why." data-i18n-placeholder="form.requestPlaceholder"></textarea></label>
-            <button type="submit" class="secondary" data-i18n="form.recordIntent">Record deferred intent</button>
-          </form>
-          <div id="intent-summary" class="record-summary"></div>
-        </article>
-      </section>
-
-      <section class="panel limits">
-        <div class="section-kicker" data-i18n="section.claimLimits">CLAIM LIMITS</div>
-        <h2 data-i18n="claimLimits.heading">What this dashboard refuses to claim</h2>
-        <ul id="limits"></ul>
+      <section id="fallback-evidence" class="panel hidden" aria-labelledby="fallback-heading">
+        <h2 id="fallback-heading" data-i18n="fallback.heading">Projection evidence</h2>
+        <p data-i18n="fallback.claim">The workspace is unavailable; retained evidence and its quality remain visible below.</p>
+        <div id="fallback-content"><div id="actor-activity" class="actor-activity visually-hidden" aria-hidden="true"></div></div>
       </section>
     </main>
     <footer class="shell footer"><span data-i18n="footer.version">aoa-dashboard v0.1 · host-local dogfood</span><span id="refresh-note" data-i18n="footer.refreshing">refreshing every 5s</span></footer>

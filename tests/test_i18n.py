@@ -90,6 +90,37 @@ process.stdout.write(JSON.stringify({ russian: russian.language, english: englis
         )
         self.assertEqual(json.loads(result.stdout), {"russian": "ru", "english": "en", "fallback": "en"})
 
+    def test_versioned_presentation_preferences_migrate_legacy_keys_and_bound_fields(self) -> None:
+        script = """
+const fs = require("fs");
+const vm = require("vm");
+const context = { globalThis: null };
+context.globalThis = context;
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+const storage = new Map([
+  ["aoa-dashboard.language", "ru-RU"],
+  ["aoa-dashboard-theme-mode", "dark"],
+]);
+const store = {
+  getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+  setItem(key, value) { storage.set(key, String(value)); },
+};
+const migrated = context.AoaDashboardI18n.readPresentationPreferences(store);
+const written = context.AoaDashboardI18n.writePresentationPreferences(store, { language: "en", theme: "light", density: "compact", owner: "ignored" });
+const restarted = context.AoaDashboardI18n.readPresentationPreferences(store);
+storage.set("aoa-dashboard.preferences.v1", JSON.stringify({ version: 1, language: "fr", theme: "neon", density: "wide", owner: "ignored" }));
+const invalid = context.AoaDashboardI18n.readPresentationPreferences(store);
+process.stdout.write(JSON.stringify({ migrated, written, restarted, invalid, raw: JSON.parse(storage.get("aoa-dashboard.preferences.v1")) }));
+"""
+        result = subprocess.run(["node", "-e", script], cwd=ROOT, check=True, capture_output=True, text=True)
+        observed = json.loads(result.stdout)
+        self.assertEqual(observed["migrated"], {"version": 1, "language": "ru", "theme": "dark", "density": "comfortable"})
+        self.assertEqual(observed["written"], {"version": 1, "language": "en", "theme": "light", "density": "compact"})
+        self.assertEqual(observed["restarted"], observed["written"])
+        self.assertEqual(observed["invalid"], {"version": 1, "language": None, "theme": "system", "density": "comfortable"})
+        self.assertEqual(set(observed["raw"]), {"version", "language", "theme", "density", "owner"})
+        self.assertEqual(observed["raw"]["owner"], "ignored")
+
     def test_all_declared_html_and_app_translation_keys_exist(self) -> None:
         keys = set(dictionary_snapshot()["en"])
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
@@ -110,6 +141,38 @@ process.stdout.write(JSON.stringify({ russian: russian.language, english: englis
         self.assertIn("renderProjection(currentProjection)", javascript)
         self.assertIn("document.documentElement.lang = i18n.language", javascript)
         self.assertIn("AoaDashboardTheme.setLabels", javascript)
+
+    def test_goal_workspace_selection_and_bounded_rendering_contract_is_wired(self) -> None:
+        javascript = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        for marker in (
+            "SelectionContext",
+            "goal_ref",
+            "focus_ref",
+            "branch_path",
+            "thread_ref",
+            "observation_cursor_or_generation",
+            "MAX_CORRELATION_ENVELOPES",
+            "MAX_ACTOR_CARDS",
+            "lastGoodProjection",
+            'refreshState = "stale"',
+            "thread.rawUnavailable",
+            "effectCeiling",
+        ):
+            self.assertIn(marker, javascript)
+        for marker in (
+            'id="home-view"',
+            'id="workspace-view"',
+            'data-lens="trajectory"',
+            'data-lens="attention"',
+            'data-lens="participants"',
+            'data-lens="evidence"',
+            'data-lens="records"',
+            'id="context-thread"',
+            'id="operate-panel"',
+            'aria-live="polite"',
+        ):
+            self.assertIn(marker, html)
 
     def test_native_presentation_bridge_publishes_startup_and_live_changes(self) -> None:
         script = """

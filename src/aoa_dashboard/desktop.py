@@ -350,6 +350,8 @@ if GTK_AVAILABLE:
             window = Adw.ApplicationWindow(application=self)
             window.set_title(native_text(self.language, "title"))
             window.set_default_size(1280, 900)
+            if hasattr(window, "set_size_request"):
+                window.set_size_request(800, 600)
 
             toolbar = Adw.ToolbarView()
             header = Adw.HeaderBar()
@@ -412,7 +414,7 @@ if GTK_AVAILABLE:
 
         def _apply_color_scheme(self, theme: PresentationTheme) -> None:
             scheme = {
-                "system": Adw.ColorScheme.PREFER_LIGHT,
+                "system": getattr(Adw.ColorScheme, "DEFAULT", Adw.ColorScheme.PREFER_LIGHT),
                 "light": Adw.ColorScheme.FORCE_LIGHT,
                 "dark": Adw.ColorScheme.FORCE_DARK,
             }[theme]

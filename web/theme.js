@@ -8,7 +8,9 @@
 
   var root = document.documentElement;
   var storageKey = "aoa-dashboard-theme-mode";
+  var preferenceStorageKey = "aoa-dashboard.preferences.v1";
   var modes = ["system", "light", "dark"];
+  var densities = ["comfortable", "compact"];
   var labels = {
     label: "Theme",
     ariaLabel: "Color theme",
@@ -17,6 +19,7 @@
     dark: "Dark"
   };
   var currentMode = "system";
+  var currentDensity = "comfortable";
   var mediaQuery = null;
   var control = null;
   var listeners = [];
@@ -27,10 +30,29 @@
 
   function readStoredMode() {
     try {
+      var preferences = global.AoaDashboardI18n && global.AoaDashboardI18n.readPresentationPreferences
+        ? global.AoaDashboardI18n.readPresentationPreferences(global.localStorage)
+        : null;
+      if (preferences && isMode(preferences.theme)) return preferences.theme;
+    } catch (error) {
+      // Fall through to the legacy key and safe defaults.
+    }
+    try {
       var stored = global.localStorage.getItem(storageKey);
       return isMode(stored) ? stored : "system";
     } catch (error) {
       return "system";
+    }
+  }
+
+  function readStoredDensity() {
+    try {
+      var preferences = global.AoaDashboardI18n && global.AoaDashboardI18n.readPresentationPreferences
+        ? global.AoaDashboardI18n.readPresentationPreferences(global.localStorage)
+        : null;
+      return preferences && densities.indexOf(preferences.density) !== -1 ? preferences.density : "comfortable";
+    } catch (error) {
+      return "comfortable";
     }
   }
 
@@ -51,9 +73,26 @@
 
   function persistMode(mode) {
     try {
+      if (global.AoaDashboardI18n && global.AoaDashboardI18n.writePresentationPreferences) {
+        global.AoaDashboardI18n.writePresentationPreferences(global.localStorage, { theme: mode, density: currentDensity });
+      }
+    } catch (error) {
+      // The legacy key below is also best-effort.
+    }
+    try {
       global.localStorage.setItem(storageKey, mode);
     } catch (error) {
       // Private browsing and embedded WebViews may make storage unavailable.
+    }
+  }
+
+  function persistDensity(density) {
+    try {
+      if (global.AoaDashboardI18n && global.AoaDashboardI18n.writePresentationPreferences) {
+        global.AoaDashboardI18n.writePresentationPreferences(global.localStorage, { theme: currentMode, density: density });
+      }
+    } catch (error) {
+      // Embedded WebViews may not expose writable storage.
     }
   }
 
@@ -88,6 +127,7 @@
     currentMode = isMode(mode) ? mode : "system";
     root.dataset.themeMode = currentMode;
     root.dataset.theme = resolvedMode(currentMode);
+    root.dataset.density = currentDensity;
     if (persist) {
       persistMode(currentMode);
     }
@@ -97,6 +137,15 @@
         listener(currentMode, root.dataset.theme);
       });
     }
+  }
+
+  function applyDensity(density, persist) {
+    currentDensity = densities.indexOf(density) !== -1 ? density : "comfortable";
+    root.dataset.density = currentDensity;
+    if (persist) persistDensity(currentDensity);
+    listeners.slice().forEach(function (listener) {
+      listener(currentMode, root.dataset.theme, currentDensity);
+    });
   }
 
   function handleSystemChange() {
@@ -162,6 +211,7 @@
   }
 
   function start() {
+    currentDensity = readStoredDensity();
     applyMode(readStoredMode(), false);
     bindSystemPreference();
     makeControl();
@@ -170,7 +220,10 @@
   global.AoaDashboardTheme = {
     modes: modes.slice(),
     storageKey: storageKey,
+    preferenceStorageKey: preferenceStorageKey,
+    densities: densities.slice(),
     getMode: function () { return currentMode; },
+    getDensity: function () { return currentDensity; },
     subscribe: function (listener) {
       if (typeof listener !== "function") {
         return function () {};
@@ -184,6 +237,10 @@
     setMode: function (mode) {
       applyMode(mode, true);
       return currentMode;
+    },
+    setDensity: function (density) {
+      applyDensity(density, true);
+      return currentDensity;
     }
   };
 

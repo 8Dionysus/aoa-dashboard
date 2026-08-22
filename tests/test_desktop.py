@@ -84,6 +84,12 @@ class FakeStack:
 
 
 class DesktopBackendTests(unittest.TestCase):
+    def test_native_window_and_system_theme_contract_are_bounded(self) -> None:
+        source = Path(desktop_module.__file__).read_text(encoding="utf-8")
+        self.assertIn("set_default_size(1280, 900)", source)
+        self.assertIn("set_size_request(800, 600)", source)
+        self.assertIn('getattr(Adw.ColorScheme, "DEFAULT"', source)
+
     def test_native_startup_locale_and_bridge_payload_are_strictly_bounded(self) -> None:
         self.assertEqual(startup_language(lambda _category: ("ru_RU", "UTF-8")), "ru")
         self.assertEqual(startup_language(lambda _category: ("fr_FR", "UTF-8")), "en")
@@ -123,7 +129,7 @@ class DesktopBackendTests(unittest.TestCase):
         self.assertEqual(application.language, "ru")
         self.assertEqual(application.theme_mode, "system")
         self.assertEqual(application.load_status, native_text("ru", "status.starting"))
-        self.assertEqual(style_manager.schemes[-1], Adw.ColorScheme.PREFER_LIGHT)
+        self.assertEqual(style_manager.schemes[-1], getattr(Adw.ColorScheme, "DEFAULT", Adw.ColorScheme.PREFER_LIGHT))
 
         window = FakeWidget()
         title_label = FakeWidget()
