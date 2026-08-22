@@ -1,11 +1,12 @@
 (function exposeDashboardI18n(root) {
   "use strict";
 
-  const STORAGE_KEY = "aoa-dashboard.language";
-  const PREFERENCES_STORAGE_KEY = "aoa-dashboard.preferences.v1";
-  const PREFERENCE_VERSION = 1;
-  const LEGACY_THEME_STORAGE_KEY = "aoa-dashboard-theme-mode";
-  const DENSITIES = new Set(["comfortable", "compact"]);
+  const preferenceApi = root.AoaDashboardPreferences || null;
+  const STORAGE_KEY = preferenceApi?.legacyLanguageKey || "aoa-dashboard.language";
+  const PREFERENCES_STORAGE_KEY = preferenceApi?.storageKey || "aoa-dashboard.preferences.v1";
+  const PREFERENCE_VERSION = preferenceApi?.version || 1;
+  const LEGACY_THEME_STORAGE_KEY = preferenceApi?.legacyThemeKey || "aoa-dashboard-theme-mode";
+  const DENSITIES = new Set(preferenceApi?.densities || ["comfortable", "compact"]);
   const translations = {
     en: {
       "app.title": "aoa-dashboard · Goal Space",
@@ -32,6 +33,9 @@
       "home.catalogMissing": "Goal catalog/history publisher unavailable; the one current Goal remains selectable.",
       "home.categoryLimit": "Current, attention, paused, completed, and historical categories are unavailable without that publisher.",
       "home.catalogReady": "Goal catalog is source-backed.",
+      "home.catalogEmpty": "Owner catalog is admitted but currently empty.",
+      "home.catalogSource": "catalog source: {{value}}",
+      "home.catalogCurrentness": "catalog currentness: {{value}}",
       "home.openWorkspace": "Open Goal workspace",
       "home.historical": "historical",
       "workspace.backToGoals": "Goals",
@@ -53,6 +57,7 @@
       "selection.stale": "The selected context ref is no longer in the latest projection; it is retained as stale.",
       "selection.missing": "The previously selected Goal is missing from the latest projection; it is retained as missing.",
       "selection.ref": "retained selection: {{value}}",
+      "route.invalid": "The URL context is malformed or not admitted; the workspace stayed at a safe home state.",
       "mode.label": "Workspace mode",
       "mode.observe": "Observe",
       "mode.operate": "Operate",
@@ -104,6 +109,7 @@
       "thread.noSelection": "No Goal or trajectory item is selected.",
       "thread.selection": "bound to {{value}}",
       "thread.metadataOnly": "Metadata-only context item",
+      "thread.noMatchingEvidence": "No evidence record matches this exact selected ref; unrelated records are not substituted.",
       "thread.returnItem": "Return observation",
       "thread.wakeItem": "Wake observation",
       "thread.evidenceItem": "Evidence reference",
@@ -120,6 +126,7 @@
       "operate.owner": "natural owner: {{value}}",
       "operate.stopLine": "stop-line: {{value}}",
       "operate.returnRoute": "expected return: {{value}}",
+      "operate.currentness": "route currentness: {{value}}",
       "form.intentTargetRef": "Intent target ref",
       "form.submitPending": "Recording…",
       "form.submitSuccess": "Recorded locally.",
@@ -127,11 +134,118 @@
       "fallback.heading": "Projection evidence",
       "fallback.claim": "The workspace is unavailable; retained evidence and its quality remain visible below.",
       "bounded.truncated": "bounded preview truncated",
-      "bounded.refsOmitted": "{{count}} additional reference(s) remain bounded.",
-      "bounded.envelopesOmitted": "{{count}} additional correlation envelope(s) remain bounded.",
-      "bounded.pressureOmitted": "{{count}} additional pressure item(s) remain bounded.",
-      "bounded.sourcesOmitted": "{{count}} additional source card(s) remain bounded.",
-      "bounded.ownersOmitted": "{{count}} additional owner row(s) remain bounded.",
+      "bounded.refsOmitted": "{{count}} additional references remain bounded.",
+      "bounded.envelopesOmitted": "{{count}} additional correlation envelopes remain bounded.",
+      "bounded.pressureOmitted": "{{count}} additional pressure items remain bounded.",
+      "bounded.sourcesOmitted": "{{count}} additional source cards remain bounded.",
+      "bounded.ownersOmitted": "{{count}} additional owner rows remain bounded.",
+      "bounded.pageLabel": "Bounded list pages",
+      "bounded.previousPage": "Previous page",
+      "bounded.nextPage": "Next page",
+      "bounded.pageStatus": "page {{page}} of {{pages}} · {{total}} total",
+      "diagnostic.heading": "Bounded diagnostic routes",
+      "diagnostic.claim": "Each diagnostic remains source-linked and bounded; a detail route is not an owner verdict.",
+      "diagnostic.none": "No diagnostic record was published by this surface.",
+      "diagnostic.open": "Open source-linked detail",
+      "diagnostic.correlationErrors": "Correlation errors and degradation",
+      "diagnostic.correlationConflicts": "Correlation conflicts",
+      "diagnostic.correlationDuplicates": "Correlation duplicates",
+      "diagnostic.correlationInvalid": "Invalid correlation records",
+      "diagnostic.claimLimits": "Correlation claim-limit evidence",
+      "diagnostic.ownerReceipts": "Owner receipt provenance",
+      "diagnostic.pressureErrors": "Pressure errors and invalid records",
+      "diagnostic.pressureConflicts": "Pressure conflicts and duplicates",
+      "diagnostic.pressureClaimLimits": "Pressure claim-limit evidence",
+      "plural.actor.zero": "No actors observed.",
+      "plural.actor.one": "1 actor observed.",
+      "plural.actor.few": "{{count}} actors observed.",
+      "plural.actor.many": "{{count}} actors observed.",
+      "plural.actor.other": "{{count}} actors observed.",
+      "plural.actor.unknown": "Actor count is unknown.",
+      "plural.participantsShown.zero": "Showing no participant cards.",
+      "plural.participantsShown.one": "Showing {{shown}} of 1 observed participant card.",
+      "plural.participantsShown.few": "Showing {{shown}} of {{count}} observed participant cards.",
+      "plural.participantsShown.many": "Showing {{shown}} of {{count}} observed participant cards.",
+      "plural.participantsShown.other": "Showing {{shown}} of {{count}} observed participant cards.",
+      "plural.participantsShown.unknown": "Participant count is unknown.",
+      "plural.trajectory.zero": "No additional trajectory items remain bounded.",
+      "plural.trajectory.one": "1 additional trajectory item remains bounded.",
+      "plural.trajectory.few": "{{count}} additional trajectory items remain bounded.",
+      "plural.trajectory.many": "{{count}} additional trajectory items remain bounded.",
+      "plural.trajectory.other": "{{count}} additional trajectory items remain bounded.",
+      "plural.trajectory.unknown": "Additional trajectory count is unknown.",
+      "plural.envelope.zero": "No additional correlation envelopes remain bounded.",
+      "plural.envelope.one": "1 additional correlation envelope remains bounded.",
+      "plural.envelope.few": "{{count}} additional correlation envelopes remain bounded.",
+      "plural.envelope.many": "{{count}} additional correlation envelopes remain bounded.",
+      "plural.envelope.other": "{{count}} additional correlation envelopes remain bounded.",
+      "plural.envelope.unknown": "Additional correlation envelope count is unknown.",
+      "plural.pressure.zero": "No additional pressure items remain bounded.",
+      "plural.pressure.one": "1 additional pressure item remains bounded.",
+      "plural.pressure.few": "{{count}} additional pressure items remain bounded.",
+      "plural.pressure.many": "{{count}} additional pressure items remain bounded.",
+      "plural.pressure.other": "{{count}} additional pressure items remain bounded.",
+      "plural.pressure.unknown": "Additional pressure count is unknown.",
+      "plural.source.zero": "No additional source cards remain bounded.",
+      "plural.source.one": "1 additional source card remains bounded.",
+      "plural.source.few": "{{count}} additional source cards remain bounded.",
+      "plural.source.many": "{{count}} additional source cards remain bounded.",
+      "plural.source.other": "{{count}} additional source cards remain bounded.",
+      "plural.source.unknown": "Additional source count is unknown.",
+      "plural.owner.zero": "No additional owner rows remain bounded.",
+      "plural.owner.one": "1 additional owner row remains bounded.",
+      "plural.owner.few": "{{count}} additional owner rows remain bounded.",
+      "plural.owner.many": "{{count}} additional owner rows remain bounded.",
+      "plural.owner.other": "{{count}} additional owner rows remain bounded.",
+      "plural.owner.unknown": "Additional owner count is unknown.",
+      "plural.reference.zero": "No additional references remain bounded.",
+      "plural.reference.one": "1 additional reference remains bounded.",
+      "plural.reference.few": "{{count}} additional references remain bounded.",
+      "plural.reference.many": "{{count}} additional references remain bounded.",
+      "plural.reference.other": "{{count}} additional references remain bounded.",
+      "plural.reference.unknown": "Additional reference count is unknown.",
+      "plural.annotation.zero": "No dashboard annotations.",
+      "plural.annotation.one": "1 dashboard annotation.",
+      "plural.annotation.few": "{{count}} dashboard annotations.",
+      "plural.annotation.many": "{{count}} dashboard annotations.",
+      "plural.annotation.other": "{{count}} dashboard annotations.",
+      "plural.annotation.unknown": "Dashboard annotation count is unknown.",
+      "plural.intent.zero": "No deferred action intents.",
+      "plural.intent.one": "1 deferred action intent.",
+      "plural.intent.few": "{{count}} deferred action intents.",
+      "plural.intent.many": "{{count}} deferred action intents.",
+      "plural.intent.other": "{{count}} deferred action intents.",
+      "plural.intent.unknown": "Deferred action intent count is unknown.",
+      "plural.observation.zero": "No retained observations.",
+      "plural.observation.one": "1 retained observation.",
+      "plural.observation.few": "{{count}} retained observations.",
+      "plural.observation.many": "{{count}} retained observations.",
+      "plural.observation.other": "{{count}} retained observations.",
+      "plural.observation.unknown": "Retained observation count is unknown.",
+      "plural.conflict.zero": "No unresolved conflicts.",
+      "plural.conflict.one": "1 unresolved conflict.",
+      "plural.conflict.few": "{{count}} unresolved conflicts.",
+      "plural.conflict.many": "{{count}} unresolved conflicts.",
+      "plural.conflict.other": "{{count}} unresolved conflicts.",
+      "plural.conflict.unknown": "Unresolved conflict count is unknown.",
+      "plural.admitted.zero": "No admitted pressure items",
+      "plural.admitted.one": "1 admitted pressure item",
+      "plural.admitted.few": "{{count}} admitted pressure items",
+      "plural.admitted.many": "{{count}} admitted pressure items",
+      "plural.admitted.other": "{{count}} admitted pressure items",
+      "plural.admitted.unknown": "admitted pressure count unknown",
+      "plural.critical.zero": "no critical routes",
+      "plural.critical.one": "1 critical route",
+      "plural.critical.few": "{{count}} critical routes",
+      "plural.critical.many": "{{count}} critical routes",
+      "plural.critical.other": "{{count}} critical routes",
+      "plural.critical.unknown": "critical route count unknown",
+      "plural.legacy.zero": "no legacy candidates",
+      "plural.legacy.one": "1 legacy candidate",
+      "plural.legacy.few": "{{count}} legacy candidates",
+      "plural.legacy.many": "{{count}} legacy candidates",
+      "plural.legacy.other": "{{count}} legacy candidates",
+      "plural.legacy.unknown": "legacy candidate count unknown",
       "evidence.metadata": "metadata and bounded evidence",
       "activity.technicalDetails": "technical identity, provenance and usage details",
       "language.label": "Language",
@@ -254,8 +368,9 @@
       "label.diagnostics": "diagnostics: {{value}}",
       "label.goalLocalCursor": "Goal-local cursor · {{status}}",
       "label.schemaPositionRebuild": "schema: {{schema}} · position: {{position}} · rebuild: {{rebuild}}",
-      "label.retainedObservations": "retained {{observations}} observation(s) · {{conflicts}} unresolved conflict(s) · winner selection: {{winner}}",
-      "label.conflict": "{{key}}: {{records}} retained record(s); resolution {{resolution}}; winner {{winner}}",
+      "label.retainedObservations": "retained observations: {{observations}} · unresolved conflicts: {{conflicts}} · winner selection: {{winner}}",
+      "label.winnerSelection": "winner selection: {{value}}",
+      "label.conflict": "{{key}}: retained records {{records}}; resolution {{resolution}}; winner {{winner}}",
       "label.lunaReturn": "Luna return · {{value}}",
       "label.goalThread": "Goal / thread",
       "label.lunaReturnStage": "Luna return",
@@ -269,7 +384,7 @@
       "label.claimLimitsDag": "claim limits and DAG disposition",
       "label.newObligations": "New obligations from master filter",
       "label.noNewObligation": "No new obligation is present in the current filter.",
-      "pressure.summary": "{{admitted}} admitted · {{critical}} critical next-route(s) · {{legacy}} legacy candidate(s)",
+      "pressure.summary": "admitted: {{admitted}} · critical routes: {{critical}} · legacy candidates: {{legacy}}",
       "pressure.criticalNextRoute": "CRITICAL NEXT-ROUTE",
       "pressure.nextRoute": "NEXT-ROUTE",
       "pressure.ifOmitted": "If omitted: {{value}}",
@@ -284,7 +399,7 @@
       "pressure.sourceDigest": "Source digest: {{value}}",
       "pressure.missingFields": "Missing structured fields: {{value}}",
       "pressure.noAdmitted": "No pressure is admitted. Absence is not proof that no pressure exists.",
-      "activity.observed": "{{count}} actor(s) observed",
+      "activity.observed": "actors observed: {{count}}",
       "activity.masterContext": "Master/current-holder context: {{value}}",
       "activity.wakeReturn": "Wake / return posture",
       "activity.wakeReentryAccepted": "wake: {{wake}} · re-entry: {{reentry}} · accepted turn: {{turn}}",
@@ -320,10 +435,12 @@
       "sources.claimLimit": "Claim limit: {{value}}",
       "owners.runtime": "runtime: {{value}}",
       "owners.snapshot": "{{branch}} · {{head}}{{dirty}}",
-      "records.annotationCount": "{{count}} annotation(s)",
-      "records.intentCount": "{{count}} deferred intent(s)",
+      "records.annotationCount": "annotations: {{count}}",
+      "records.intentCount": "deferred intents: {{count}}",
       "records.latest": "{{created}} · {{target}}",
       "records.empty": "No dashboard-owned records yet.",
+      "records.countUnknown": "record count unknown",
+      "records.sourceMissing": "The optional record publisher is missing; absence is not zero.",
       "error.projectionUnavailable": "Projection unavailable: {{error}}. The UI will retry.",
       "error.projectionRequestFailed": "projection request failed",
       "error.writeFailed": "write failed",
@@ -374,6 +491,9 @@
       "home.catalogMissing": "Издатель каталога/истории целей недоступен; одна текущая цель остаётся выбираемой.",
       "home.categoryLimit": "Категории current, attention, paused, completed и historical недоступны без этого издателя.",
       "home.catalogReady": "Каталог целей подтверждён источником.",
+      "home.catalogEmpty": "Допущенный каталог владельца сейчас пуст.",
+      "home.catalogSource": "источник каталога: {{value}}",
+      "home.catalogCurrentness": "текущесть каталога: {{value}}",
       "home.openWorkspace": "Открыть рабочую область цели",
       "home.historical": "историческая",
       "workspace.backToGoals": "Цели",
@@ -395,6 +515,7 @@
       "selection.stale": "Выбранная ссылка контекста отсутствует в последней проекции; она сохранена как stale.",
       "selection.missing": "Ранее выбранная цель отсутствует в последней проекции; она сохранена как missing.",
       "selection.ref": "сохранённый выбор: {{value}}",
+      "route.invalid": "Контекст URL повреждён или не допущен; рабочая область оставлена в безопасном состоянии home.",
       "mode.label": "Режим рабочей области",
       "mode.observe": "Наблюдать",
       "mode.operate": "Оперировать",
@@ -446,6 +567,7 @@
       "thread.noSelection": "Цель или элемент траектории не выбран.",
       "thread.selection": "привязан к {{value}}",
       "thread.metadataOnly": "Контекстный элемент только с метаданными",
+      "thread.noMatchingEvidence": "Свидетельство с этой точной ссылкой не найдено; посторонняя запись не подставляется.",
       "thread.returnItem": "Наблюдение возврата",
       "thread.wakeItem": "Наблюдение wake",
       "thread.evidenceItem": "Ссылка на свидетельство",
@@ -462,6 +584,7 @@
       "operate.owner": "естественный владелец: {{value}}",
       "operate.stopLine": "stop-line: {{value}}",
       "operate.returnRoute": "ожидаемый возврат: {{value}}",
+      "operate.currentness": "текущесть маршрута: {{value}}",
       "form.intentTargetRef": "Ссылка цели намерения",
       "form.submitPending": "Запись…",
       "form.submitSuccess": "Записано локально.",
@@ -474,6 +597,113 @@
       "bounded.pressureOmitted": "Дополнительных элементов давления ограничено: {{count}}.",
       "bounded.sourcesOmitted": "Дополнительных карточек источников ограничено: {{count}}.",
       "bounded.ownersOmitted": "Дополнительных строк владельцев ограничено: {{count}}.",
+      "bounded.pageLabel": "Страницы ограниченного списка",
+      "bounded.previousPage": "Предыдущая страница",
+      "bounded.nextPage": "Следующая страница",
+      "bounded.pageStatus": "страница {{page}} из {{pages}} · всего: {{total}}",
+      "diagnostic.heading": "Ограниченные маршруты диагностики",
+      "diagnostic.claim": "Каждая диагностика сохраняет ссылку на источник и ограничение; маршрут деталей не является вердиктом владельца.",
+      "diagnostic.none": "Источник не опубликовал диагностических записей.",
+      "diagnostic.open": "Открыть детали со ссылкой на источник",
+      "diagnostic.correlationErrors": "Ошибки и деградация корреляции",
+      "diagnostic.correlationConflicts": "Конфликты корреляции",
+      "diagnostic.correlationDuplicates": "Дубликаты корреляции",
+      "diagnostic.correlationInvalid": "Недействительные записи корреляции",
+      "diagnostic.claimLimits": "Свидетельства пределов корреляции",
+      "diagnostic.ownerReceipts": "Происхождение receipts владельца",
+      "diagnostic.pressureErrors": "Ошибки и недействительные записи давления",
+      "diagnostic.pressureConflicts": "Конфликты и дубликаты давления",
+      "diagnostic.pressureClaimLimits": "Свидетельства пределов давления",
+      "plural.actor.zero": "Наблюдаемых actor нет.",
+      "plural.actor.one": "Наблюдается 1 actor.",
+      "plural.actor.few": "Наблюдаются {{count}} actor-а.",
+      "plural.actor.many": "Наблюдаются {{count}} actor-ов.",
+      "plural.actor.other": "Наблюдается actor: {{count}}.",
+      "plural.actor.unknown": "Количество actor неизвестно.",
+      "plural.participantsShown.zero": "Карточек участников нет.",
+      "plural.participantsShown.one": "Показана {{shown}} из 1 карточки участника.",
+      "plural.participantsShown.few": "Показано {{shown}} из {{count}} карточек участников.",
+      "plural.participantsShown.many": "Показано {{shown}} из {{count}} карточек участников.",
+      "plural.participantsShown.other": "Показано {{shown}} из {{count}} карточек участников.",
+      "plural.participantsShown.unknown": "Количество участников неизвестно.",
+      "plural.trajectory.zero": "Дополнительных элементов траектории нет.",
+      "plural.trajectory.one": "Остаётся 1 дополнительный элемент траектории.",
+      "plural.trajectory.few": "Остаётся {{count}} дополнительных элемента траектории.",
+      "plural.trajectory.many": "Остаётся {{count}} дополнительных элементов траектории.",
+      "plural.trajectory.other": "Остаются дополнительные элементы траектории: {{count}}.",
+      "plural.trajectory.unknown": "Количество дополнительных элементов траектории неизвестно.",
+      "plural.envelope.zero": "Дополнительных envelope корреляции нет.",
+      "plural.envelope.one": "Остаётся 1 дополнительный envelope корреляции.",
+      "plural.envelope.few": "Остаётся {{count}} дополнительных envelope корреляции.",
+      "plural.envelope.many": "Остаётся {{count}} дополнительных envelope корреляции.",
+      "plural.envelope.other": "Остаются дополнительные envelope корреляции: {{count}}.",
+      "plural.envelope.unknown": "Количество дополнительных envelope корреляции неизвестно.",
+      "plural.pressure.zero": "Дополнительных элементов давления нет.",
+      "plural.pressure.one": "Остаётся 1 дополнительный элемент давления.",
+      "plural.pressure.few": "Остаётся {{count}} дополнительных элемента давления.",
+      "plural.pressure.many": "Остаётся {{count}} дополнительных элементов давления.",
+      "plural.pressure.other": "Остаются дополнительные элементы давления: {{count}}.",
+      "plural.pressure.unknown": "Количество дополнительных элементов давления неизвестно.",
+      "plural.source.zero": "Дополнительных карточек источников нет.",
+      "plural.source.one": "Остаётся 1 дополнительная карточка источника.",
+      "plural.source.few": "Остаётся {{count}} дополнительные карточки источников.",
+      "plural.source.many": "Остаётся {{count}} дополнительных карточек источников.",
+      "plural.source.other": "Остаются дополнительные карточки источников: {{count}}.",
+      "plural.source.unknown": "Количество дополнительных источников неизвестно.",
+      "plural.owner.zero": "Дополнительных строк владельцев нет.",
+      "plural.owner.one": "Остаётся 1 дополнительная строка владельца.",
+      "plural.owner.few": "Остаётся {{count}} дополнительные строки владельцев.",
+      "plural.owner.many": "Остаётся {{count}} дополнительных строк владельцев.",
+      "plural.owner.other": "Остаются дополнительные строки владельцев: {{count}}.",
+      "plural.owner.unknown": "Количество дополнительных владельцев неизвестно.",
+      "plural.reference.zero": "Дополнительных ссылок нет.",
+      "plural.reference.one": "Остаётся 1 дополнительная ссылка.",
+      "plural.reference.few": "Остаётся {{count}} дополнительные ссылки.",
+      "plural.reference.many": "Остаётся {{count}} дополнительных ссылок.",
+      "plural.reference.other": "Остаются дополнительные ссылки: {{count}}.",
+      "plural.reference.unknown": "Количество дополнительных ссылок неизвестно.",
+      "plural.annotation.zero": "Аннотаций панели нет.",
+      "plural.annotation.one": "1 аннотация панели.",
+      "plural.annotation.few": "{{count}} аннотации панели.",
+      "plural.annotation.many": "{{count}} аннотаций панели.",
+      "plural.annotation.other": "Аннотаций панели: {{count}}.",
+      "plural.annotation.unknown": "Количество аннотаций панели неизвестно.",
+      "plural.intent.zero": "Отложенных намерений действий нет.",
+      "plural.intent.one": "1 отложенное намерение действия.",
+      "plural.intent.few": "{{count}} отложенных намерения действия.",
+      "plural.intent.many": "{{count}} отложенных намерений действия.",
+      "plural.intent.other": "Отложенных намерений действий: {{count}}.",
+      "plural.intent.unknown": "Количество отложенных намерений неизвестно.",
+      "plural.observation.zero": "Сохранённых наблюдений нет.",
+      "plural.observation.one": "1 сохранённое наблюдение.",
+      "plural.observation.few": "{{count}} сохранённых наблюдения.",
+      "plural.observation.many": "{{count}} сохранённых наблюдений.",
+      "plural.observation.other": "Сохранённых наблюдений: {{count}}.",
+      "plural.observation.unknown": "Количество сохранённых наблюдений неизвестно.",
+      "plural.conflict.zero": "Неразрешённых конфликтов нет.",
+      "plural.conflict.one": "1 неразрешённый конфликт.",
+      "plural.conflict.few": "{{count}} неразрешённых конфликта.",
+      "plural.conflict.many": "{{count}} неразрешённых конфликтов.",
+      "plural.conflict.other": "Неразрешённых конфликтов: {{count}}.",
+      "plural.conflict.unknown": "Количество неразрешённых конфликтов неизвестно.",
+      "plural.admitted.zero": "допущенных элементов давления нет",
+      "plural.admitted.one": "1 допущенный элемент давления",
+      "plural.admitted.few": "{{count}} допущенных элемента давления",
+      "plural.admitted.many": "{{count}} допущенных элементов давления",
+      "plural.admitted.other": "допущенных элементов давления: {{count}}",
+      "plural.admitted.unknown": "количество допущенных элементов давления неизвестно",
+      "plural.critical.zero": "критических маршрутов нет",
+      "plural.critical.one": "1 критический маршрут",
+      "plural.critical.few": "{{count}} критических маршрута",
+      "plural.critical.many": "{{count}} критических маршрутов",
+      "plural.critical.other": "критических маршрутов: {{count}}",
+      "plural.critical.unknown": "количество критических маршрутов неизвестно",
+      "plural.legacy.zero": "legacy-кандидатов нет",
+      "plural.legacy.one": "1 legacy-кандидат",
+      "plural.legacy.few": "{{count}} legacy-кандидата",
+      "plural.legacy.many": "{{count}} legacy-кандидатов",
+      "plural.legacy.other": "legacy-кандидатов: {{count}}",
+      "plural.legacy.unknown": "количество legacy-кандидатов неизвестно",
       "evidence.metadata": "метаданные и ограниченные свидетельства",
       "activity.technicalDetails": "техническая идентичность, происхождение и usage",
       "language.label": "Язык",
@@ -597,6 +827,7 @@
       "label.goalLocalCursor": "локальный cursor цели · {{status}}",
       "label.schemaPositionRebuild": "схема: {{schema}} · позиция: {{position}} · пересборка: {{rebuild}}",
       "label.retainedObservations": "сохранено наблюдений: {{observations}} · неразрешённых конфликтов: {{conflicts}} · выбор победителя: {{winner}}",
+      "label.winnerSelection": "выбор победителя: {{value}}",
       "label.conflict": "{{key}}: сохранено записей: {{records}}; разрешение {{resolution}}; победитель {{winner}}",
       "label.lunaReturn": "возврат Luna · {{value}}",
       "label.goalThread": "Цель / поток",
@@ -666,6 +897,8 @@
       "records.intentCount": "отложенных намерений: {{count}}",
       "records.latest": "{{created}} · {{target}}",
       "records.empty": "Пока нет записей, принадлежащих dashboard.",
+      "records.countUnknown": "количество записей неизвестно",
+      "records.sourceMissing": "Необязательный издатель записей отсутствует; отсутствие не равно нулю.",
       "error.projectionUnavailable": "Проекция недоступна: {{error}}. Панель повторит запрос.",
       "error.projectionRequestFailed": "запрос проекции не выполнен",
       "error.writeFailed": "запись не выполнена",
@@ -696,6 +929,7 @@
   const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
   function normalizeLanguage(value) {
+    if (preferenceApi?.normalizeLanguage) return preferenceApi.normalizeLanguage(value);
     const normalized = String(value || "").trim().toLowerCase();
     if (normalized.startsWith("ru")) return "ru";
     if (normalized.startsWith("en")) return "en";
@@ -703,6 +937,7 @@
   }
 
   function normalizeTheme(value) {
+    if (preferenceApi?.normalizeTheme) return preferenceApi.normalizeTheme(value);
     return ["system", "light", "dark"].includes(value) ? value : null;
   }
 
@@ -711,20 +946,27 @@
   }
 
   function readPresentationPreferences(store) {
+    if (preferenceApi?.read) return preferenceApi.read(store);
     const storage = safeStorage(store);
     const preferences = { version: PREFERENCE_VERSION, language: null, theme: "system", density: "comfortable" };
     if (!storage) return preferences;
+    let raw = null;
     try {
-      const raw = storage.getItem(PREFERENCES_STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : null;
-      if (parsed && typeof parsed === "object" && parsed.version === PREFERENCE_VERSION) {
+      raw = storage.getItem(PREFERENCES_STORAGE_KEY);
+    } catch (_error) {
+      return preferences;
+    }
+    if (raw !== null && raw !== "") {
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || parsed.version !== PREFERENCE_VERSION) return preferences;
         preferences.language = normalizeLanguage(parsed.language);
         preferences.theme = normalizeTheme(parsed.theme) || "system";
         preferences.density = DENSITIES.has(parsed.density) ? parsed.density : "comfortable";
         return preferences;
+      } catch (_error) {
+        return preferences;
       }
-    } catch (_error) {
-      // Malformed or private storage falls back to a bounded presentation record.
     }
     try {
       preferences.language = normalizeLanguage(storage.getItem(STORAGE_KEY));
@@ -736,6 +978,7 @@
   }
 
   function writePresentationPreferences(store, updates = {}) {
+    if (preferenceApi?.write) return preferenceApi.write(store, updates);
     const storage = safeStorage(store);
     const current = readPresentationPreferences(storage);
     const next = {
@@ -757,6 +1000,17 @@
     return value.replace(/\{\{(\w+)\}\}/g, (_match, key) => (
       hasOwn(variables, key) ? String(variables[key]) : ""
     ));
+  }
+
+  function pluralCategory(language, count) {
+    const numeric = Number(count);
+    if (!Number.isFinite(numeric)) return "unknown";
+    if (numeric === 0) return "zero";
+    try {
+      return new Intl.PluralRules(language).select(numeric);
+    } catch (_error) {
+      return numeric === 1 ? "one" : "other";
+    }
   }
 
   function createI18n(options = {}) {
@@ -793,6 +1047,12 @@
       return interpolate(value === undefined ? key : value, variables);
     }
 
+    function plural(key, count, variables = {}) {
+      const category = pluralCategory(language, count);
+      const selected = lookup(`${key}.${category}`) || lookup(`${key}.other`) || lookup(key);
+      return interpolate(selected === undefined ? key : selected, { ...variables, count });
+    }
+
     function status(value) {
       const canonical = value == null || value === "" ? "unknown" : String(value);
       const statusKey = canonical.toLowerCase().replaceAll(" ", "_").replaceAll("-", "_");
@@ -806,6 +1066,7 @@
       },
       dictionaries: translations,
       t,
+      plural,
       status,
       setLanguage(nextLanguage) {
         const next = normalizeLanguage(nextLanguage);
@@ -826,6 +1087,7 @@
     STORAGE_KEY,
     PREFERENCES_STORAGE_KEY,
     PREFERENCE_VERSION,
+    pluralCategory,
     DENSITIES: Array.from(DENSITIES),
     dictionaries: translations,
     normalizeLanguage,

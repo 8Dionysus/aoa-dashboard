@@ -42,16 +42,16 @@ const vm = require("vm");
 const context = { globalThis: null };
 context.globalThis = context;
 vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+const values = new Map();
 const storage = {
-  value: null,
-  getItem() { return this.value; },
-  setItem(_key, value) { this.value = value; },
+  getItem(key) { return values.has(key) ? values.get(key) : null; },
+  setItem(key, value) { values.set(key, String(value)); },
 };
 const initial = context.AoaDashboardI18n.createI18n({ locale: "ru-RU", storage });
 const before = { language: initial.language, heading: initial.t("app.heading"), status: initial.status("wake requested") };
 initial.setLanguage("en");
 const after = context.AoaDashboardI18n.createI18n({ locale: "ru-RU", storage });
-process.stdout.write(JSON.stringify({ before, stored: storage.value, restart: after.language, russian: context.AoaDashboardI18n.createI18n({ locale: "ru-RU", storage: { getItem() { return null; } } }).language }));
+process.stdout.write(JSON.stringify({ before, stored: values.get("aoa-dashboard.language"), restart: after.language, russian: context.AoaDashboardI18n.createI18n({ locale: "ru-RU", storage: { getItem() { return null; } } }).language }));
 """
         result = subprocess.run(
             ["node", "-e", script],

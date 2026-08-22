@@ -3,19 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="/preferences.js"></script>
     <script>
       /* Resolve the persisted presentation mode before the stylesheet paints. */
       (function () {
         try {
-          var record = JSON.parse(localStorage.getItem("aoa-dashboard.preferences.v1") || "null");
-          var legacy = localStorage.getItem("aoa-dashboard-theme-mode");
-          var mode = record && ["system", "light", "dark"].indexOf(record.theme) >= 0 ? record.theme : legacy;
+          var preferences = window.AoaDashboardPreferences.read(window.localStorage);
+          var mode = preferences.theme;
           var dark = mode === "dark" || (mode !== "light" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
           document.documentElement.dataset.themeMode = ["system", "light", "dark"].indexOf(mode) >= 0 ? mode : "system";
           document.documentElement.dataset.theme = dark ? "dark" : "light";
         } catch (_error) {
           document.documentElement.dataset.themeMode = "system";
-          document.documentElement.dataset.theme = "light";
+          document.documentElement.dataset.theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         }
       }());
     </script>
@@ -43,6 +43,7 @@
 
     <main id="main-content" class="shell" tabindex="-1">
       <section id="alert" class="alert hidden" role="alert" aria-live="assertive"></section>
+      <div id="route-status" class="route-status hidden" role="status"></div>
       <section id="refresh-status" class="quality-banner state-loading" role="status" aria-live="polite">
         <strong data-i18n="refresh.loading">Loading the Goal projection…</strong>
         <span data-i18n="refresh.noCounts">No counts are shown until a source response is available.</span>
@@ -61,7 +62,7 @@
             <p data-i18n="home.sourceLimit">The current binding provides one selectable Goal. Goal history, multi-Goal selection, and canonical branches are not published here.</p>
           </details>
         </div>
-        <div id="goal-selector" class="goal-selector" aria-live="polite"></div>
+        <div id="goal-selector" class="goal-selector"></div>
         <div id="catalog-state" class="empty-state"></div>
       </section>
 
@@ -112,7 +113,7 @@
             </div>
             <section id="goal-summary" class="goal-summary" aria-label="Goal summary" data-i18n-aria-label="workspace.summaryLabel"></section>
             <section id="attention-strip" class="attention-strip" aria-label="Current attention" data-i18n-aria-label="workspace.attentionLabel"></section>
-            <section id="lens-surface" class="lens-surface" aria-live="polite"></section>
+            <section id="lens-surface" class="lens-surface"></section>
           </section>
 
           <aside id="context-thread" class="workspace-thread" aria-labelledby="thread-heading">
@@ -161,6 +162,7 @@
     <footer class="shell footer"><span data-i18n="footer.version">aoa-dashboard v0.1 · host-local dogfood</span><span id="refresh-note" data-i18n="footer.refreshing">refreshing every 5s</span></footer>
     <script src="/i18n.js" defer></script>
     <script src="/theme.js" defer></script>
+    <script src="/ui_state.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>

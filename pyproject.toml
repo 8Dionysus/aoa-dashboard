@@ -15,7 +15,7 @@ aoa-dashboard-desktop = "aoa_dashboard.desktop:main"
 where = ["src"]
 
 [tool.setuptools.data-files]
-"share/aoa-dashboard/web" = ["web/index.html", "web/app.js", "web/i18n.js", "web/styles.css", "web/theme.js"]
+"share/aoa-dashboard/web" = ["web/index.html", "web/app.js", "web/i18n.js", "web/preferences.js", "web/styles.css", "web/theme.js", "web/ui_state.js"]
 "share/applications" = ["packaging/org.aoa.AoaDashboard.desktop"]
 "share/icons/hicolor/scalable/apps" = ["packaging/icons/org.aoa.AoaDashboard.svg"]
 

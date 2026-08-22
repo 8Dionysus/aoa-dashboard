@@ -7,8 +7,11 @@
   }
 
   var root = document.documentElement;
-  var storageKey = "aoa-dashboard-theme-mode";
-  var preferenceStorageKey = "aoa-dashboard.preferences.v1";
+  var preferenceApi = global.AoaDashboardPreferences || null;
+  var readPresentationPreferences = preferenceApi && preferenceApi.read;
+  var writePresentationPreferences = preferenceApi && preferenceApi.write;
+  var storageKey = preferenceApi && preferenceApi.legacyThemeKey || "aoa-dashboard-theme-mode";
+  var preferenceStorageKey = preferenceApi && preferenceApi.storageKey || "aoa-dashboard.preferences.v1";
   var modes = ["system", "light", "dark"];
   var densities = ["comfortable", "compact"];
   var labels = {
@@ -29,10 +32,16 @@
   }
 
   function readStoredMode() {
+    if (readPresentationPreferences) {
+      try {
+        var versioned = readPresentationPreferences(global.localStorage);
+        return versioned && isMode(versioned.theme) ? versioned.theme : "system";
+      } catch (error) {
+        return "system";
+      }
+    }
     try {
-      var preferences = global.AoaDashboardI18n && global.AoaDashboardI18n.readPresentationPreferences
-        ? global.AoaDashboardI18n.readPresentationPreferences(global.localStorage)
-        : null;
+      var preferences = null;
       if (preferences && isMode(preferences.theme)) return preferences.theme;
     } catch (error) {
       // Fall through to the legacy key and safe defaults.
@@ -46,10 +55,16 @@
   }
 
   function readStoredDensity() {
+    if (readPresentationPreferences) {
+      try {
+        var versioned = readPresentationPreferences(global.localStorage);
+        return versioned && densities.indexOf(versioned.density) !== -1 ? versioned.density : "comfortable";
+      } catch (error) {
+        return "comfortable";
+      }
+    }
     try {
-      var preferences = global.AoaDashboardI18n && global.AoaDashboardI18n.readPresentationPreferences
-        ? global.AoaDashboardI18n.readPresentationPreferences(global.localStorage)
-        : null;
+      var preferences = null;
       return preferences && densities.indexOf(preferences.density) !== -1 ? preferences.density : "comfortable";
     } catch (error) {
       return "comfortable";
@@ -73,8 +88,8 @@
 
   function persistMode(mode) {
     try {
-      if (global.AoaDashboardI18n && global.AoaDashboardI18n.writePresentationPreferences) {
-        global.AoaDashboardI18n.writePresentationPreferences(global.localStorage, { theme: mode, density: currentDensity });
+      if (writePresentationPreferences) {
+        writePresentationPreferences(global.localStorage, { theme: mode, density: currentDensity });
       }
     } catch (error) {
       // The legacy key below is also best-effort.
@@ -88,8 +103,8 @@
 
   function persistDensity(density) {
     try {
-      if (global.AoaDashboardI18n && global.AoaDashboardI18n.writePresentationPreferences) {
-        global.AoaDashboardI18n.writePresentationPreferences(global.localStorage, { theme: currentMode, density: density });
+      if (writePresentationPreferences) {
+        writePresentationPreferences(global.localStorage, { theme: currentMode, density: density });
       }
     } catch (error) {
       // Embedded WebViews may not expose writable storage.

@@ -1,11 +1,32 @@
 const { createI18n } = window.AoaDashboardI18n;
 const i18n = createI18n();
 
+const dashboardUI = window.AoaDashboardUiState || {
+  LENSES: ["trajectory", "attention", "participants", "evidence", "records"],
+  SelectionContext: {
+    fields: ["goal_ref", "lens", "focus_ref", "branch_path", "thread_ref", "expanded_branch_refs", "page_by_list", "observation_cursor_or_generation"],
+    empty() {
+      return { goal_ref: null, lens: "trajectory", focus_ref: null, branch_path: [], thread_ref: null, expanded_branch_refs: [], page_by_list: {}, observation_cursor_or_generation: null };
+    },
+    normalize(value) { return { ...this.empty(), ...(value || {}) }; },
+  },
+  encodeRoute(value) { return value?.goal_ref ? `#goal/${encodeURIComponent(value.goal_ref)}/${value.lens || "trajectory"}` : "#"; },
+  decodeRoute() { return { status: "home", error: null, selection: this.SelectionContext.empty() }; },
+  pageWindow(items, page, pageSize) {
+    const values = Array.isArray(items) ? items : [];
+    const size = pageSize > 0 ? pageSize : 1;
+    const current = Math.min(Math.max(Number(page) || 0, 0), Math.max(0, Math.ceil(values.length / size) - 1));
+    return { items: values.slice(current * size, (current + 1) * size), page: current, pageCount: Math.max(1, Math.ceil(values.length / size)), total: values.length, omitted: Math.max(0, values.length - size), hasPrevious: current > 0, hasNext: (current + 1) * size < values.length };
+  },
+  qualifiedCatalog() { return { state: "missing", items: [], source: null, currentness: "missing", claim_limit: null }; },
+  optionalRecord(value) { return value && typeof value === "object" ? value : { state: "missing", count: null, latest: [], evidence_refs: [], claim_limit: null }; },
+};
+
 const LIFECYCLE = [
   "planned", "bound", "running", "paused", "returned", "reviewed", "accepted", "wake requested", "reentered",
 ];
 const QUALITY = ["missing", "unknown", "stale", "deferred", "invalid"];
-const LENSES = ["trajectory", "attention", "participants", "evidence", "records"];
+const LENSES = dashboardUI.LENSES;
 const PRESENTATION_HANDLER_NAME = "aoaDashboardPresentation";
 const PRESENTATION_LANGUAGES = new Set(["en", "ru"]);
 const PRESENTATION_THEMES = new Set(["system", "light", "dark"]);
@@ -16,20 +37,7 @@ const MAX_PRESSURE_ITEMS = 12;
 const MAX_SOURCE_CARDS = 18;
 const MAX_OWNER_ROWS = 24;
 const MAX_REFS_PER_ITEM = 8;
-const SelectionContext = Object.freeze({
-  fields: Object.freeze(["goal_ref", "lens", "focus_ref", "branch_path", "thread_ref", "expanded_branch_refs", "observation_cursor_or_generation"]),
-  empty() {
-    return {
-      goal_ref: null,
-      lens: "trajectory",
-      focus_ref: null,
-      branch_path: [],
-      thread_ref: null,
-      expanded_branch_refs: [],
-      observation_cursor_or_generation: null,
-    };
-  },
-});
+const SelectionContext = dashboardUI.SelectionContext;
 
 let currentProjection = null;
 let lastGoodProjection = null;
@@ -40,12 +48,67 @@ let workspaceMode = "observe";
 let contextThreadOpen = true;
 let selectionQuality = null;
 let selection = SelectionContext.empty();
+let routeState = "home";
+let routeError = null;
+let interactionState = null;
+let refreshInFlight = false;
 
 const byId = (id) => document.getElementById(id);
 const clear = (element) => { if (element) while (element.firstChild) element.removeChild(element.firstChild); };
 const t = (key, variables = {}) => i18n.t(key, variables);
 const statusLabel = (value) => i18n.status(value);
 const arrayOrEmpty = (value) => Array.isArray(value) ? value : [];
+const plural = (key, count, variables = {}) => i18n.plural
+  ? i18n.plural(`plural.${key}`, count, variables)
+  : t(`bounded.${key}`, { ...variables, count });
+const catalogInfo = (data) => dashboardUI.qualifiedCatalog(data?.goal_catalog);
+const recordInfo = (data, key) => dashboardUI.optionalRecord(data?.[key]);
+
+function stableKey(value, fallback = "unknown") {
+  const textValue = String(value || fallback);
+  return textValue.replace(/[^a-zA-Z0-9_.:#/-]+/g, "_").slice(0, 180) || fallback;
+}
+
+function detailRef(kind, value) {
+  return `detail:${kind}:${stableKey(value)}`;
+}
+
+function pageFor(listKey) {
+  return Number.isInteger(selection.page_by_list?.[listKey]) ? selection.page_by_list[listKey] : 0;
+}
+
+function setPage(listKey, page) {
+  setSelection({ page_by_list: { ...selection.page_by_list, [listKey]: Math.max(0, Number(page) || 0) } });
+}
+
+function showPageControls(target, listKey, windowed) {
+  if (!target || windowed.pageCount <= 1) return;
+  const controls = document.createElement("nav");
+  controls.className = "bounded-pager";
+  controls.setAttribute("aria-label", t("bounded.pageLabel"));
+  const previous = document.createElement("button");
+  previous.type = "button";
+  previous.className = "secondary";
+  previous.textContent = t("bounded.previousPage");
+  previous.disabled = !windowed.hasPrevious;
+  previous.setAttribute("data-focus-key", `pager:${listKey}:previous`);
+  previous.addEventListener("click", () => setPage(listKey, windowed.page - 1));
+  const next = document.createElement("button");
+  next.type = "button";
+  next.className = "secondary";
+  next.textContent = t("bounded.nextPage");
+  next.disabled = !windowed.hasNext;
+  next.setAttribute("data-focus-key", `pager:${listKey}:next`);
+  next.addEventListener("click", () => setPage(listKey, windowed.page + 1));
+  controls.append(previous, text("span", t("bounded.pageStatus", { page: windowed.page + 1, pages: windowed.pageCount, total: windowed.total }), "mono"), next);
+  target.append(controls);
+}
+
+function selectDetail(ref, listKey, page) {
+  const pages = { ...selection.page_by_list };
+  if (listKey !== undefined) pages[listKey] = page;
+  setSelection({ focus_ref: ref, thread_ref: ref, branch_path: [ref], page_by_list: pages });
+}
 
 function text(tag, value, className = "") {
   const node = document.createElement(tag);
@@ -66,17 +129,6 @@ function setBadge(node, value) {
   node.className = `badge state-${canonicalValue.replaceAll(" ", "-")}`;
 }
 
-function bounded(items, limit, selectedRef = null) {
-  const values = arrayOrEmpty(items);
-  if (values.length <= limit) return { items: values, total: values.length, omitted: 0 };
-  const first = values.slice(0, limit);
-  if (selectedRef) {
-    const selected = values.find((item) => item && item.ref === selectedRef);
-    if (selected && !first.includes(selected)) first[first.length - 1] = selected;
-  }
-  return { items: first, total: values.length, omitted: values.length - first.length };
-}
-
 function boundedJson(value, limit = 5000) {
   let serialized = "";
   try { serialized = JSON.stringify(value, null, 2); } catch (_error) { serialized = t("fallback.unavailable"); }
@@ -88,6 +140,100 @@ function announce(message) {
   lastAnnouncement = message;
   const target = byId("live-region");
   if (target) target.textContent = message;
+}
+
+function renderRouteState() {
+  const target = byId("route-status");
+  if (!target) return;
+  clear(target);
+  if (routeState === "invalid") {
+    target.className = "route-status state-invalid";
+    target.append(badge("invalid"), text("span", t("route.invalid")), text("code", routeError || t("fallback.unavailable")));
+  } else {
+    target.className = "route-status hidden";
+  }
+}
+
+function captureInteractionState() {
+  const snapshot = {
+    details: {},
+    scroll: {},
+    drafts: {},
+    focusKey: null,
+    threadOpen: contextThreadOpen,
+  };
+  for (const node of document.querySelectorAll("details")) {
+    const key = node.dataset.detailKey;
+    if (key) snapshot.details[key] = Boolean(node.open);
+  }
+  for (const id of ["center-surface", "lens-surface", "context-thread"]) {
+    const node = byId(id);
+    if (node) snapshot.scroll[id] = { top: node.scrollTop || 0, left: node.scrollLeft || 0 };
+  }
+  const active = document.activeElement;
+  if (active) snapshot.focusKey = active.dataset?.focusKey || active.id || null;
+  for (const form of [byId("annotation-form"), byId("intent-form")]) {
+    if (!form?.id) continue;
+    const values = {};
+    for (const control of Array.from(form.elements || [])) {
+      if (!control.name) continue;
+      values[control.name] = control.type === "checkbox" || control.type === "radio"
+        ? { checked: Boolean(control.checked) }
+        : { value: control.value };
+    }
+    snapshot.drafts[form.id] = values;
+  }
+  return snapshot;
+}
+
+function restoreInteractionState(snapshot = interactionState) {
+  if (!snapshot) return;
+  contextThreadOpen = snapshot.threadOpen !== false;
+  const thread = byId("context-thread");
+  if (thread) thread.classList.toggle("collapsed", !contextThreadOpen);
+  const toggle = byId("thread-toggle");
+  if (toggle) toggle.setAttribute("aria-expanded", String(contextThreadOpen));
+  for (const node of document.querySelectorAll("details")) {
+    const key = node.dataset.detailKey;
+    if (key && Object.prototype.hasOwnProperty.call(snapshot.details, key)) node.open = snapshot.details[key];
+  }
+  for (const [id, position] of Object.entries(snapshot.scroll || {})) {
+    const node = byId(id);
+    if (node) {
+      node.scrollTop = position.top;
+      node.scrollLeft = position.left;
+    }
+  }
+  for (const [formId, values] of Object.entries(snapshot.drafts || {})) {
+    const form = byId(formId);
+    if (!form) continue;
+    for (const control of Array.from(form.elements || [])) {
+      const saved = values[control.name];
+      if (!control.name || !saved) continue;
+      if (control.type === "checkbox" || control.type === "radio") control.checked = saved.checked;
+      else if (saved.value !== undefined) control.value = saved.value;
+    }
+  }
+  if (snapshot.focusKey) {
+    const focus = Array.from(document.querySelectorAll("[data-focus-key]"))
+      .find((node) => node.dataset.focusKey === snapshot.focusKey) || byId(snapshot.focusKey);
+    if (focus?.focus) focus.focus({ preventScroll: true });
+  }
+}
+
+function clearAlert() {
+  const alert = byId("alert");
+  if (!alert) return;
+  alert.textContent = "";
+  alert.classList.add("hidden");
+}
+
+function setProjectionBusy(value) {
+  refreshInFlight = Boolean(value);
+  for (const id of ["center-surface", "workspace-view"]) {
+    const node = byId(id);
+    if (node?.setAttribute) node.setAttribute("aria-busy", refreshInFlight ? "true" : "false");
+  }
 }
 
 function applyStaticTranslations() {
@@ -136,7 +282,7 @@ function evidenceList(refs, limit = MAX_REFS_PER_ITEM) {
     const code = text("code", `${label}: ${location}${digest}${observed}`);
     list.append(code);
   }
-  if (values.length > limit) list.append(text("p", t("bounded.refsOmitted", { count: values.length - limit }), "claim"));
+  if (values.length > limit) list.append(text("p", plural("reference", values.length - limit), "claim"));
   return list;
 }
 
@@ -193,35 +339,25 @@ function updateModeButtons() {
 }
 
 function syncRoute() {
-  if (!selection.goal_ref || !window.history || !window.location) return;
-  const focus = selection.focus_ref ? `?focus=${encodeURIComponent(selection.focus_ref)}${selection.thread_ref ? `&thread=${encodeURIComponent(selection.thread_ref)}` : ""}` : "";
-  const hash = `#goal/${encodeURIComponent(selection.goal_ref)}/${selection.lens}${focus}`;
+  if (!window.history || !window.location) return;
+  const hash = dashboardUI.encodeRoute(selection);
   try { window.history.replaceState(null, "", hash); } catch (_error) { /* a native WebView may not expose history */ }
 }
 
 function readRoute() {
   const raw = window.location?.hash || "";
-  const match = raw.match(/^#goal\/([^/]+)\/([^?]+)(?:\?(.+))?$/);
-  if (!match) return;
-  const params = new URLSearchParams(match[3] || "");
-  const lens = LENSES.includes(match[2]) ? match[2] : "trajectory";
-  selection = {
-    ...selection,
-    goal_ref: decodeURIComponent(match[1]),
-    lens,
-    focus_ref: params.get("focus"),
-    thread_ref: params.get("thread"),
-  };
+  const route = dashboardUI.decodeRoute(raw);
+  routeState = route.status || "invalid";
+  routeError = route.error || null;
+  selection = SelectionContext.normalize ? SelectionContext.normalize(route.selection) : route.selection;
 }
 
 function setSelection(patch) {
-  selection = { ...selection, ...patch };
+  selection = SelectionContext.normalize ? SelectionContext.normalize({ ...selection, ...patch }) : { ...selection, ...patch };
   if (Object.prototype.hasOwnProperty.call(patch, "goal_ref") && !patch.goal_ref) selectionQuality = null;
   if (Object.prototype.hasOwnProperty.call(patch, "focus_ref")) selectionQuality = null;
-  if (!Array.isArray(selection.branch_path)) selection.branch_path = [];
-  if (!Array.isArray(selection.expanded_branch_refs)) selection.expanded_branch_refs = [];
-  if (selection.goal_ref && !selection.thread_ref) selection.thread_ref = selection.goal_ref;
-  if (selection.focus_ref && !selection.branch_path.length) selection.branch_path = [selection.focus_ref];
+  routeState = selection.goal_ref ? "valid" : "home";
+  routeError = null;
   syncRoute();
   if (currentProjection) renderProjection(currentProjection);
 }
@@ -261,7 +397,7 @@ function renderHeader(data) {
   const generated = data.generated_at || t("fallback.unknown");
   const goalId = goal.goal_id || t("goal.idMissing");
   const title = goal.title || t("goal.unnamed");
-  const quality = qualityForData(data);
+  const quality = selectionQuality === "missing" ? "missing" : selectionQuality === "stale" ? "stale" : qualityForData(data);
   const lifecycle = lifecycleForData(data);
   const connection = byId("connection");
   if (connection) {
@@ -295,6 +431,7 @@ function renderHome(data) {
     selector.append(text("p", t("home.goalUnavailable"), "claim"));
     catalogState.className = "empty-state state-missing";
     catalogState.append(badge("missing"), text("span", t("home.goalUnavailable")));
+    if (selection.goal_ref) selector.append(text("p", t("selection.missing"), "claim"), text("code", selection.goal_ref, "mono"));
     return;
   }
   const card = document.createElement("article");
@@ -321,10 +458,16 @@ function renderHome(data) {
   card.append(main, open);
   selector.append(card);
 
-  const hasCatalog = Array.isArray(data.goal_catalog) && data.goal_catalog.length > 0;
-  catalogState.className = `empty-state ${hasCatalog ? "state-bound" : "state-missing"}`;
-  catalogState.append(badge(hasCatalog ? "bound" : "missing"), text("span", hasCatalog ? t("home.catalogReady") : t("home.catalogMissing")));
-  if (!hasCatalog) catalogState.append(text("span", t("home.categoryLimit"), "claim"));
+  const catalog = catalogInfo(data);
+  catalogState.className = `empty-state state-${catalog.state === "bound" ? "bound" : catalog.state === "admitted-empty" ? "deferred" : "missing"}`;
+  catalogState.append(badge(catalog.state === "bound" ? "bound" : catalog.state === "admitted-empty" ? "deferred" : "missing"));
+  catalogState.append(text("span", catalog.state === "bound" ? t("home.catalogReady") : catalog.state === "admitted-empty" ? t("home.catalogEmpty") : t("home.catalogMissing")));
+  if (catalog.state === "missing") catalogState.append(text("span", t("home.categoryLimit"), "claim"));
+  if (catalog.state !== "missing") {
+    catalogState.append(text("span", t("home.catalogSource", { value: catalog.source.ref || t("fallback.missing") }), "mono"));
+    catalogState.append(text("span", t("home.catalogCurrentness", { value: statusLabel(catalog.currentness) }), "mono"));
+    catalogState.append(text("span", catalog.claim_limit, "claim"));
+  }
   if (selectionQuality === "missing" && selection.goal_ref && selection.goal_ref !== goalRef(data)) {
     const retained = document.createElement("div");
     retained.className = "empty-state state-missing";
@@ -339,13 +482,20 @@ function renderGoalSummary(data) {
   const goal = data.goal || {};
   const details = document.createElement("details");
   details.className = "summary-details";
+  details.dataset.detailKey = "workspace:summary";
   const summary = document.createElement("summary");
   summary.append(text("strong", goal.title || t("goal.unnamed")), badge(goal.state || "unknown"), badge(qualityForData(data)));
   details.append(summary);
   details.append(text("p", t("workspace.goalId", { value: goal.goal_id || t("fallback.missing") }), "mono"));
   details.append(text("p", t("workspace.currentness", { value: statusLabel(currentnessForData(data)) }), "mono"));
   details.append(text("p", t("workspace.digest", { value: goal.anchor_digest || t("fallback.missing") }), "mono"));
-  details.append(text("p", t("workspace.historyLimit", { value: Array.isArray(data.goal_catalog) ? t("home.catalogReady") : t("home.catalogMissing") }), "claim"));
+  const catalog = catalogInfo(data);
+  details.append(text("p", t("workspace.historyLimit", { value: catalog.state === "bound" ? t("home.catalogReady") : catalog.state === "admitted-empty" ? t("home.catalogEmpty") : t("home.catalogMissing") }), "claim"));
+  if (catalog.state !== "missing") {
+    details.append(text("p", t("home.catalogSource", { value: catalog.source.ref || t("fallback.missing") }), "mono"));
+    details.append(text("p", t("home.catalogCurrentness", { value: statusLabel(catalog.currentness) }), "mono"));
+    details.append(text("p", catalog.claim_limit, "claim"));
+  }
   if (selectionQuality === "stale") details.append(text("p", t("selection.stale"), "claim"));
   if (selectionQuality === "missing") details.append(text("p", t("selection.missing"), "claim"));
   const holder = data.current_holder || {};
@@ -368,7 +518,9 @@ function renderAttentionStrip(data) {
   const target = byId("attention-strip");
   clear(target);
   const inbox = data.pressure_inbox || {};
-  const critical = arrayOrEmpty(inbox.critical_next_routes);
+  const critical = arrayOrEmpty(inbox.items)
+    .filter((item) => item.next_route?.critical && routeMatchesSelection(item))
+    .map((item) => ({ ...item.next_route, pressure_ref: item.pressure_ref, goal_id: item.goal_id, claim_limit: item.claim_limit }));
   const items = arrayOrEmpty(inbox.items);
   const head = document.createElement("div");
   head.className = "attention-head";
@@ -376,7 +528,7 @@ function renderAttentionStrip(data) {
   target.append(head);
   const summary = document.createElement("div");
   summary.className = "attention-summary";
-  summary.append(text("strong", t("pressure.summary", { admitted: items.length, critical: critical.length, legacy: arrayOrEmpty(inbox.legacy_candidates).length })));
+  summary.append(text("strong", `${plural("admitted", items.length)} · ${plural("critical", critical.length)} · ${plural("legacy", arrayOrEmpty(inbox.legacy_candidates).length)}`));
   summary.append(text("span", t("workspace.quality") + ": " + statusLabel(qualityForData(data)), "mono"));
   target.append(summary);
   if (critical.length) {
@@ -435,11 +587,10 @@ function renderTrajectoryItems(data, target) {
     target.append(text("p", t("trajectory.noItems"), "empty-state"));
     return;
   }
-  const expanded = selection.expanded_branch_refs.includes("trajectory:all");
-  const windowed = expanded ? entries : entries.slice(0, MAX_TRAJECTORY_ITEMS);
+  const windowed = dashboardUI.pageWindow(entries, pageFor("trajectory"), MAX_TRAJECTORY_ITEMS, selection.focus_ref);
   const list = document.createElement("div");
   list.className = "trajectory-list";
-  for (const item of windowed) {
+  for (const item of windowed.items) {
     const card = document.createElement("article");
     card.className = `trajectory-card${selection.focus_ref === item.ref ? " selected" : ""}`;
     const head = document.createElement("div");
@@ -448,16 +599,19 @@ function renderTrajectoryItems(data, target) {
     select.type = "button";
     select.className = "trajectory-select";
     select.setAttribute("aria-pressed", String(selection.focus_ref === item.ref));
+    select.setAttribute("data-focus-key", item.ref);
     select.setAttribute("aria-label", t("trajectory.select", { value: item.label }));
     select.append(text("strong", item.label), text("span", t("trajectory.item"), "mono muted"));
     select.addEventListener("click", () => {
-      setSelection({ focus_ref: item.ref, thread_ref: item.ref, branch_path: [item.ref] });
+      setSelection({ focus_ref: item.ref, thread_ref: item.ref, branch_path: [item.ref], page_by_list: { ...selection.page_by_list, trajectory: windowed.page } });
       announce(`${t("trajectory.selected")}: ${item.label}`);
     });
     head.append(select, badge(item.state || "unknown"));
     card.append(head);
     card.append(text("p", item.observation || t("fallback.unavailable"), "claim"));
     const details = document.createElement("details");
+    details.dataset.detailKey = item.ref;
+    details.open = selection.focus_ref === item.ref;
     details.append(text("summary", t("evidence.metadata")));
     details.append(evidenceList(item.evidence_refs));
     details.append(text("pre", boundedJson(item.detail, 1800)));
@@ -465,14 +619,8 @@ function renderTrajectoryItems(data, target) {
     list.append(card);
   }
   target.append(list);
-  if (!expanded && entries.length > windowed.length) {
-    const more = document.createElement("button");
-    more.type = "button";
-    more.className = "secondary bounded-more";
-    more.textContent = t("trajectory.more", { count: entries.length - windowed.length });
-    more.addEventListener("click", () => setSelection({ expanded_branch_refs: [...selection.expanded_branch_refs, "trajectory:all"] }));
-    target.append(more, text("p", t("trajectory.moreClaim"), "claim"));
-  }
+  showPageControls(target, "trajectory", windowed);
+  if (windowed.omitted) target.append(text("p", plural("trajectory", windowed.total - windowed.items.length), "claim"), text("p", t("trajectory.moreClaim"), "claim"));
   target.append(text("p", t("trajectory.focusHelp"), "claim"));
 }
 
@@ -523,6 +671,100 @@ function renderInventory(data, target) {
   target.append(list);
 }
 
+function sourceRefsFrom(value, limit = MAX_REFS_PER_ITEM) {
+  const refs = [];
+  const seen = new Set();
+  function visit(item) {
+    if (refs.length >= limit || item == null) return;
+    if (Array.isArray(item)) {
+      for (const child of item) visit(child);
+      return;
+    }
+    if (typeof item !== "object") return;
+    if (typeof item.ref === "string" && item.ref) {
+      const key = `${item.kind || "ref"}:${item.ref}:${item.sha256 || ""}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        refs.push(item);
+      }
+    }
+    for (const [key, child] of Object.entries(item)) {
+      if (["claim_limit", "observation", "body", "raw", "text"].includes(key)) continue;
+      visit(child);
+    }
+  }
+  visit(value);
+  return refs;
+}
+
+function diagnosticEntries(data) {
+  const entries = [];
+  const firstPopulated = (...values) => values.find((value) => {
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== null && value !== undefined && value !== "";
+  }) ?? null;
+  const add = (kind, label, value, claimLimit, fallbackEvidence = []) => {
+    if (value == null) return;
+    const values = Array.isArray(value) ? value : [value];
+    if (!values.length) return;
+    entries.push({
+      ref: detailRef("diagnostic", kind),
+      kind,
+      label,
+      value: values,
+      evidence_refs: [...sourceRefsFrom(values), ...sourceRefsFrom(fallbackEvidence)].slice(0, MAX_REFS_PER_ITEM),
+      claim_limit: claimLimit || t("workspace.claim"),
+    });
+  };
+  const correlation = data.correlation || {};
+  const readModel = data.correlation_read_model || {};
+  const inbox = data.pressure_inbox || {};
+  add("correlation-errors", t("diagnostic.correlationErrors"), firstPopulated(correlation.degradation, correlation.errors), correlation.claim_limit, correlation);
+  add("correlation-conflicts", t("diagnostic.correlationConflicts"), firstPopulated(readModel.conflicts, correlation.conflicts), readModel.claim_limits?.conflicts || readModel.authority, readModel);
+  add("correlation-duplicates", t("diagnostic.correlationDuplicates"), firstPopulated(readModel.duplicates, correlation.duplicates), readModel.claim_limits?.duplicates || readModel.authority, readModel);
+  add("correlation-invalid", t("diagnostic.correlationInvalid"), firstPopulated(correlation.invalid_records, readModel.rebuild?.errors), correlation.claim_limit || readModel.authority, correlation);
+  add("correlation-claim-limits", t("diagnostic.claimLimits"), firstPopulated(correlation.claim_limits, readModel.claim_limits), correlation.claim_limit || readModel.authority, correlation);
+  add("owner-receipts", t("diagnostic.ownerReceipts"), correlation.envelopes?.map((item) => item.wake_observation?.provenance || item.wake_observation?.ref).filter(Boolean), correlation.claim_limit, correlation.envelopes);
+  add("pressure-errors", t("diagnostic.pressureErrors"), firstPopulated(inbox.errors, inbox.invalid_records), inbox.claim_limit, inbox);
+  add("pressure-conflicts", t("diagnostic.pressureConflicts"), firstPopulated(inbox.conflicts, inbox.duplicates), inbox.claim_limit, inbox);
+  add("pressure-claim-limits", t("diagnostic.pressureClaimLimits"), inbox.claim_limit, inbox.claim_limit, inbox);
+  return entries;
+}
+
+function renderDiagnosticRoutes(data, target) {
+  const entries = diagnosticEntries(data);
+  const panel = document.createElement("section");
+  panel.className = "diagnostic-routes";
+  panel.append(text("h4", t("diagnostic.heading")), text("p", t("diagnostic.claim"), "claim"));
+  if (!entries.length) {
+    panel.append(text("p", t("diagnostic.none"), "claim"));
+    target.append(panel);
+    return;
+  }
+  for (const entry of entries.slice(0, MAX_REFS_PER_ITEM * 2)) {
+    const card = document.createElement("article");
+    card.className = `diagnostic-card${selection.focus_ref === entry.ref ? " selected" : ""}`;
+    const heading = document.createElement("div");
+    heading.className = "diagnostic-head";
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "secondary";
+    select.textContent = entry.label;
+    select.setAttribute("data-focus-key", entry.ref);
+    select.setAttribute("aria-pressed", String(selection.focus_ref === entry.ref));
+    select.addEventListener("click", () => selectDetail(entry.ref));
+    heading.append(select, badge(entry.value.length ? "invalid" : "unknown"));
+    card.append(heading);
+    const details = document.createElement("details");
+    details.dataset.detailKey = entry.ref;
+    details.open = selection.focus_ref === entry.ref;
+    details.append(text("summary", t("diagnostic.open")), evidenceList(entry.evidence_refs), text("pre", boundedJson(entry.value, 2200)), text("p", entry.claim_limit, "claim"));
+    card.append(details);
+    panel.append(card);
+  }
+  target.append(panel);
+}
+
 function renderCorrelation(data, target) {
   const correlation = data.correlation || {};
   const identity = document.createElement("div");
@@ -534,6 +776,7 @@ function renderCorrelation(data, target) {
   // through the localized summary; it is not translated into authority.
   const currentness = correlation.master_filter?.currentness || {};
   const currentnessDetails = document.createElement("details");
+  currentnessDetails.dataset.detailKey = "correlation:currentness";
   currentnessDetails.append(text("summary", t("label.masterFilterCurrentHead")));
   const head = currentness.head || {};
   currentnessDetails.append(text("p", t("label.currentness", { state: statusLabel(currentness.state || "unknown"), sequence: head.sequence ?? t("fallback.unknown"), head: head.sha256 || t("fallback.missing") }), "claim"));
@@ -549,17 +792,30 @@ function renderCorrelation(data, target) {
   retention.className = "correlation-identity";
   retention.append(text("div", t("label.goalLocalCursor", { status: statusLabel(readModel.status || "missing") }), "mono"));
   retention.append(text("div", t("label.schemaPositionRebuild", { schema: readModel.schema_version || t("fallback.missing"), position: cursor.position ?? t("fallback.unknown"), rebuild: readModel.rebuild?.mode || t("fallback.unknown") }), "mono"));
-  retention.append(text("p", t("label.retainedObservations", { observations: arrayOrEmpty(readModel.observations).length, conflicts: arrayOrEmpty(readModel.conflicts).length, winner: readModel.retention?.winner_selection || t("fallback.unknown") })));
+  retention.append(text("p", `${plural("observation", arrayOrEmpty(readModel.observations).length)} · ${plural("conflict", arrayOrEmpty(readModel.conflicts).length)} · ${t("label.winnerSelection", { value: readModel.retention?.winner_selection || t("fallback.unknown") })}`));
+  retention.append(evidenceList([readModel.cursor, readModel.checkpoint, readModel.rebuild].filter(Boolean)));
   target.append(retention);
 
-  const envelopes = bounded(correlation.envelopes, MAX_CORRELATION_ENVELOPES);
-  for (const envelope of envelopes.items) {
+  const envelopeItems = arrayOrEmpty(correlation.envelopes).map((envelope) => ({
+    ref: `return:${envelope.return_observation?.return_id || envelope.correlation_id || t("fallback.return")}`,
+    envelope,
+  }));
+  const envelopes = dashboardUI.pageWindow(envelopeItems, pageFor("correlation"), MAX_CORRELATION_ENVELOPES, selection.focus_ref);
+  for (const entry of envelopes.items) {
+    const envelope = entry.envelope;
     const card = document.createElement("article");
-    card.className = "correlation-card";
+    card.className = `correlation-card${selection.focus_ref === entry.ref ? " selected" : ""}`;
     const headBlock = document.createElement("div");
     headBlock.className = "correlation-head";
     const returnId = envelope.return_observation?.return_id || envelope.correlation_id || t("fallback.return");
-    headBlock.append(text("strong", t("label.lunaReturn", { value: returnId })), badge(envelope.state || "invalid"));
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "secondary";
+    select.textContent = t("label.lunaReturn", { value: returnId });
+    select.setAttribute("data-focus-key", entry.ref);
+    select.setAttribute("aria-pressed", String(selection.focus_ref === entry.ref));
+    select.addEventListener("click", () => selectDetail(entry.ref, "correlation", envelopes.page));
+    headBlock.append(select, badge(envelope.state || "invalid"));
     card.append(headBlock);
     const chain = document.createElement("div");
     chain.className = "correlation-chain";
@@ -581,15 +837,20 @@ function renderCorrelation(data, target) {
     }
     card.append(chain);
     const details = document.createElement("details");
+    details.dataset.detailKey = entry.ref;
+    details.open = selection.focus_ref === entry.ref;
     details.append(text("summary", t("label.wakeDetails")));
     details.append(text("p", t("label.wakeFreshness", { source: wake.source_family || t("fallback.unknownSource"), freshness: statusLabel(wake.freshness || "unknown"), missingness: statusLabel(wake.missingness || "unknown") }), "claim"));
     details.append(evidenceList([wake.ref, { label: t("label.rawOwnerReceipt"), kind: wake.source_schema_version || t("fallback.wakeReceipt"), ref: wake.provenance?.raw_owner_ref || wake.ref?.ref, sha256: wake.provenance?.raw_owner_content_sha256 || wake.ref?.sha256, observed_at: wake.observed_at }]));
     const sourceSummary = { source_schema_version: wake.source_schema_version, owner_repo: wake.provenance?.owner_repo, owner_ref: wake.provenance?.owner_ref, contract_ref: wake.provenance?.contract_ref, failure: wake.failure };
     details.append(text("pre", JSON.stringify(sourceSummary, null, 2)));
+    details.append(text("pre", boundedJson({ return: envelope.return_observation, claim_limits: envelope.claim_limits, degradation: envelope.degradation }, 2200)));
+    details.append(text("p", envelope.claim_limits?.join ? envelope.claim_limits.join(" ") : envelope.claim_limits || correlation.claim_limit || t("workspace.claim"), "claim"));
     card.append(details);
     target.append(card);
   }
-  if (envelopes.omitted) target.append(text("p", t("bounded.envelopesOmitted", { count: envelopes.omitted }), "claim"));
+  showPageControls(target, "correlation", envelopes);
+  if (envelopes.omitted) target.append(text("p", plural("envelope", envelopes.total - envelopes.items.length), "claim"));
   const obligations = arrayOrEmpty(correlation.new_obligations);
   const obligationBlock = document.createElement("div");
   obligationBlock.className = "correlation-obligations";
@@ -612,34 +873,64 @@ function renderPressureInbox(data, target) {
   summary.className = "pressure-summary";
   const items = arrayOrEmpty(inbox.items);
   const critical = arrayOrEmpty(inbox.critical_next_routes);
-  summary.append(badge(inbox.status || "missing"), text("span", t("pressure.summary", { admitted: items.length, critical: critical.length, legacy: arrayOrEmpty(inbox.legacy_candidates).length }), "mono"));
+  summary.append(badge(inbox.status || "missing"), text("span", `${plural("admitted", items.length)} · ${plural("critical", critical.length)} · ${plural("legacy", arrayOrEmpty(inbox.legacy_candidates).length)}`, "mono"));
   target.append(summary);
   const list = document.createElement("div");
   list.className = "pressure-list";
-  for (const item of items.slice(0, MAX_PRESSURE_ITEMS)) {
+  const all = [
+    ...items.map((item) => ({ ref: `pressure:${item.pressure_ref?.id || item.pressure_ref?.ref || t("fallback.pressure")}`, type: "item", item })),
+    ...arrayOrEmpty(inbox.legacy_candidates).map((item) => ({ ref: `pressure:${item.pressure_ref?.id || item.pressure_ref?.ref || t("fallback.pressure")}`, type: "legacy", item })),
+  ];
+  const windowed = dashboardUI.pageWindow(all, pageFor("pressure"), MAX_PRESSURE_ITEMS, selection.focus_ref);
+  for (const entry of windowed.items) {
+    if (entry.type === "legacy") {
+      const candidate = entry.item;
+      const card = document.createElement("article");
+      card.className = `pressure-card legacy${selection.focus_ref === entry.ref ? " selected" : ""}`;
+      const select = document.createElement("button");
+      select.type = "button";
+      select.className = "secondary";
+      select.textContent = candidate.pressure_ref?.id || t("pressure.legacyCandidate");
+      select.setAttribute("data-focus-key", entry.ref);
+      select.setAttribute("aria-pressed", String(selection.focus_ref === entry.ref));
+      select.addEventListener("click", () => selectDetail(entry.ref, "pressure", windowed.page));
+      card.append(select, badge("deferred"), text("p", candidate.legacy_obligation_redacted || t("fallback.legacyObligationRedacted"), "claim"), text("p", t("pressure.sourceDigest", { value: candidate.legacy_obligation_digest || t("fallback.unavailable") }), "mono muted"), text("p", t("pressure.missingFields", { value: arrayOrEmpty(candidate.missing_fields).join(", ") || t("fallback.unknown") }), "claim"));
+      const details = document.createElement("details");
+      details.dataset.detailKey = entry.ref;
+      details.open = selection.focus_ref === entry.ref;
+      details.append(text("summary", t("pressure.details")), evidenceList([candidate.source_evidence_ref, candidate.pressure_ref]), text("pre", boundedJson(candidate, 1800)), text("p", candidate.claim_limit || inbox.claim_limit || t("workspace.claim"), "claim"));
+      card.append(details);
+      list.append(card);
+      continue;
+    }
+    const item = entry.item;
     const card = document.createElement("article");
-    card.className = `pressure-card${item.next_route?.critical ? " critical" : ""}`;
+    card.className = `pressure-card${item.next_route?.critical ? " critical" : ""}${selection.focus_ref === entry.ref ? " selected" : ""}`;
     const head = document.createElement("div");
     head.className = "pressure-head";
-    head.append(text("strong", item.pressure_ref?.id || t("fallback.pressure")), badge(item.outcome?.state || "invalid"));
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "secondary";
+    select.textContent = item.pressure_ref?.id || t("fallback.pressure");
+    select.setAttribute("data-focus-key", entry.ref);
+    select.setAttribute("aria-pressed", String(selection.focus_ref === entry.ref));
+    select.addEventListener("click", () => selectDetail(entry.ref, "pressure", windowed.page));
+    head.append(select, badge(item.outcome?.state || "invalid"));
     card.append(head, text("p", item.affected_goal_criterion || t("fallback.goalCriterionMissing"), "pressure-criterion"), text("p", t("pressure.ifOmitted", { value: item.consequence_of_omission || t("fallback.consequenceMissing") }), "claim"));
     const route = document.createElement("div");
     route.className = "pressure-route";
     route.append(text("span", item.next_route?.critical ? t("pressure.criticalNextRoute") : t("pressure.nextRoute"), "pressure-route-label"), text("strong", item.next_route?.route || t("fallback.routeMissing")), text("span", t("pressure.routeMeta", { owner: item.next_route?.owner || t("fallback.ownerMissing"), effect: item.next_route?.effect || t("fallback.unknown"), authority: item.next_route?.authority || t("fallback.unknown") }), "mono"));
     card.append(route);
     const details = document.createElement("details");
+    details.dataset.detailKey = entry.ref;
+    details.open = selection.focus_ref === entry.ref;
     details.append(text("summary", t("pressure.details")), text("p", t("pressure.naturalOwner", { owner: item.natural_owner?.owner || t("fallback.missing"), ref: item.natural_owner?.owner_ref || t("fallback.ownerRefMissing") }), "claim"), text("p", t("pressure.trigger", { value: item.recommended_trigger_strength || t("fallback.missing") }), "claim"), text("p", t("pressure.stopLine", { value: item.stop_line || t("fallback.missing") }), "claim"), text("p", t("pressure.wakeCondition", { value: item.wake_condition || t("fallback.missing") }), "claim"), evidenceList(item.evidence), text("pre", boundedJson({ checked_existing_surfaces: item.checked_existing_surfaces, independence_signals: item.independence_signals, outcome: item.outcome }, 1800)), text("p", t("pressure.claimLimit", { value: item.claim_limit || "" }), "claim"));
     card.append(details);
     list.append(card);
   }
-  if (items.length > MAX_PRESSURE_ITEMS) list.append(text("p", t("bounded.pressureOmitted", { count: items.length - MAX_PRESSURE_ITEMS }), "claim"));
-  for (const candidate of arrayOrEmpty(inbox.legacy_candidates).slice(0, MAX_PRESSURE_ITEMS)) {
-    const card = document.createElement("article");
-    card.className = "pressure-card legacy";
-    card.append(text("strong", candidate.pressure_ref?.id || t("pressure.legacyCandidate")), badge("deferred"), text("p", candidate.legacy_obligation_redacted || t("fallback.legacyObligationRedacted"), "claim"), text("p", t("pressure.sourceDigest", { value: candidate.legacy_obligation_digest || t("fallback.unavailable") }), "mono muted"), text("p", t("pressure.missingFields", { value: arrayOrEmpty(candidate.missing_fields).join(", ") || t("fallback.unknown") }), "claim"));
-    list.append(card);
-  }
-  if (!items.length && !arrayOrEmpty(inbox.legacy_candidates).length) list.append(text("p", t("attention.noPressure"), "claim"));
+  showPageControls(list, "pressure", windowed);
+  if (windowed.omitted) list.append(text("p", plural("pressure", windowed.total - windowed.items.length), "claim"));
+  if (!all.length) list.append(text("p", t("attention.noPressure"), "claim"));
   target.append(list);
 }
 
@@ -664,22 +955,34 @@ function renderActorActivity(data, target) {
   const summary = activity.summary || {};
   const intro = document.createElement("div");
   intro.className = "activity-summary";
-  intro.append(text("strong", t("activity.observed", { count: summary.actor_count == null ? statusLabel("unknown") : summary.actor_count })), badge(activity.state || "unknown"), text("p", activity.observation || t("fallback.actorActivityUnavailable")));
+  intro.append(text("strong", summary.actor_count == null ? plural("actor", null) : plural("actor", summary.actor_count)), badge(activity.state || "unknown"), text("p", activity.observation || t("fallback.actorActivityUnavailable")));
   target.append(intro);
   const actors = arrayOrEmpty(activity.actors);
   if (!actors.length) {
     target.append(text("p", t("fallback.noActorEnvelope"), "claim"));
     return;
   }
-  const windowed = bounded(actors, MAX_ACTOR_CARDS, selection.focus_ref);
-  target.append(text("p", t("participants.bounded", { shown: windowed.items.length, total: windowed.total }), "claim"));
-  for (const actor of windowed.items) {
+  const actorItems = actors.map((actor) => ({
+    ref: `actor:${actor.actor_key || actor.actor_id || t("fallback.actorKeyUnknown")}`,
+    actor,
+  }));
+  const windowed = dashboardUI.pageWindow(actorItems, pageFor("actors"), MAX_ACTOR_CARDS, selection.focus_ref);
+  target.append(text("p", plural("participantsShown", windowed.total, { shown: windowed.items.length }), "claim"));
+  for (const entry of windowed.items) {
+    const actor = entry.actor;
     const card = document.createElement("article");
-    card.className = "actor-card";
+    card.className = `actor-card${selection.focus_ref === entry.ref ? " selected" : ""}`;
     const head = document.createElement("div");
     head.className = "actor-head";
     const title = document.createElement("div");
-    title.append(text("strong", actor.identity?.label || actor.actor_id || actor.actor_key || t("fallback.actorIdentityUnknown")), text("div", actor.actor_key || t("fallback.actorKeyUnknown"), "mono muted"));
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "secondary";
+    select.textContent = actor.identity?.label || actor.actor_id || actor.actor_key || t("fallback.actorIdentityUnknown");
+    select.setAttribute("data-focus-key", entry.ref);
+    select.setAttribute("aria-pressed", String(selection.focus_ref === entry.ref));
+    select.addEventListener("click", () => selectDetail(entry.ref, "actors", windowed.page));
+    title.append(select, text("div", actor.actor_key || t("fallback.actorKeyUnknown"), "mono muted"));
     head.append(title, badge(actor.state || "unknown"));
     card.append(head);
     const grid = document.createElement("div");
@@ -697,35 +1000,50 @@ function renderActorActivity(data, target) {
     wakeReturn.append(text("strong", t("activity.wakeReturn")), badge(actor.wake_return?.return_state || "unknown"), text("span", t("activity.wakeReentryAccepted", { wake: activityValue(actor.wake_return, "wake_state"), reentry: activityValue(actor.wake_return, "reentry_state"), turn: activityValue(actor.wake_return, "accepted_turn_id") }), "mono"));
     card.append(wakeReturn);
     const details = document.createElement("details");
+    details.dataset.detailKey = entry.ref;
+    details.open = selection.focus_ref === entry.ref;
     details.append(text("summary", t("activity.technicalDetails")), evidenceList(actor.evidence_refs), text("pre", boundedJson({ incarnation: actor.identity?.incarnation_id, model: actor.identity?.model_id || actor.model, task: actor.task, process: actor.process, session: actor.session, terminal: actor.terminal, usage: actor.usage, provenance: actor.provenance }, 2600)));
     card.append(details, text("p", actor.claim_limit || "", "claim"));
     target.append(card);
   }
-  if (windowed.omitted) target.append(text("p", t("participants.more", { count: windowed.omitted }), "claim"));
+  showPageControls(target, "actors", windowed);
+  if (windowed.omitted) target.append(text("p", plural("actor", windowed.total - windowed.items.length), "claim"));
 }
 
 function renderSources(data, target) {
-  const sources = bounded(data.sources, MAX_SOURCE_CARDS);
+  const sourceItems = arrayOrEmpty(data.sources).map((item) => ({ ref: `source:${item.id || t("fallback.unavailable")}`, item }));
+  const sources = dashboardUI.pageWindow(sourceItems, pageFor("sources"), MAX_SOURCE_CARDS, selection.focus_ref);
   const grid = document.createElement("div");
   grid.className = "source-grid";
-  for (const item of sources.items) {
+  for (const entry of sources.items) {
+    const item = entry.item;
     const card = document.createElement("article");
-    card.className = "source-card";
+    card.className = `source-card${selection.focus_ref === entry.ref ? " selected" : ""}`;
     const head = document.createElement("div");
     head.className = "source-head";
-    head.append(text("strong", item.id), badge(item.state || "unknown"));
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "secondary";
+    select.textContent = item.id;
+    select.setAttribute("data-focus-key", entry.ref);
+    select.setAttribute("aria-pressed", String(selection.focus_ref === entry.ref));
+    select.addEventListener("click", () => selectDetail(entry.ref, "sources", sources.page));
+    head.append(select, badge(item.state || "unknown"));
     card.append(head, text("div", item.owner || t("fallback.ownerMissing"), "source-owner"), text("p", item.observation || t("fallback.unavailable")));
     const freshness = document.createElement("div");
     freshness.append(text("span", t("sources.freshness"), "muted"), badge(item.freshness || "unknown"));
     card.append(freshness);
     const details = document.createElement("details");
+    details.dataset.detailKey = entry.ref;
+    details.open = selection.focus_ref === entry.ref;
     details.append(text("summary", t("sources.metadataEvidence")), evidenceList(item.evidence_refs), text("pre", boundedJson(item.metadata || {}, 2000)), text("p", t("sources.claimLimit", { value: item.claim_limit || "" }), "claim"));
     card.append(details);
     grid.append(card);
   }
   if (!sources.items.length) grid.append(text("p", t("evidence.noSources"), "claim"));
   target.append(grid);
-  if (sources.omitted) target.append(text("p", t("bounded.sourcesOmitted", { count: sources.omitted }), "claim"));
+  showPageControls(target, "sources", sources);
+  if (sources.omitted) target.append(text("p", plural("source", sources.total - sources.items.length), "claim"));
 }
 
 function renderOwners(data, target) {
@@ -745,9 +1063,22 @@ function renderOwners(data, target) {
   head.append(row);
   table.append(head);
   const body = document.createElement("tbody");
-  for (const item of arrayOrEmpty(data.owner_surfaces).slice(0, MAX_OWNER_ROWS)) {
+  const ownerItems = arrayOrEmpty(data.owner_surfaces).map((item, index) => ({ ref: `owner:${item.owner || index}`, item }));
+  const owners = dashboardUI.pageWindow(ownerItems, pageFor("owners"), MAX_OWNER_ROWS, selection.focus_ref);
+  for (const entry of owners.items) {
+    const item = entry.item;
     const rowNode = document.createElement("tr");
-    rowNode.append(text("td", item.owner || t("fallback.ownerMissing")), text("td", item.authority || t("fallback.unknown")), text("td", item.source_path || t("fallback.unavailable"), "mono"));
+    rowNode.className = selection.focus_ref === entry.ref ? "selected" : "";
+    const ownerCell = document.createElement("td");
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "secondary";
+    select.textContent = item.owner || t("fallback.ownerMissing");
+    select.setAttribute("data-focus-key", entry.ref);
+    select.setAttribute("aria-pressed", String(selection.focus_ref === entry.ref));
+    select.addEventListener("click", () => selectDetail(entry.ref, "owners", owners.page));
+    ownerCell.append(select);
+    rowNode.append(ownerCell, text("td", item.authority || t("fallback.unknown")), text("td", item.source_path || t("fallback.unavailable"), "mono"));
     const observed = document.createElement("td");
     const snapshot = item.source_snapshot || {};
     observed.append(badge(snapshot.state || "unknown"));
@@ -759,23 +1090,25 @@ function renderOwners(data, target) {
   table.append(body);
   wrapper.append(table);
   target.append(wrapper);
-  if (arrayOrEmpty(data.owner_surfaces).length > MAX_OWNER_ROWS) target.append(text("p", t("bounded.ownersOmitted", { count: arrayOrEmpty(data.owner_surfaces).length - MAX_OWNER_ROWS }), "claim"));
+  showPageControls(target, "owners", owners);
+  if (owners.omitted) target.append(text("p", plural("owner", owners.total - owners.items.length), "claim"));
 }
 
 function renderRecords(data, target) {
-  const annotations = data.annotations || { count: 0 };
-  const intents = data.action_intents || { count: 0 };
+  const annotations = recordInfo(data, "annotations");
+  const intents = recordInfo(data, "action_intents");
   const grid = document.createElement("div");
   grid.className = "records-grid";
   const recordBlock = (headingKey, summary, countKey, recordKey) => {
     const block = document.createElement("article");
     block.className = "record-card";
-    block.append(text("h4", t(headingKey)), text("strong", t(countKey, { count: summary.count ?? 0 })));
+    block.append(text("h4", t(headingKey)), badge(summary.state || "unknown"), text("strong", summary.count == null ? t("records.countUnknown") : plural(summary === annotations ? "annotation" : "intent", summary.count)));
     const latest = arrayOrEmpty(summary.latest);
     if (latest.length) {
       for (const item of latest.slice(-3).reverse()) block.append(text("p", t("records.latest", { created: item.created_at || t("fallback.record"), target: item.target_ref || t("fallback.target") }), "mono"));
-    } else block.append(text("p", t("records.empty"), "claim"));
+    } else block.append(text("p", summary.state === "missing" ? t("records.sourceMissing") : t("records.empty"), "claim"));
     block.append(text("p", t(recordKey), "claim"));
+    block.append(evidenceList(summary.evidence_refs), text("p", summary.claim_limit || t("records.sourceMissing"), "claim"));
     return block;
   };
   grid.append(recordBlock("records.annotations", annotations, "records.annotationCount", "annotations.claim"), recordBlock("records.intents", intents, "records.intentCount", "actionIntents.suffix"));
@@ -785,6 +1118,7 @@ function renderRecords(data, target) {
 function renderLimits(data, target) {
   const details = document.createElement("details");
   details.className = "claim-details";
+  details.dataset.detailKey = "workspace:claim-limits";
   details.append(text("summary", t("claimLimits.heading")));
   const list = document.createElement("ul");
   for (const item of arrayOrEmpty(data.claim_limits).slice(0, MAX_REFS_PER_ITEM * 2)) list.append(text("li", item));
@@ -814,6 +1148,7 @@ function renderAttentionLens(data, target) {
   const correlation = createPanel("section.currentCorrelation", "evidence.correlation", "currentCorrelation.claim");
   renderCorrelation(data, correlation.body);
   target.append(correlation.panel);
+  renderDiagnosticRoutes(data, target);
 }
 
 function renderParticipantsLens(data, target) {
@@ -832,6 +1167,7 @@ function renderEvidenceLens(data, target) {
   const correlation = createPanel("section.currentCorrelation", "evidence.correlation", "currentCorrelation.claim");
   renderCorrelation(data, correlation.body);
   target.append(correlation.panel);
+  renderDiagnosticRoutes(data, target);
 }
 
 function renderRecordsLens(data, target) {
@@ -856,12 +1192,55 @@ function renderLens(data) {
   else renderTrajectoryLens(data, target);
 }
 
+function envelopeMatchesSelection(envelope) {
+  const goal = envelope?.goal || {};
+  if (goal.goal_id !== selection.goal_ref) return false;
+  if (selection.thread_ref && goal.master_thread_id !== selection.thread_ref && selection.thread_ref !== selection.goal_ref && selection.thread_ref !== selection.focus_ref) return false;
+  if (!selection.focus_ref) return false;
+  return `return:${envelope.return_observation?.return_id || envelope.correlation_id || t("fallback.return")}` === selection.focus_ref;
+}
+
+function routeMatchesSelection(item) {
+  if (!selection.goal_ref || !item) return false;
+  const itemGoal = item.goal_id || item.goal_ref || item.goal?.goal_id;
+  if (!itemGoal || itemGoal !== selection.goal_ref) return false;
+  const itemThread = item.thread_ref || item.master_thread_id || item.context_thread_ref;
+  if (selection.thread_ref && itemThread && itemThread !== selection.thread_ref) return false;
+  const selected = selection.focus_ref;
+  if (!selected) return true;
+  const pressureRef = item.pressure_ref || {};
+  return [item.context_ref, item.target_ref, item.focus_ref, pressureRef.id, pressureRef.ref, `pressure:${pressureRef.id || pressureRef.ref || ""}`].filter(Boolean).includes(selected);
+}
+
+function routeReadiness(item) {
+  if (!routeMatchesSelection(item)) return { ready: false, reason: "context" };
+  const route = item.next_route || {};
+  const currentness = route.currentness || item.currentness || item.pressure_ref?.currentness;
+  const ready = Boolean(
+    route.owner && route.route && route.effect === "none" && route.authority
+    && item.stop_line && item.wake_condition && arrayOrEmpty(item.evidence).length
+    && currentness
+  );
+  return { ready, route, currentness, reason: ready ? null : "contract" };
+}
+
+function selectedEnvelope(data) {
+  return arrayOrEmpty(data.correlation?.envelopes).find(envelopeMatchesSelection) || null;
+}
+
+function selectedOperateRoute(data) {
+  return arrayOrEmpty(data.pressure_inbox?.items)
+    .map((item) => ({ item, readiness: routeReadiness(item) }))
+    .find((candidate) => candidate.readiness.ready) || null;
+}
+
 function renderThread(data) {
   const target = byId("thread-items");
   clear(target);
   const quality = byId("thread-quality");
-  setBadge(quality, data?.thread_projection?.state || "missing");
   const selected = selection.thread_ref || selection.focus_ref || selection.goal_ref;
+  const envelope = selectedEnvelope(data);
+  setBadge(quality, selectionQuality === "missing" ? "missing" : envelope || !selection.focus_ref ? (data?.thread_projection?.state || "missing") : "missing");
   const selectionLabel = byId("thread-selection");
   if (selectionLabel) selectionLabel.textContent = selected ? t("thread.selection", { value: selected }) : t("thread.noSelection");
   if (!selected) {
@@ -871,28 +1250,29 @@ function renderThread(data) {
     metadata.className = "thread-item thread-unavailable";
     metadata.append(text("strong", t("thread.metadataOnly")), text("p", t("thread.unavailable"), "claim"), text("p", t("thread.rawUnavailable"), "claim"));
     target.append(metadata);
-    const correlation = data.correlation || {};
-    const envelopes = arrayOrEmpty(correlation.envelopes);
-    const envelope = envelopes.find((candidate) => `return:${candidate.return_observation?.return_id || candidate.correlation_id}` === selection.focus_ref) || envelopes[0];
     if (envelope) {
       const ret = document.createElement("article");
       ret.className = "thread-item";
-      ret.append(text("strong", t("thread.returnItem")), badge(envelope.state || "invalid"), text("p", envelope.return_observation?.filter_disposition ? statusLabel(envelope.return_observation.filter_disposition) : t("fallback.missing"), "claim"), evidenceList([envelope.return_observation?.ref, envelope.accepted_turn?.basis_ref]));
+      ret.append(text("strong", t("thread.returnItem")), badge(envelope.state || "invalid"), text("p", envelope.return_observation?.filter_disposition ? statusLabel(envelope.return_observation.filter_disposition) : t("fallback.missing"), "claim"), evidenceList([envelope.return_observation?.ref, envelope.accepted_turn?.basis_ref]), text("p", envelope.claim_limits?.join ? envelope.claim_limits.join(" ") : envelope.claim_limits || t("thread.claimLimit"), "claim"));
       target.append(ret);
       const wake = envelope.wake_observation || {};
       const wakeItem = document.createElement("article");
       wakeItem.className = "thread-item";
-      wakeItem.append(text("strong", t("thread.wakeItem")), badge(wake.outcome || "missing"), text("p", t("label.wakeFreshness", { source: wake.source_family || t("fallback.unknownSource"), freshness: statusLabel(wake.freshness || "unknown"), missingness: statusLabel(wake.missingness || "unknown") }), "claim"), evidenceList([wake.ref]));
+      wakeItem.append(text("strong", t("thread.wakeItem")), badge(wake.outcome || "missing"), text("p", t("label.wakeFreshness", { source: wake.source_family || t("fallback.unknownSource"), freshness: statusLabel(wake.freshness || "unknown"), missingness: statusLabel(wake.missingness || "unknown") }), "claim"), evidenceList([wake.ref, { label: t("label.rawOwnerReceipt"), kind: wake.source_schema_version || t("fallback.wakeReceipt"), ref: wake.provenance?.raw_owner_ref, sha256: wake.provenance?.raw_owner_content_sha256 }]));
       target.append(wakeItem);
+    } else if (selection.focus_ref || selectionQuality === "stale") {
+      target.append(text("p", t("thread.noMatchingEvidence"), "empty-state"), text("code", selection.focus_ref || selected, "mono"));
     }
-    const annotations = arrayOrEmpty(data.annotations?.latest).filter((item) => !item.target_ref || item.target_ref === selected || item.target_ref === selection.goal_ref);
+    const annotationSurface = recordInfo(data, "annotations");
+    const annotations = arrayOrEmpty(annotationSurface.latest).filter((item) => item.target_ref === selected || (selected === selection.goal_ref && item.target_ref === selection.goal_ref));
     for (const item of annotations.slice(-4).reverse()) {
       const card = document.createElement("article");
       card.className = "thread-item";
       card.append(text("strong", t("thread.annotationItem")), text("p", item.body || t("fallback.unavailable")), text("p", `${item.author_ref || t("fallback.unknown")} · ${item.created_at || t("fallback.unknown")}`, "mono muted"), text("p", t("thread.claimLimit"), "claim"));
       target.append(card);
     }
-    const intents = arrayOrEmpty(data.action_intents?.latest).filter((item) => !item.target_ref || item.target_ref === selected || item.target_ref === selection.goal_ref);
+    const intentSurface = recordInfo(data, "action_intents");
+    const intents = arrayOrEmpty(intentSurface.latest).filter((item) => item.target_ref === selected || (selected === selection.goal_ref && item.target_ref === selection.goal_ref));
     for (const item of intents.slice(-4).reverse()) {
       const card = document.createElement("article");
       card.className = "thread-item";
@@ -905,12 +1285,13 @@ function renderThread(data) {
   const routeCard = byId("operate-route-card");
   if (routeCard) {
     clear(routeCard);
-    const route = arrayOrEmpty(data.pressure_inbox?.items).find((item) => item.next_route?.critical) || arrayOrEmpty(data.pressure_inbox?.items)[0];
-    const owner = route?.next_route?.owner || route?.natural_owner?.owner;
-    const stopLine = route?.stop_line;
-    const returnRoute = route?.wake_condition;
-    routeCard.className = `operate-route-card ${owner && stopLine ? "route-ready" : "route-missing"}`;
-    routeCard.append(text("strong", owner && stopLine ? t("operate.routeReady") : t("operate.routeMissing")), text("span", t("operate.target", { value: selected || t("fallback.missing") }), "mono"), text("span", t("operate.owner", { value: owner || t("fallback.ownerMissing") }), "mono"), text("span", t("operate.stopLine", { value: stopLine || t("fallback.missing") }), "mono"), text("span", t("operate.returnRoute", { value: returnRoute || t("fallback.missing") }), "mono"), text("span", t("operate.effectCeiling"), "mono"));
+    const candidate = selectedOperateRoute(data);
+    const item = candidate?.item;
+    const readiness = candidate?.readiness || { ready: false, route: {}, currentness: null };
+    const route = readiness.route || {};
+    routeCard.className = `operate-route-card ${readiness.ready ? "route-ready" : "route-missing"}`;
+    routeCard.append(text("strong", readiness.ready ? t("operate.routeReady") : t("operate.routeMissing")), text("span", t("operate.target", { value: selected || t("fallback.missing") }), "mono"), text("span", t("operate.owner", { value: route.owner || t("fallback.ownerMissing") }), "mono"), text("span", t("operate.stopLine", { value: item?.stop_line || t("fallback.missing") }), "mono"), text("span", t("operate.returnRoute", { value: item?.wake_condition || t("fallback.missing") }), "mono"), text("span", t("operate.currentness", { value: readiness.currentness || t("fallback.unknown") }), "mono"), text("span", t("operate.effectCeiling"), "mono"));
+    if (item) routeCard.append(evidenceList(item.evidence));
   }
   setFormTargets(selected || selection.goal_ref || "goal:unknown");
 }
@@ -923,28 +1304,35 @@ function setFormTargets(targetRef) {
 }
 
 function renderProjection(data) {
+  interactionState = captureInteractionState();
+  const retained = selectionQuality === "missing"
+    && lastGoodProjection
+    && goalRef(lastGoodProjection) === selection.goal_ref
+    ? lastGoodProjection
+    : data;
   renderRefreshState();
-  renderHeader(data);
+  renderRouteState();
+  renderHeader(retained);
   renderHome(data);
-  const hasGoal = Boolean(goalRef(data));
+  const hasGoal = Boolean(goalRef(retained));
   const workspace = byId("workspace-view");
   const home = byId("home-view");
-  const selectedCurrentGoal = hasGoal && selection.goal_ref === goalRef(data);
+  const selectedCurrentGoal = hasGoal && selection.goal_ref === goalRef(retained);
   if (workspace) workspace.classList.toggle("hidden", !selectedCurrentGoal);
   if (home) home.classList.toggle("hidden", selectedCurrentGoal);
   const fallback = byId("fallback-evidence");
-  if (fallback) fallback.classList.add("hidden");
-  if (!selectedCurrentGoal) return;
-  renderBreadcrumb(data);
-  renderGoalSummary(data);
-  renderAttentionStrip(data);
-  renderRailQuality(data);
-  renderLens(data);
-  renderThread(data);
+  if (fallback) fallback.classList.toggle("hidden", selectedCurrentGoal || Boolean(data));
+  if (selectedCurrentGoal) {
+    renderBreadcrumb(retained);
+    renderGoalSummary(retained);
+    renderAttentionStrip(retained);
+    renderRailQuality(retained);
+    renderLens(retained);
+    renderThread(retained);
+  }
   updateLensButtons();
   updateModeButtons();
-  const center = byId("center-surface");
-  if (center) center.setAttribute("aria-busy", refreshState === "loading" ? "true" : "false");
+  restoreInteractionState(interactionState);
 }
 
 function knownFocusRefs(data) {
@@ -953,6 +1341,11 @@ function knownFocusRefs(data) {
     ...arrayOrEmpty(data.lifecycle).map((item) => `lifecycle:${item.step}`),
     ...arrayOrEmpty(data.correlation?.envelopes).map((item) => `return:${item.return_observation?.return_id || item.correlation_id || t("fallback.return")}`),
     ...arrayOrEmpty(data.pressure_inbox?.items).map((item) => `pressure:${item.pressure_ref?.id || item.pressure_ref?.ref || t("fallback.pressure")}`),
+    ...arrayOrEmpty(data.pressure_inbox?.legacy_candidates).map((item) => `pressure:${item.pressure_ref?.id || item.pressure_ref?.ref || t("fallback.pressure")}`),
+    ...arrayOrEmpty(data.actor_activity?.actors).map((item) => `actor:${item.actor_key || item.actor_id || t("fallback.actorKeyUnknown")}`),
+    ...arrayOrEmpty(data.sources).map((item) => `source:${item.id || t("fallback.unavailable")}`),
+    ...arrayOrEmpty(data.owner_surfaces).map((item, index) => `owner:${item.owner || index}`),
+    ...diagnosticEntries(data).map((item) => item.ref),
   ]);
 }
 
@@ -975,13 +1368,15 @@ async function refresh() {
     refreshState = "loading";
     renderRefreshState();
   }
+  setProjectionBusy(true);
   try {
     const response = await fetch("/api/projection", { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || data.error || t("error.projectionRequestFailed"));
-    const wasDegraded = refreshState !== "current";
+    const alertWasVisible = !byId("alert")?.classList.contains("hidden");
+    const wasDegraded = refreshState !== "current" || alertWasVisible;
     currentProjection = data;
-    lastGoodProjection = data;
+    if (!selection.goal_ref || goalRef(data) === selection.goal_ref || !lastGoodProjection) lastGoodProjection = data;
     lastGoodAt = data.generated_at || new Date().toISOString();
     refreshState = "current";
     if (selection.goal_ref && selection.goal_ref !== goalRef(data)) selectionQuality = "missing";
@@ -989,6 +1384,8 @@ async function refresh() {
     else if (!selectionQuality || selectionQuality === "missing" || selectionQuality === "stale") selectionQuality = null;
     selection.observation_cursor_or_generation = data.generated_at || null;
     renderProjection(data);
+    clearAlert();
+    setProjectionBusy(false);
     if (wasDegraded) announce(t("refresh.updated"));
   } catch (error) {
     const alert = byId("alert");
@@ -1006,6 +1403,7 @@ async function refresh() {
       connection.textContent = t("connection.projectionUnavailable");
       connection.className = `badge state-${refreshState === "stale" ? "stale" : "invalid"}`;
     }
+    setProjectionBusy(false);
     announce(t("refresh.failed", { value: error.message }));
   }
 }
@@ -1025,6 +1423,7 @@ async function submitForm(event, route, form) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || data.error || t("error.writeFailed"));
     form.reset();
+    if (interactionState?.drafts) delete interactionState.drafts[form.id];
     if (status) status.textContent = t("form.submitSuccess");
     await refresh();
   } catch (error) {
@@ -1062,6 +1461,14 @@ publishNativePresentationPreference();
 
 byId("annotation-form")?.addEventListener("submit", (event) => submitForm(event, "/api/annotations", event.currentTarget));
 byId("intent-form")?.addEventListener("submit", (event) => submitForm(event, "/api/action-intents", event.currentTarget));
+
+window.AoaDashboardApp = Object.freeze({
+  captureInteractionState,
+  restoreInteractionState,
+  setProjectionBusy,
+  refresh,
+  getSelection: () => ({ ...selection, branch_path: [...selection.branch_path], expanded_branch_refs: [...selection.expanded_branch_refs], page_by_list: { ...selection.page_by_list } }),
+});
 
 refresh();
 setInterval(refresh, 5000);
