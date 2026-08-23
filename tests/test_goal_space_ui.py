@@ -299,13 +299,20 @@ const en = load("en");
 const ru = load("ru");
 const one = projection("goal:one", "Canonical one", { en: "First future goal", ru: "Первая будущая цель" });
 const two = projection("goal:two", "Canonical two", { en: "Second future goal", ru: "Вторая будущая цель" });
+const topology = {
+  ...one,
+  goal_topology: { state: "bound" },
+  dag: [{ id: "GS18", source_kind: "master_goal_topology", title: "Full aoa-dashboard Goal readiness", state: "active", observation: "Hold source, runtime, visual and human evidence together" }],
+};
 const enDirection = en.directionItems(one).find((item) => item.ref === "dag:D4");
+const topologyDirection = en.directionItems(topology)[0];
 const ruPressure = ru.directionItems(one).find((item) => item.ref === "pressure:pressure:test");
 const person = en.participantItems(one)[0];
 const source = en.sourceItems(one)[0];
 process.stdout.write(JSON.stringify({
   goals: [en.goalTitle(one), en.goalTitle(two), ru.goalTitle(one)],
   direction: { title: enDirection.title, relationship: enDirection.relationship, focus: enDirection.focus, next: enDirection.next, raw: enDirection.raw.observation },
+  topology: { title: topologyDirection.title, focus: topologyDirection.focus, nextFocus: en.nextFocus(topology).title },
   pressure: { title: ruPressure.title, focus: ruPressure.focus, next: ruPressure.next, raw: ruPressure.raw.next_route.route },
   person: { title: person.title, role: person.role, task: person.task },
   source: { title: source.title, focus: source.focus },
@@ -316,6 +323,7 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(observed["direction"]["title"], "Observation history")
         self.assertNotIn("correlation_read_model", json.dumps({key: value for key, value in observed["direction"].items() if key != "raw"}))
         self.assertIn("correlation_read_model", observed["direction"]["raw"])
+        self.assertEqual(observed["topology"], {"title": "Full aoa-dashboard Goal readiness", "focus": "Hold source, runtime, visual and human evidence together", "nextFocus": "Full aoa-dashboard Goal readiness"})
         self.assertEqual(observed["pressure"]["title"], "Проверить обновление")
         self.assertNotIn("pressure-cursor-ui", json.dumps({key: value for key, value in observed["pressure"].items() if key != "raw"}))
         self.assertIn("pressure-cursor-ui", observed["pressure"]["raw"])

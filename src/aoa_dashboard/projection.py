@@ -301,6 +301,7 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
                 {
                     "id": node["id"],
                     "title": node["title"],
+                    "source_kind": "master_goal_topology",
                     "owner": node.get("owner"),
                     "state": owner_state or "unknown",
                     "source_state": node["source_state"],

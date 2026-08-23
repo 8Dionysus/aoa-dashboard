@@ -102,6 +102,12 @@ function humanize(value, fallback = "") {
   return textValue.length > MAX_HUMAN_TEXT ? `${textValue.slice(0, MAX_HUMAN_TEXT - 1)}…` : textValue;
 }
 
+function boundedHumanText(value, fallback = "") {
+  const candidate = String(value || "").replace(/\s+/g, " ").trim();
+  if (!candidate) return fallback;
+  return candidate.length > MAX_HUMAN_TEXT ? `${candidate.slice(0, MAX_HUMAN_TEXT - 1)}…` : candidate;
+}
+
 function isTechnicalValue(value) {
   const candidate = String(value || "").trim();
   return /^(?:actor|detail|goal|master-thread|owner|source|thread):/i.test(candidate)
@@ -228,11 +234,7 @@ function humanSourceLabel(value) {
 function goalTitle(data) {
   const goal = data?.goal || {};
   const configured = presentationField(presentationEntry(data, "goal"), "title", "");
-  if (goal.title_source === "codex_app_server_thread_goal") {
-    const ownerTitle = String(goal.title || "").replace(/\s+/g, " ").trim();
-    if (!ownerTitle) return t("goal.unnamed");
-    return ownerTitle.length > MAX_HUMAN_TEXT ? `${ownerTitle.slice(0, MAX_HUMAN_TEXT - 1)}…` : ownerTitle;
-  }
+  if (goal.title_source === "codex_app_server_thread_goal") return boundedHumanText(goal.title, t("goal.unnamed"));
   return configured || humanValue(goal.title, t("goal.unnamed"));
 }
 
@@ -457,14 +459,15 @@ function directionItems(data) {
   const items = [];
   for (const item of arrayOrEmpty(data?.dag)) {
     const configured = itemPresentation(data, ["directions", "dag"], item.id || item.ref, item);
+    const ownerTopology = item.source_kind === "master_goal_topology";
     items.push({
       ref: `dag:${item.id || items.length}`,
       kind: "direction",
-      title: presentationField(configured, "title", "") || cleanDirectionTitle(item.title, t("trajectory.direction")),
+      title: presentationField(configured, "title", "") || (ownerTopology ? boundedHumanText(item.title, t("trajectory.direction")) : cleanDirectionTitle(item.title, t("trajectory.direction"))),
       state: item.state || "unknown",
       owner: humanOwner(item.owner, t("trajectory.master")),
       relationship: presentationField(configured, "relationship", "") || humanValue(item.pressure, t("trajectory.related")),
-      focus: presentationField(configured, "focus", "") || humanValue(item.observation, t("trajectory.focusUnavailable")),
+      focus: presentationField(configured, "focus", "") || (ownerTopology ? boundedHumanText(item.observation, t("trajectory.focusUnavailable")) : humanValue(item.observation, t("trajectory.focusUnavailable"))),
       next: presentationField(configured, "next", "") || humanValue(item.next, t("trajectory.nextUnavailable")),
       evidence_refs: arrayOrEmpty(item.evidence_refs),
       raw: item,
@@ -582,6 +585,10 @@ function contextForSelection(data) {
 
 function nextFocus(data) {
   const directions = directionItems(data);
+  if (data?.goal_topology?.state === "bound") {
+    const frontier = directions.find((item) => item.raw?.source_kind === "master_goal_topology");
+    if (frontier) return frontier;
+  }
   const critical = directions.find((item) => item.ref.startsWith("pressure:") && item.raw?.next_route?.critical);
   return critical || directions[0] || null;
 }
@@ -1313,6 +1320,7 @@ window.AoaDashboardApp = Object.freeze({
   formatAbsoluteMinute,
   goalTitle,
   lifecycleForData,
+  nextFocus,
   directionItems,
   participantItems,
   sourceItems,
