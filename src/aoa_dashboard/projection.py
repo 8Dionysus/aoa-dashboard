@@ -15,7 +15,7 @@ from .cursor import (
     read_correlation_observation_log,
     rebuild_goal_local_projection,
 )
-from .goal_catalog import observe_goal_catalog
+from .goal_catalog import observe_goal_catalog, observe_goal_projection
 from .goal_topology import observe_goal_topology
 from .master_context import project_master_context
 from .owner_context import observe_codex_goal_context
@@ -313,6 +313,7 @@ def build_projection(
     config_path: str | os.PathLike[str] | None = None,
     *,
     binding_path: str | os.PathLike[str] | None = None,
+    selected_goal_ref: str | None = None,
 ) -> Projection:
     if config_path is not None and binding_path is not None:
         raise ValueError("provide only one explicit runtime binding path")
@@ -453,6 +454,7 @@ def build_projection(
     participant_context = project_participant_context(actor_activity, owner_goal_context)
     presentation = config.get("presentation") if isinstance(config.get("presentation"), dict) else {}
     goal_catalog = observe_goal_catalog(config)
+    selected_goal_projection = observe_goal_projection(config, selected_goal_ref, goal_catalog) if selected_goal_ref else observe_goal_projection(config, None, goal_catalog)
     master_context = project_master_context(
         owner_goal_context,
         safe_correlation,
@@ -505,6 +507,7 @@ def build_projection(
         "master_context": master_context,
         "goal_topology": goal_topology,
         "goal_catalog": goal_catalog,
+        "selected_goal_projection": selected_goal_projection,
         "correlation": safe_correlation,
         "correlation_read_model": goal_local_correlation,
         "pressure_inbox": pressure_inbox,

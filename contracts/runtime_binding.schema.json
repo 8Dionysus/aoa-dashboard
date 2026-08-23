@@ -35,6 +35,7 @@
         "codex_thread": {"$ref": "#/$defs/codex_thread_source"},
         "topology": {"$ref": "#/$defs/topology_source"},
         "catalog": {"$ref": "#/$defs/catalog_source"},
+        "goal_projection": {"$ref": "#/$defs/goal_projection_source"},
         "correlation": {"$ref": "#/$defs/correlation_source"},
         "pressure": {"$ref": "#/$defs/pressure_source"},
         "historical": {"$ref": "#/$defs/historical_source"},
@@ -59,6 +60,12 @@
         "currentness": {"enum": ["current", "current_at_read"]},
         "path": {"type": "string", "minLength": 1, "maxLength": 4096},
         "expected_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "capability": {"type": "string", "minLength": 1, "maxLength": 256},
+        "transport": {"enum": ["path", "command"]},
+        "command": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30},
+        "goal_ref_arg": {"type": "string", "minLength": 1, "maxLength": 128},
+        "publication": {"$ref": "#/$defs/publication"},
         "enabled": {"type": "boolean"},
         "method": {"type": "string", "minLength": 1, "maxLength": 128},
         "socket_path": {"type": "string", "minLength": 1, "maxLength": 4096},
@@ -115,7 +122,13 @@
     "catalog_source": {
       "allOf": [
         {"$ref": "#/$defs/source"},
-        {"type": "object", "required": ["path", "expected_schema_version"]}
+        {"type": "object", "required": ["expected_schema_version"], "anyOf": [{"required": ["path"]}, {"required": ["command"]}, {"required": ["publication"]}]}
+      ]
+    },
+    "goal_projection_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["expected_schema_version"], "anyOf": [{"required": ["path"]}, {"required": ["command"]}, {"required": ["publication"]}]}
       ]
     },
     "correlation_source": {
@@ -147,6 +160,21 @@
         {"$ref": "#/$defs/source"},
         {"type": "object", "required": ["path", "registry_path", "freshness_status"]}
       ]
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability"],
+      "properties": {
+        "capability": {"type": "string", "minLength": 1, "maxLength": 256},
+        "transport": {"enum": ["path", "command"]},
+        "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "command": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+        "expected_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30},
+        "goal_ref_arg": {"type": "string", "minLength": 1, "maxLength": 128}
+      },
+      "anyOf": [{"required": ["path"]}, {"required": ["command"]}]
     },
     "owner_surface": {
       "allOf": [

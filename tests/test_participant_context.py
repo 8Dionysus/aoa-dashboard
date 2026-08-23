@@ -113,10 +113,9 @@ class ParticipantContextTests(unittest.TestCase):
             {"state": "bound", "freshness": "current_at_read", "actors": [actor(correlation={"master_thread_id": "thread:other"})]},
             owner_context(),
         )
-        participant = observed["participants"][0]
-        self.assertEqual(participant["task_context"]["state"], "invalid")
-        self.assertEqual(participant["task_context"]["goal_thread"]["state"], "invalid")
-        self.assertIsNone(participant["task_context"]["goal_thread"]["thread_id"])
+        self.assertEqual(observed["participants"], [])
+        self.assertEqual(observed["summary"]["aggregate_count"], 1)
+        self.assertEqual(observed["summary"]["participant_count"], None)
         self.assertIn("participant_goal_thread_correlation_mismatch", observed["diagnostics"])
         self.assertEqual(observed["state"], "invalid")
 
@@ -137,10 +136,9 @@ class ParticipantContextTests(unittest.TestCase):
             {"state": "bound", "freshness": "current_at_read", "actors": [actor()]},
             invalid_owner,
         )
-        participant = observed["participants"][0]
-        self.assertEqual(participant["task_context"]["state"], "invalid")
-        self.assertEqual(participant["task_context"]["goal_thread"]["state"], "invalid")
-        self.assertEqual(participant["quality"], "invalid")
+        self.assertEqual(observed["participants"], [])
+        self.assertEqual(observed["summary"]["aggregate_count"], 1)
+        self.assertEqual(observed["summary"]["participant_count"], None)
         self.assertEqual(observed["state"], "invalid")
         self.assertIn("owner_thread_identity_mismatch", observed["diagnostics"])
 
@@ -157,9 +155,9 @@ class ParticipantContextTests(unittest.TestCase):
             ],
         }
         observed = project_participant_context(invalid_activity, owner_context())
-        participant = observed["participants"][0]
-        self.assertEqual(participant["task_context"]["state"], "invalid")
-        self.assertEqual(participant["quality"], "invalid")
+        self.assertEqual(observed["participants"], [])
+        self.assertEqual(observed["summary"]["aggregate_count"], 1)
+        self.assertEqual(observed["summary"]["invalid_count"], 1)
         self.assertEqual(observed["state"], "invalid")
         self.assertIn("participant_activity_invalid", observed["diagnostics"])
 

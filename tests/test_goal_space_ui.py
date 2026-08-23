@@ -159,7 +159,7 @@ const admitted = {
   state: "stale",
   currentness: "stale",
   source: { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", owner_schema_version: "aoa_session_memory_goal_catalog_v1", currentness: "stale" },
-  items: [{ ref: "goal:1", title: "A human Goal", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: "2026-08-22T00:00:00Z", ambiguity: false }],
+  items: [{ ref: "goal:1", title: "A human Goal", title_locale: "en", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: "2026-08-22T00:00:00Z", ambiguity: false }],
   counts_by_group: { active: 1 },
   claim_limit: "bounded owner projection",
 };
@@ -277,9 +277,8 @@ process.stdout.write(JSON.stringify({ recent, old, absolute, enTitle, ownerTitle
         self.assertFalse(observed["hasAbsoluteSeconds"])
         self.assertFalse(observed["hasIso"])
         self.assertEqual(observed["enTitle"], "Create the first Goal Space slice")
-        self.assertEqual(observed["ownerTitle"], "Преобразовать aoa-dashboard в Goal Space")
-        self.assertLessEqual(len(observed["compactLong"]), 68)
-        self.assertTrue(observed["compactLong"].endswith("…"))
+        self.assertEqual(observed["ownerTitle"], "Stale configured title")
+        self.assertEqual(observed["compactLong"], "Goal title unavailable")
         self.assertEqual(observed["explicitCompact"], "Goal workspace")
         self.assertEqual(observed["ownerLifecycle"], "active")
         self.assertEqual(observed["legacyLifecycle"], "planned")
@@ -347,7 +346,7 @@ const enDirection = en.directionItems(one).find((item) => item.ref === "dag:D4")
 const topologyDirection = en.directionItems(topology)[0];
 const topologyBranches = en.topologyDirectionItems(topology);
 const ruPressure = ru.directionItems(one).find((item) => item.ref === "pressure:pressure:test");
-const person = en.participantItems(one)[0];
+const person = en.participantItems(one)[0] || null;
 const source = en.sourceItems(one)[0];
 process.stdout.write(JSON.stringify({
   goals: [en.goalTitle(one), en.goalTitle(two), ru.goalTitle(one)],
@@ -357,7 +356,7 @@ process.stdout.write(JSON.stringify({
   knownTopologyRef: en.knownFocusRefs(topology).has("dag:GS17"),
   selectedTopologyTitle: en.contextForRef(topology, "dag:GS17").title,
   pressure: { title: ruPressure.title, focus: ruPressure.focus, next: ruPressure.next, raw: ruPressure.raw.next_route.route },
-  person: { title: person.title, role: person.role, task: person.task },
+  person: person && { title: person.title, role: person.role, task: person.task },
   source: { title: source.title, focus: source.focus },
 }));
 '''
@@ -380,9 +379,7 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(observed["pressure"]["title"], "Проверить обновление")
         self.assertNotIn("pressure-cursor-ui", json.dumps({key: value for key, value in observed["pressure"].items() if key != "raw"}))
         self.assertIn("pressure-cursor-ui", observed["pressure"]["raw"])
-        self.assertEqual(observed["person"]["title"], "Participant 1")
-        self.assertEqual(observed["person"]["role"], "Working agent")
-        self.assertNotIn("task:", json.dumps(observed["person"]))
+        self.assertIsNone(observed["person"])
         self.assertNotIn("historical source", observed["source"]["focus"])
 
     def test_goal_bound_primary_trajectory_uses_admitted_mapping_and_hides_internal_topology(self) -> None:
@@ -469,18 +466,12 @@ const projection = {
   actor_activity: { actors: [{ actor_key: "actor:abc", identity: { label: "actor:abc", role_id: "external_codex_incarnation", model_id: "gpt-5.6-luna:max" }, task: { task_id: "task:private", summary: "Review the Goal catalog integration" }, responsibility: { holder: "independent Luna Max D1/D2 owner contracts reviewer", responsibility_state: "not_independent" } }] },
   sources: [{ id: "aoa-session-memory", owner: ".aoa/session-memory", state: "missing", evidence_refs: [] }],
 };
-const person = context.AoaDashboardApp.participantItems(projection)[0];
+const person = context.AoaDashboardApp.participantItems(projection)[0] || null;
 const source = context.AoaDashboardApp.sourceItems(projection)[0];
-process.stdout.write(JSON.stringify({ person: { title: person.title, role: person.role, model: person.model, task: person.task, owner: person.owner }, source: { title: source.title, owner: source.owner } }));
+process.stdout.write(JSON.stringify({ person: person && { title: person.title, role: person.role, model: person.model, task: person.task, owner: person.owner }, source: { title: source.title, owner: source.owner } }));
 '''
         )
-        self.assertEqual(observed["person"]["title"], "Participant 1")
-        self.assertEqual(observed["person"]["role"], "Working agent")
-        self.assertEqual(observed["person"]["model"], "gpt-5.6-luna:max")
-        self.assertEqual(observed["person"]["task"], "Review the Goal catalog integration")
-        self.assertEqual(observed["person"]["owner"], "Master")
-        self.assertNotIn("actor:", json.dumps(observed["person"]))
-        self.assertNotIn("task:", json.dumps(observed["person"]))
+        self.assertIsNone(observed["person"])
         self.assertEqual(observed["source"]["title"], "Session history")
         self.assertEqual(observed["source"]["owner"], "Session history")
         self.assertNotIn("aoa-session-memory", json.dumps(observed["source"]))
@@ -531,9 +522,9 @@ const data = {
 };
 const enContext = load("en");
 const ruContext = load("ru");
-const enPerson = enContext.AoaDashboardApp.participantItems(data)[0];
-const ruPerson = ruContext.AoaDashboardApp.participantItems(data)[0];
-const human = (person) => ({ title: person.title, role: person.role, model: person.model, task: person.task, relationship: person.relationship, focus: person.focus, owner: person.owner });
+const enPerson = enContext.AoaDashboardApp.participantItems(data)[0] || null;
+const ruPerson = ruContext.AoaDashboardApp.participantItems(data)[0] || null;
+const human = (person) => person && ({ title: person.title, role: person.role, model: person.model, task: person.task, relationship: person.relationship, focus: person.focus, owner: person.owner });
 const target = node("section");
 enContext.AoaDashboardApp.renderDiagnosticRoutes(data, target);
 const body = target.children[0].children[1];
@@ -546,14 +537,8 @@ const after = JSON.stringify(developer).includes("thread:owner") && developer.ch
 process.stdout.write(JSON.stringify({ en: human(enPerson), ru: human(ruPerson), before, after }));
 '''
         )
-        self.assertEqual(observed["en"]["title"], "Participant 1")
-        self.assertEqual(observed["ru"]["title"], "Участник 1")
-        self.assertEqual(observed["en"]["role"], "Working agent")
-        self.assertEqual(observed["ru"]["role"], "Рабочий агент")
-        self.assertEqual(observed["en"]["task"], "Review the Goal context")
-        self.assertIsNone(observed["en"]["model"])
-        self.assertNotIn("actor:", json.dumps(observed["en"]))
-        self.assertNotIn("thread:", json.dumps(observed["en"]))
+        self.assertIsNone(observed["en"])
+        self.assertIsNone(observed["ru"])
         self.assertFalse(observed["before"])
         self.assertTrue(observed["after"])
 
@@ -580,8 +565,8 @@ vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
 const actor = context.AoaDashboardApp.participantItems({ actor_activity: { actors: [{ actor_key: "actor:one", identity: { label: "actor:one", display_name: "Luna", role_id: "external_codex_incarnation" }, task: {}, responsibility: {} }] } })[0];
-const participant = context.AoaDashboardApp.participantItems({ participant_context: { participants: [{ ref: "actor:two", display_name: "Мира", identity: { role_id: "external_codex_incarnation" }, task_context: {}, model_realization: {} }] } })[0];
-process.stdout.write(JSON.stringify({ actor: actor.title, participant: participant.title }));
+const participant = context.AoaDashboardApp.participantItems({ participant_context: { participants: [{ ref: "actor:two", display_name: "Мира", identity: { display_name: "Мира", display_name_state: "present", role_id: "external_codex_incarnation" }, task_context: {}, model_realization: {} }] } })[0];
+process.stdout.write(JSON.stringify({ actor: actor && actor.title, participant: participant && participant.title }));
 '''
         )
         self.assertEqual(observed, {"actor": "Luna", "participant": "Мира"})
@@ -649,7 +634,7 @@ context.AoaDashboardApp.renderHome({
     currentness: "stale",
     source: { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", owner_schema_version: "aoa_session_memory_goal_catalog_v1", currentness: "stale" },
     items: [
-      { ref: "019f9075-41a3-7933-a81d-f32bc4da12ca", title: "Развить пространство целей", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: "2026-08-22T21:00:00Z", ambiguity: false },
+      { ref: "019f9075-41a3-7933-a81d-f32bc4da12ca", title: "Развить пространство целей", title_locale: "ru", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: "2026-08-22T21:00:00Z", ambiguity: false },
       { ref: "019e967f-1747-7ec0-a056-9e626300d531", title: null, title_state: "withheld", lifecycle_state: "complete", group: "completed", first_observed_at: null, last_observed_at: null, ambiguity: true },
     ],
     counts_by_group: { active: 1, completed: 1 },
@@ -674,6 +659,94 @@ process.stdout.write(JSON.stringify({ rendered, note, selection: context.AoaDash
         self.assertEqual(observed["selection"]["goal_ref"], "019f9075-41a3-7933-a81d-f32bc4da12ca")
         self.assertIn("#goal/019f9075-41a3-7933-a81d-f32bc4da12ca/trajectory", observed["routed"])
 
+    def test_home_catalog_paginates_groups_and_keeps_selected_ref_stable_on_refresh(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function node(tag) {
+  const listeners = {};
+  return { tagName: tag, children: [], firstChild: null, className: "", textContent: "", dataset: {}, classList: { add() {}, remove() {}, toggle() {} }, append(...items) { this.children.push(...items); this.firstChild = this.children[0] || null; }, removeChild() { this.children.shift(); this.firstChild = this.children[0] || null; }, setAttribute(name, value) { this[name] = value; }, addEventListener(name, listener) { listeners[name] = listener; }, trigger(name) { listeners[name]?.(); }, focus() {} };
+}
+const nodes = new Map([["goal-selector", node("div")], ["catalog-state", node("div")], ["live-region", node("div")]]);
+const document = { documentElement: { lang: "", dataset: {} }, title: "", querySelectorAll() { return []; }, getElementById(id) { return nodes.get(id) || null; }, createElement: node, addEventListener() {} };
+const context = { document, globalThis: null, localStorage: { getItem() { return null; }, setItem() {} }, location: { hash: "" }, history: { replaceState() {} }, fetch() { return new Promise(() => {}); }, setInterval() {}, addEventListener() {}, navigator: { language: "en-US" }, AoaDashboardTheme: { getMode() { return "system"; }, subscribe() {} } };
+context.globalThis = context; context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const item = (ref, group, lifecycle = group === "completed" ? "complete" : group === "attention" ? "blocked" : group) => ({ ref, title: `Goal ${ref}`, title_locale: "en", title_state: "available", lifecycle_state: lifecycle, group, first_observed_at: null, last_observed_at: "2026-08-23T00:00:00Z", ambiguity: false });
+const active = Array.from({ length: 7 }, (_, index) => item(String(index + 1), "active"));
+const items = [...active, item("attention", "attention"), item("paused", "paused"), item("completed", "completed")];
+const data = { goal: {}, goal_catalog: { schema_version: "aoa_dashboard_goal_catalog_projection_v1", state: "current", currentness: "current", source: { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", owner_schema_version: "aoa_session_memory_goal_catalog_v1", currentness: "current" }, items, counts_by_group: { active: 7, attention: 1, paused: 1, completed: 1 }, claim_limit: "bounded owner projection" } };
+context.AoaDashboardApp.renderHome(data);
+const selector = nodes.get("goal-selector");
+const groups = selector.children.filter((child) => child.className === "goal-group");
+const activeGroup = groups[0];
+const pager = activeGroup.children[2];
+const firstPageRefs = activeGroup.children[1].children.map((row) => row.children[0].children[0].textContent);
+pager.children[2].trigger("click");
+context.AoaDashboardApp.renderHome(data);
+const secondPageRefs = selector.children.find((child) => child.className === "goal-group").children[1].children.map((row) => row.children[0].children[0].textContent);
+const selectedRow = selector.children.find((child) => child.className === "goal-group").children[1].children[0];
+selectedRow.trigger("click");
+const refreshed = { ...data, goal_catalog: { ...data.goal_catalog, items: [active[6], ...active.slice(0, 6), ...items.slice(7)] } };
+context.AoaDashboardApp.renderHome(refreshed);
+const stableRow = selector.children.find((child) => child.className === "goal-group").children[1].children[0];
+process.stdout.write(JSON.stringify({ groupCount: groups.length, activePageCount: pager.children[1].textContent, firstPageRefs, secondPageRefs, selected: context.AoaDashboardApp.getSelection().goal_ref, stableTitle: stableRow.children[0].children[0].textContent, stablePressed: stableRow["aria-pressed"] }));
+'''
+        )
+        self.assertEqual(observed["groupCount"], 4)
+        self.assertEqual(observed["activePageCount"], "1 / 2")
+        self.assertEqual(observed["firstPageRefs"], ["Goal 1", "Goal 2", "Goal 3", "Goal 4", "Goal 5", "Goal 6"])
+        self.assertEqual(observed["secondPageRefs"], ["Goal 7"])
+        self.assertEqual(observed["selected"], "7")
+        self.assertEqual(observed["stableTitle"], "Goal 7")
+        self.assertEqual(observed["stablePressed"], "true")
+
+    def test_catalog_titles_and_participant_cards_fail_closed_by_language_and_identity_quality(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function node(tag) {
+  return { tagName: tag, children: [], firstChild: null, className: "", textContent: "", dataset: {}, classList: { add() {}, remove() {}, toggle() {} }, append(...items) { this.children.push(...items); this.firstChild = this.children[0] || null; }, removeChild() { this.children.shift(); this.firstChild = this.children[0] || null; }, setAttribute(name, value) { this[name] = value; }, addEventListener() {}, focus() {} };
+}
+function load(language) {
+  const nodes = new Map([["goal-selector", node("div")], ["catalog-state", node("div")], ["live-region", node("div")]]);
+  const document = { documentElement: { lang: "", dataset: {} }, title: "", querySelectorAll() { return []; }, getElementById(id) { return nodes.get(id) || null; }, createElement: node, addEventListener() {} };
+  const context = { document, globalThis: null, localStorage: { getItem() { return language; }, setItem() {} }, location: { hash: "" }, history: { replaceState() {} }, fetch() { return new Promise(() => {}); }, setInterval() {}, addEventListener() {}, navigator: { language: language === "ru" ? "ru-RU" : "en-US" }, AoaDashboardTheme: { subscribe() {} } };
+  context.globalThis = context; context.window = context;
+  vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+  return { app: context.AoaDashboardApp, rendered: () => JSON.stringify(nodes.get("goal-selector")) };
+}
+const catalog = { schema_version: "aoa_dashboard_goal_catalog_projection_v1", state: "current", currentness: "current", source: { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", owner_schema_version: "aoa_session_memory_goal_catalog_v1", currentness: "current" }, items: [{ ref: "goal:localized", title: "Русская цель", title_locale: "ru", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: null, ambiguity: false }], counts_by_group: { active: 1 }, claim_limit: "bounded owner projection" };
+const en = load("en"); const ru = load("ru");
+en.app.renderHome({ goal: {}, goal_catalog: catalog });
+ru.app.renderHome({ goal: {}, goal_catalog: catalog });
+const invalidContext = { participant_context: { state: "invalid", participants: [{ ref: "actor:invalid", identity: { display_name: "Invented Person", display_name_state: "present", role_id: "master" } }] } };
+const invalidActivity = { actor_activity: { state: "invalid", actors: [{ actor_key: "actor:invalid", identity: { display_name: "Invented Actor" }, responsibility: { holder: "Master" } }] } };
+process.stdout.write(JSON.stringify({ en: en.rendered(), ru: ru.rendered(), invalidContext: en.app.participantItems(invalidContext), invalidActivity: en.app.participantItems(invalidActivity) }));
+'''
+        )
+        self.assertIn("Goal title unavailable", observed["en"])
+        self.assertNotIn("Русская цель", observed["en"])
+        self.assertIn("Русская цель", observed["ru"])
+        self.assertEqual(observed["invalidContext"], [])
+        self.assertEqual(observed["invalidActivity"], [])
+
+    def test_thread_surface_is_deferred_metadata_inspector_until_public_items_exist(self) -> None:
+        html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("Metadata inspector", html)
+        self.assertIn("Inspector", html)
+        self.assertIn('t("thread.deferredNotice")', app)
+        self.assertNotIn("thread board", html.lower())
+
     def test_catalog_goal_workspace_is_human_bounded_and_does_not_borrow_current_goal(self) -> None:
         observed = run_node(
             r'''
@@ -697,7 +770,7 @@ const data = {
   goal_catalog: {
     schema_version: "aoa_dashboard_goal_catalog_projection_v1", state: "stale", currentness: "stale",
     source: { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", owner_schema_version: "aoa_session_memory_goal_catalog_v1", currentness: "stale" },
-    items: [{ ref: "019e967f-1747-7ec0-a056-9e626300d531", title: "Развить пространство целей", title_state: "available", lifecycle_state: "complete", group: "completed", first_observed_at: null, last_observed_at: "2026-06-05T09:12:53Z", ambiguity: true }],
+    items: [{ ref: "019e967f-1747-7ec0-a056-9e626300d531", title: "Развить пространство целей", title_locale: "ru", title_state: "available", lifecycle_state: "complete", group: "completed", first_observed_at: null, last_observed_at: "2026-06-05T09:12:53Z", ambiguity: true }],
     counts_by_group: { completed: 1 }, claim_limit: "bounded owner projection",
   },
 };

@@ -224,6 +224,42 @@ def _text_list(value: Any, field: str, *, maximum: int = 64) -> list[str]:
     return result
 
 
+def _publication_binding(raw: dict[str, Any], field: str) -> dict[str, Any]:
+    """Validate an explicit path/command publication without executing it."""
+
+    nested = raw.get("publication")
+    publication = nested if isinstance(nested, dict) else raw
+    capability = publication.get("capability")
+    command_present = publication.get("command") is not None
+    if not isinstance(capability, str) or not capability.strip() or len(capability) > 256:
+        if command_present or isinstance(nested, dict):
+            raise RuntimeBindingError(f"runtime_binding_{field}_capability_missing")
+        capability = "legacy-path-publication"
+    capability = _text(capability, f"{field}_capability", maximum=256)
+    transport = publication.get("transport")
+    if transport is None:
+        transport = "command" if command_present else "path"
+    if transport not in {"path", "command"}:
+        raise RuntimeBindingError(f"runtime_binding_{field}_transport_invalid")
+    normalized: dict[str, Any] = {"capability": capability, "transport": transport}
+    expected_digest = publication.get("expected_sha256", raw.get("expected_sha256"))
+    if expected_digest is not None:
+        normalized["expected_sha256"] = _sha(expected_digest, f"{field}_expected_sha256")
+    timeout = publication.get("timeout_seconds", raw.get("timeout_seconds", 5))
+    if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 < timeout <= 30:
+        raise RuntimeBindingError(f"runtime_binding_{field}_timeout_invalid")
+    normalized["timeout_seconds"] = timeout
+    if transport == "path":
+        path = publication.get("path", raw.get("path"))
+        normalized["path"] = _path(path, f"{field}_path")
+    else:
+        normalized["command"] = _text_list(publication.get("command"), f"{field}_command", maximum=64)
+    goal_ref_arg = publication.get("goal_ref_arg", raw.get("goal_ref_arg"))
+    if goal_ref_arg is not None:
+        normalized["goal_ref_arg"] = _text(goal_ref_arg, f"{field}_goal_ref_arg", maximum=128)
+    return normalized
+
+
 def _source_ref(
     snapshot: FileSnapshot,
     *,
@@ -373,13 +409,33 @@ def _validate_source_map(payload: dict[str, Any], selected: dict[str, str]) -> d
     raw_catalog = sources["catalog"]
     if raw_catalog.get("expected_schema_version") != "aoa_session_memory_goal_catalog_v1":
         raise RuntimeBindingError("runtime_binding_catalog_schema_invalid")
+    catalog_publication = _publication_binding(raw_catalog, "catalog")
     catalog.update(
         {
             "schema_version": "aoa_dashboard_goal_catalog_binding_v1",
-            "path": _path(raw_catalog.get("path"), "catalog_path"),
             "expected_schema_version": "aoa_session_memory_goal_catalog_v1",
+            "publication": catalog_publication,
         }
     )
+    if catalog_publication["transport"] == "path":
+        catalog["path"] = catalog_publication["path"]
+
+    goal_projection = None
+    raw_goal_projection = sources.get("goal_projection")
+    if raw_goal_projection is not None:
+        goal_projection = _owner_descriptor(raw_goal_projection, "goal_projection", expected_owner="aoa-session-memory")
+        if raw_goal_projection.get("expected_schema_version") != "aoa_session_memory_goal_projection_v1":
+            raise RuntimeBindingError("runtime_binding_goal_projection_schema_invalid")
+        projection_publication = _publication_binding(raw_goal_projection, "goal_projection")
+        goal_projection.update(
+            {
+                "schema_version": "aoa_dashboard_goal_projection_binding_v1",
+                "expected_schema_version": "aoa_session_memory_goal_projection_v1",
+                "publication": projection_publication,
+            }
+        )
+        if projection_publication["transport"] == "path":
+            goal_projection["path"] = projection_publication["path"]
 
     correlation = _owner_descriptor(sources.get("correlation"), "correlation", expected_owner="master-thread")
     raw_correlation = sources["correlation"]
@@ -436,6 +492,7 @@ def _validate_source_map(payload: dict[str, Any], selected: dict[str, str]) -> d
         "codex_thread": codex_thread,
         "topology": topology,
         "catalog": catalog,
+        "goal_projection": goal_projection,
         "correlation": correlation,
         "pressure": pressure,
     }
@@ -564,6 +621,7 @@ def _flatten_binding(
             "owner_thread_source": descriptors["codex_thread"],
             "goal_topology_source": descriptors["topology"],
             "goal_catalog_source": descriptors["catalog"],
+            "goal_projection_source": descriptors.get("goal_projection"),
             "current_correlation": descriptors["correlation"],
             "owner_surfaces": descriptors["owner_surfaces"],
             "pressure_inbox": [],

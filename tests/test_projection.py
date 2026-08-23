@@ -759,7 +759,9 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(activity["metadata"]["state"], "invalid")
         projected = project_participant_context(activity["metadata"], self._owner_context())
         self.assertEqual(projected["state"], "invalid")
-        self.assertEqual(projected["participants"][0]["quality"], "invalid")
+        self.assertEqual(projected["participants"], [])
+        self.assertEqual(projected["summary"]["participant_count"], None)
+        self.assertEqual(projected["summary"]["aggregate_count"], 1)
         self.assertIn("participant_actor_correlation_invalid", projected["diagnostics"])
 
     def test_real_activity_stale_freshness_reaches_all_participant_dimensions(self) -> None:

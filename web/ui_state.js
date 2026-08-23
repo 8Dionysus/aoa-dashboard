@@ -189,23 +189,38 @@
       const ref = textOrNull(value.ref, 160);
       const titleState = value.title_state;
       const title = value.title === null ? null : textOrNull(value.title, 96);
+      const titleLocale = value.title_locale === null || value.title_locale === undefined ? null : textOrNull(value.title_locale, 16);
+      const titleByLocale = value.title_by_locale && typeof value.title_by_locale === "object" && !Array.isArray(value.title_by_locale)
+        ? Object.fromEntries(Object.entries(value.title_by_locale).slice(0, 8).map(([language, localized]) => [language, textOrNull(localized, 96)]).filter(([, localized]) => localized))
+        : {};
       if (!ref || refs.has(ref) || !CATALOG_GROUPS.includes(value.group) || !["available", "missing", "withheld"].includes(titleState)) {
         return { state: "invalid", items: [], source, currentness: "invalid", claim_limit: candidate.claim_limit, reason: "item_invalid" };
       }
-      if ((titleState === "available" && !title) || (titleState !== "available" && title !== null)) {
+      if ((titleState === "available" && !title && !Object.keys(titleByLocale).length) || (titleState !== "available" && (title !== null || Object.keys(titleByLocale).length))) {
         return { state: "invalid", items: [], source, currentness: "invalid", claim_limit: candidate.claim_limit, reason: "item_invalid" };
       }
       refs.add(ref);
-      items.push({
+      const normalizedItem = {
         ref,
         title,
         title_state: titleState,
+        title_locale: titleLocale,
+        title_by_locale: titleByLocale,
         lifecycle_state: textOrNull(value.lifecycle_state, 40) || "unknown",
         group: value.group,
         first_observed_at: textOrNull(value.first_observed_at, 40),
         last_observed_at: textOrNull(value.last_observed_at, 40),
         ambiguity: Boolean(value.ambiguity),
-      });
+      };
+      items.push(normalizedItem);
+    }
+    const pagination = candidate.pagination === undefined ? { mode: "snapshot", cursor: null, next_cursor: null, complete: true } : candidate.pagination;
+    if (!pagination || typeof pagination !== "object" || Array.isArray(pagination) || !["snapshot", "opaque_cursor"].includes(pagination.mode)
+      || (pagination.cursor !== null && typeof pagination.cursor !== "string")
+      || (pagination.next_cursor !== null && typeof pagination.next_cursor !== "string")
+      || typeof pagination.complete !== "boolean"
+      || (pagination.mode === "snapshot" && (pagination.cursor !== null || pagination.next_cursor !== null))) {
+      return { state: "invalid", items: [], source, currentness: "invalid", claim_limit: candidate.claim_limit, reason: "pagination_invalid" };
     }
     return {
       state: candidate.state,
@@ -214,6 +229,13 @@
       currentness: candidate.currentness,
       claim_limit: candidate.claim_limit,
       counts_by_group: candidate.counts_by_group && typeof candidate.counts_by_group === "object" ? candidate.counts_by_group : {},
+      pagination: {
+        mode: pagination.mode,
+        cursor: textOrNull(pagination.cursor, 512),
+        next_cursor: textOrNull(pagination.next_cursor, 512),
+        complete: pagination.complete,
+      },
+      omissions: candidate.omissions && typeof candidate.omissions === "object" ? candidate.omissions : {},
       reason: null,
     };
   }

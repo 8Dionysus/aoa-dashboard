@@ -5,7 +5,8 @@
 The owner-bounded AoA Goal Space/operator surface.
 With an explicit owner-qualified runtime binding it reads the selected Goal
 Anchor, owner Goal/thread context, task-local Goal/thread handoff and wake
-directory, Goal topology, Goal catalog, pressure context, the `aoa-stats`
+directory, Goal topology, an arbitrary owner-published Goal catalog plus an
+exact selected-Goal public-safe projection, pressure context, the `aoa-stats`
 source-coverage projection, the optional `aoa-agents` responsibility feed, and
 bounded owner/KAG metadata. It produces a typed derived projection and a small
 operator UI with source/ref/digest drill-down. Without that binding, the
@@ -148,6 +149,13 @@ envelopes. It renders one card per observed return candidate and copies only
 allowlisted scalar actor, responsibility, process, session, terminal, and usage
 fields from the handoff or wake payload. Missing or unknown fields stay visible;
 the surface never treats them as zero or as runtime health.
+
+The home surface is catalog-first: it groups every admitted catalog item by
+active, attention, paused, or completed/history state and keeps the runtime
+selected Goal as a separate convenience card. Catalog publication is bound by
+explicit runtime path or command capability; currentness, opaque pagination,
+localized title availability, and negative states remain visible. Selecting a
+catalog item reads only that item's exact owner-qualified public-safe projection.
 
 The mutable master disposition is admitted through the owner-authored
 `master_filter_currentness` binding: a content-addressed current-head attestation

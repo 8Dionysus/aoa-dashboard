@@ -210,11 +210,12 @@ def _identity(actor: dict[str, Any], inherited_quality: str | None = None) -> di
     else:
         state = "missing" if actor.get("payload_state") == "missing" else "unknown"
     state = propagate_quality_state(state, actor.get("freshness"), inherited_quality)
-    display_state = "present" if owner_display_name else "missing"
+    display_state = "present" if owner_display_name else ("missing" if actor.get("payload_state") == "missing" else "unknown")
     name_state = "present" if observed_name else ("missing" if actor.get("payload_state") == "missing" else "unknown")
     role_state = "present" if role_id or role_name else ("missing" if actor.get("payload_state") == "missing" else "unknown")
     name_state = propagate_quality_state(name_state, actor.get("freshness"), inherited_quality)
     role_state = propagate_quality_state(role_state, actor.get("freshness"), inherited_quality)
+    display_state = propagate_quality_state(display_state, actor.get("freshness"), inherited_quality)
     return {
         "state": state,
         "role_id": role_id,
@@ -392,20 +393,74 @@ def project_participant_context(
             "claim_limit": CLAIM_LIMIT,
         }
     activity_quality = strongest_degradation(activity.get("state"), activity.get("freshness"))
-    participants = [
+    aggregate_count = len([actor for actor in actors if isinstance(actor, dict)])
+    if activity_quality == "invalid":
+        activity_diagnostics = {
+            item for item in activity.get("diagnostics", []) if isinstance(item, str) and item
+        }
+        for actor in actors:
+            if not isinstance(actor, dict):
+                continue
+            if normalize_quality_state(_dict(actor.get("correlation")).get("state")) == "invalid":
+                activity_diagnostics.add("participant_actor_correlation_invalid")
+            for item in actor.get("quality_diagnostics", []):
+                if isinstance(item, str) and item:
+                    activity_diagnostics.add(item)
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "state": "invalid",
+            "freshness": activity.get("freshness") or "invalid",
+            "participants": [],
+            "summary": {
+                "participant_count": None,
+                "aggregate_count": aggregate_count,
+                "invalid_count": aggregate_count,
+                "dimension_counts": {},
+            },
+            "source": _source(_refs(activity.get("evidence_refs")), currentness=activity.get("freshness"), claim_limit=CLAIM_LIMIT),
+            "evidence_refs": _refs(activity.get("evidence_refs")),
+            "diagnostics": sorted(
+                {
+                    "participant_activity_invalid",
+                    "participant_identities_withheld",
+                    *activity_diagnostics,
+                }
+            ),
+            "claim_limit": CLAIM_LIMIT,
+        }
+    candidates = [
         _participant(actor, index, owner_context, activity_quality)
         for index, actor in enumerate(actors)
         if isinstance(actor, dict)
     ]
+    invalid_count = sum(item["quality"] == "invalid" for item in candidates)
+    participants = [item for item in candidates if item["quality"] != "invalid"]
     if not participants:
+        state = "invalid" if invalid_count else "missing"
+        candidate_diagnostics = sorted(
+            {
+                reason
+                for item in candidates
+                for reason in (
+                    *item.get("diagnostics", []),
+                    item["task_context"].get("goal_thread", {}).get("reason"),
+                )
+                if reason
+            }
+        )
         return {
             "schema_version": SCHEMA_VERSION,
-            "state": "missing",
-            "freshness": "missing",
+            "state": state,
+            "freshness": activity.get("freshness") or state,
             "participants": [],
-            "summary": {"participant_count": 0, "dimension_counts": {}},
+            "summary": {
+                "participant_count": 0 if not invalid_count else None,
+                "aggregate_count": aggregate_count,
+                "invalid_count": invalid_count,
+                "dimension_counts": {},
+            },
             "source": _source(_refs(activity.get("evidence_refs")), currentness=activity.get("freshness"), claim_limit=CLAIM_LIMIT),
-            "diagnostics": ["participant_activity_empty"],
+            "diagnostics": sorted(set((["participant_activity_invalid"] if invalid_count else ["participant_activity_empty"]) + candidate_diagnostics)),
             "claim_limit": CLAIM_LIMIT,
         }
     quality = combine_quality_states(*[item["quality"] for item in participants], all_missing="deferred")
@@ -435,7 +490,12 @@ def project_participant_context(
         "state": state,
         "freshness": activity.get("freshness") or state,
         "participants": participants,
-        "summary": {"participant_count": len(participants), "dimension_counts": counts},
+        "summary": {
+            "participant_count": len(participants),
+            "aggregate_count": aggregate_count,
+            "invalid_count": invalid_count,
+            "dimension_counts": counts,
+        },
         "source": _source(evidence_refs, currentness=activity.get("freshness"), claim_limit=CLAIM_LIMIT),
         "evidence_refs": evidence_refs,
         "diagnostics": diagnostics,

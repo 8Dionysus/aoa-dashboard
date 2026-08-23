@@ -8,7 +8,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .projection import build_projection
 from .state_store import create_action_intent, create_annotation
@@ -70,10 +70,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return value
 
     def do_GET(self) -> None:  # noqa: N802
-        route = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        route = parsed.path
         if route == "/api/projection":
             try:
-                self._json(build_projection(getattr(self.server, "binding_path", None)))
+                selected_values = parse_qs(parsed.query).get("goal_ref", [])
+                selected_goal_ref = selected_values[0] if selected_values else None
+                if selected_goal_ref is not None and (not selected_goal_ref or len(selected_goal_ref) > 160):
+                    raise ValueError("selected Goal ref is invalid")
+                self._json(build_projection(getattr(self.server, "binding_path", None), selected_goal_ref=selected_goal_ref))
             except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
                 self._json({"error": "projection_unavailable", "detail": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return

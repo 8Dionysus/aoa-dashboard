@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from aoa_dashboard.goal_catalog import observe_goal_catalog
+from aoa_dashboard.goal_catalog import observe_goal_catalog, observe_goal_projection
 
 
 def owner_payload() -> dict:
@@ -144,3 +144,85 @@ def test_catalog_duplicate_json_member_is_invalid_at_shared_source_boundary(tmp_
     assert result["state"] == "invalid"
     assert result["diagnostics"] == ["publisher_unreadable"]
     assert "secret-catalog-value" not in json.dumps(result)
+
+
+def test_explicit_owner_command_preserves_opaque_pagination_and_locale_metadata(tmp_path: Path) -> None:
+    payload = owner_payload()
+    payload["state"] = payload["currentness"] = "current"
+    payload["source"]["currentness"] = "current"
+    payload["items"][0]["title_locale"] = "ru"
+    payload["pagination"] = {"cursor": "opaque-in", "next_cursor": "opaque-next", "complete": False}
+    payload["item_count"] = 2
+    command = [sys.executable, "-c", "import json,sys; print(json.dumps(json.loads(sys.argv[1])))", json.dumps(payload)]
+    result = observe_goal_catalog(
+        {
+            "goal_catalog_source": {
+                "publication": {"capability": "aoa-session-memory.goal-catalog.read", "command": command},
+            }
+        }
+    )
+    assert result["state"] == "current"
+    assert result["pagination"] == {"mode": "opaque_cursor", "cursor": "opaque-in", "next_cursor": "opaque-next", "complete": False}
+    assert result["items"][0]["title_locale"] == "ru"
+    assert result["evidence_refs"][0]["ref"] == "capability:aoa-session-memory.goal-catalog.read"
+
+
+def test_catalog_accepts_localized_only_titles_and_full_page_counts(tmp_path: Path) -> None:
+    payload = owner_payload()
+    payload["state"] = payload["currentness"] = "current"
+    payload["source"]["currentness"] = "current"
+    payload["items"][0]["title"] = None
+    payload["items"][0]["title_by_locale"] = {"en": "A localized Goal"}
+    payload["items"][0].pop("title_locale", None)
+    payload["item_count"] = 12
+    payload["page_item_count"] = 2
+    payload["pagination"] = {"cursor": "opaque-page-1", "next_cursor": "opaque-page-2", "complete": False}
+    result = observe_goal_catalog(write_source(tmp_path, payload))
+    assert result["state"] == "current"
+    assert result["items"][0]["title"] is None
+    assert result["items"][0]["title_by_locale"] == {"en": "A localized Goal"}
+    assert result["pagination"]["next_cursor"] == "opaque-page-2"
+
+    bad = copy.deepcopy(payload)
+    bad["page_item_count"] = 3
+    result = observe_goal_catalog(write_source(tmp_path, bad))
+    assert result["state"] == "invalid"
+    assert result["diagnostics"] == ["publisher_page_item_count_mismatch"]
+
+
+def test_per_goal_projection_requires_catalog_membership_and_exact_owner_ref(tmp_path: Path) -> None:
+    catalog = owner_payload()
+    catalog["state"] = catalog["currentness"] = "current"
+    catalog["source"]["currentness"] = "current"
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+    projection = {
+        "schema_version": "aoa_session_memory_goal_projection_v1",
+        "artifact_type": "goal_projection",
+        "state": "current",
+        "currentness": "current",
+        "goal_ref": "goal-current",
+        "title": "Owner Goal in English",
+        "title_state": "available",
+        "title_locale": "en",
+        "lifecycle_state": "active",
+        "summary": {"en": "A bounded owner projection"},
+        "public_items": [],
+        "source": {"owner": "aoa-session-memory", "ref": "aoa-session-memory:goal-projection", "currentness": "current"},
+        "omissions": {"raw_body": True},
+        "claim_limit": "Owner projection only.",
+    }
+    projection_path = tmp_path / "projection.json"
+    projection_path.write_text(json.dumps(projection), encoding="utf-8")
+    config = {
+        "goal_catalog_source": {"path": str(catalog_path)},
+        "goal_projection_source": {"path": str(projection_path)},
+    }
+    result = observe_goal_projection(config, "goal-current")
+    assert result["state"] == "current"
+    assert result["goal_ref"] == "goal-current"
+    assert result["title_locale"] == "en"
+    assert result["omissions"] == {"raw_body": True}
+    not_member = observe_goal_projection(config, "goal-not-in-catalog")
+    assert not_member["state"] == "missing"
+    assert not_member["diagnostics"] == ["selected_goal_not_in_catalog"]

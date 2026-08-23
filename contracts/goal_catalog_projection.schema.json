@@ -20,6 +20,8 @@
           "ref": {"type": "string", "minLength": 1, "maxLength": 160},
           "title": {"type": ["string", "null"], "maxLength": 96},
           "title_state": {"enum": ["available", "missing", "withheld"]},
+          "title_locale": {"type": ["string", "null"], "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"},
+          "title_by_locale": {"type": "object", "maxProperties": 8, "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 96}},
           "lifecycle_state": {"type": "string"},
           "group": {"enum": ["active", "attention", "paused", "completed"]},
           "first_observed_at": {"type": ["string", "null"]},
@@ -30,6 +32,19 @@
       }
     },
     "counts_by_group": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "pagination": {
+      "type": "object",
+      "required": ["mode", "cursor", "next_cursor", "complete"],
+      "properties": {
+        "mode": {"enum": ["snapshot", "opaque_cursor"]},
+        "cursor": {"type": ["string", "null"], "maxLength": 512},
+        "next_cursor": {"type": ["string", "null"], "maxLength": 512},
+        "complete": {"type": "boolean"}
+      },
+      "allOf": [{"if": {"properties": {"mode": {"const": "snapshot"}}}, "then": {"properties": {"cursor": {"const": null}, "next_cursor": {"const": null}}}}],
+      "additionalProperties": false
+    },
+    "omissions": {"type": "object"},
     "evidence_refs": {"type": "array"},
     "diagnostics": {"type": "array", "items": {"type": "string"}},
     "claim_limit": {"type": "string"}

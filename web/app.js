@@ -171,6 +171,15 @@ function localizedHumanValue(value, fallback = "") {
   return humanValue(value, fallback);
 }
 
+function localizedBoundLabel(value, fallback = "") {
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const localized = value[i18n.language];
+    return localized === undefined ? fallback : localizedBoundLabel(localized, fallback);
+  }
+  return humanValue(value, fallback);
+}
+
 function presentationField(entry, field, fallback = "") {
   if (entry === null || entry === undefined) return fallback;
   if (typeof entry !== "object" || Array.isArray(entry)) return localizedHumanValue(entry, fallback);
@@ -241,9 +250,29 @@ function humanSourceLabel(value) {
 
 function goalTitle(data) {
   const goal = data?.goal || {};
-  const configured = presentationField(presentationEntry(data, "goal"), "title", "");
-  if (goal.title_source === "codex_app_server_thread_goal") return boundedHumanText(goal.title, t("goal.unnamed"));
-  return configured || humanValue(goal.title, t("goal.unnamed"));
+  const configured = localizedBoundLabel(presentationEntry(data, "goal")?.title, "");
+  const ownerLocalized = localizedBoundLabel(goal.title_by_locale || goal.localized_title, "");
+  if (configured) return boundedHumanText(configured, t("goal.titleUnavailable"));
+  if (ownerLocalized) return boundedHumanText(ownerLocalized, t("goal.titleUnavailable"));
+  if (goal.title_locale === i18n.language) return boundedHumanText(goal.title, t("goal.titleUnavailable"));
+  return t("goal.titleUnavailable");
+}
+
+function catalogItemTitle(item) {
+  if (!item || item.title_state !== "available") return t("goal.titleUnavailable");
+  const localized = localizedBoundLabel(item.title_by_locale, "");
+  if (localized) return boundedHumanText(localized, t("goal.titleUnavailable"));
+  if (item.title_locale === i18n.language && item.title) return boundedHumanText(item.title, t("goal.titleUnavailable"));
+  return t("goal.titleUnavailable");
+}
+
+function selectedProjectionTitle(projection) {
+  if (!projection || typeof projection !== "object") return "";
+  const localized = localizedBoundLabel(projection.title_by_locale, "")
+    || (projection.title_locale === i18n.language ? humanValue(projection.title, "") : "");
+  if (localized) return boundedHumanText(localized, t("goal.titleUnavailable"));
+  const presentation = localizedBoundLabel(projection.presentation?.title, "");
+  return presentation ? boundedHumanText(presentation, t("goal.titleUnavailable")) : "";
 }
 
 function compactDisplayText(value, limit = MAX_GOAL_DISPLAY) {
@@ -646,11 +675,7 @@ function explicitParticipantLabel(participant, identity, configured) {
     presentationField(configured, "label", ""),
     presentationField(configured, "display_name", ""),
     participant?.display_name,
-    participant?.label,
-    participant?.name,
     identity?.display_name,
-    identity?.label,
-    identity?.name,
   ];
   for (const candidate of candidates) {
     const label = humanParticipantName(candidate, "");
@@ -666,16 +691,21 @@ function humanModelName(value, fallback = "") {
 }
 
 function participantContextItems(data) {
-  return arrayOrEmpty(data?.participant_context?.participants).map((participant, index) => {
+  if (data?.participant_context?.state === "invalid") return [];
+  return arrayOrEmpty(data?.participant_context?.participants).filter((participant) => {
+    const identity = participant?.identity || {};
+    return participant?.quality !== "invalid"
+      && identity.display_name_state === "present"
+      && Boolean(identity.display_name || participant?.display_name);
+  }).map((participant, index) => {
     const identity = participant.identity || {};
     const task = participant.task_context || {};
     const model = participant.model_realization || {};
     const configured = participantPresentation(data, { actor_key: participant.ref, identity });
-    const rawRole = String(identity.role_id || "");
-    const role = presentationField(configured, "role", "")
-      || (/external[_\s-]+codex|agent/i.test(rawRole) ? t("participants.workingAgent") : t("participants.roleUnknown"));
+    const role = presentationField(configured, "role", "") || humanValue(identity.role_name, t("participants.roleUnknown"));
     const publishedLabel = explicitParticipantLabel(participant, identity, configured);
-    const title = publishedLabel || t("participants.personNumber", { count: index + 1 });
+    if (!publishedLabel) return null;
+    const title = publishedLabel;
     const taskValue = presentationField(configured, "task", "")
       || humanValue(task.summary, t("participants.workUnavailable"));
     const threadState = task.goal_thread?.state;
@@ -687,7 +717,7 @@ function participantContextItems(data) {
       kind: "person",
       title,
       state: quality,
-      owner: t("trajectory.master"),
+      owner: null,
       role,
       model: model.state === "present" ? t("participants.modelAvailable") : null,
       model_state: model.state || "unknown",
@@ -697,22 +727,24 @@ function participantContextItems(data) {
       evidence_refs: arrayOrEmpty(participant.evidence_refs),
       raw: participant,
     };
-  });
+  }).filter(Boolean);
 }
 
 function participantItems(data) {
   if (data?.participant_context && Array.isArray(data.participant_context.participants)) return participantContextItems(data);
-  return arrayOrEmpty(data?.actor_activity?.actors).map((actor, index) => {
+  if (["invalid", "missing"].includes(data?.actor_activity?.state)) return [];
+  return arrayOrEmpty(data?.actor_activity?.actors).filter((actor) => {
+    const identity = actor?.identity || {};
+    return Boolean(identity.display_name || actor?.display_name);
+  }).map((actor, index) => {
     const identity = actor.identity || {};
     const task = actor.task || {};
     const responsibility = actor.responsibility || {};
     const configured = participantPresentation(data, actor);
-    const rawRole = String(identity.role_id || "");
-    const role = presentationField(configured, "role", "")
-      || (/external[_\s-]+codex|agent/i.test(rawRole) ? t("participants.workingAgent") : t("participants.roleUnknown"));
+    const role = presentationField(configured, "role", "") || humanValue(identity.role_name, t("participants.roleUnknown"));
     const publishedLabel = explicitParticipantLabel(actor, identity, configured);
-    const publishedHolder = humanParticipantName(responsibility.holder, "");
-    const title = publishedLabel || publishedHolder || t("participants.personNumber", { count: index + 1 });
+    if (!publishedLabel) return null;
+    const title = publishedLabel;
     const model = presentationField(configured, "model", "") || humanModelName(identity.model_id, "");
     const taskValue = presentationField(configured, "task", "")
       || humanValue(task.summary || task.title, t("participants.workUnavailable"));
@@ -722,7 +754,7 @@ function participantItems(data) {
       kind: "person",
       title,
       state: actor.state || responsibility.state || "unknown",
-      owner: humanOwner(responsibility.holder, t("trajectory.master")),
+      owner: humanParticipantName(responsibility.owner_display_name || responsibility.owner_label, "") || null,
       role,
       model: model || null,
       task: taskValue,
@@ -731,7 +763,7 @@ function participantItems(data) {
       evidence_refs: arrayOrEmpty(actor.evidence_refs),
       raw: actor,
     };
-  });
+  }).filter(Boolean);
 }
 
 function sourceItems(data) {
@@ -852,10 +884,21 @@ function renderCatalogWorkspace(data, item) {
     body?.append(text("p", t("workspace.historyUnavailable"), "catalog-disclosure state-missing"));
     return;
   }
-  const fullTitle = item.title || t("goal.unnamed");
+  const selectedProjection = data?.selected_goal_projection?.goal_ref === item.ref ? data.selected_goal_projection : null;
+  const projectionTitle = selectedProjectionTitle(selectedProjection);
+  const fullTitle = projectionTitle || catalogItemTitle(item);
   setDisplayTitle(heading, compactDisplayText(fullTitle), fullTitle);
-  if (summary) summary.textContent = t("workspace.historySummary");
-  setBadge(lifecycle, item.lifecycle_state);
+  const projectionState = selectedProjection?.state;
+  const projectionBound = selectedProjection?.source?.owner === "aoa-session-memory"
+    && ["current", "current_at_read", "stale"].includes(projectionState);
+  const localizedSummary = selectedProjection?.summary && typeof selectedProjection.summary === "object"
+    ? localizedBoundLabel(selectedProjection.summary, "")
+    : "";
+  const projectionSummary = projectionBound
+    ? localizedSummary || t("workspace.ownerProjectionSummary")
+    : t("workspace.historySummary");
+  if (summary) summary.textContent = projectionSummary;
+  setBadge(lifecycle, projectionBound ? selectedProjection.lifecycle_state : item.lifecycle_state);
   if (recency) {
     recency.textContent = t("workspace.recency", { value: formatHumanRecency(item.last_observed_at) });
     if (item.last_observed_at) recency.dateTime = item.last_observed_at;
@@ -871,7 +914,14 @@ function renderCatalogWorkspace(data, item) {
   const catalog = catalogInfo(data);
   const notes = document.createElement("div");
   notes.className = "catalog-disclosures";
-  notes.append(text("p", t("workspace.historyDetailsMissing"), "catalog-disclosure"));
+  if (projectionBound) {
+    notes.append(text("p", t("workspace.ownerProjectionAvailable"), "catalog-disclosure"));
+    if (selectedProjection.public_items?.length) notes.append(text("p", t("workspace.ownerProjectionItems", { count: selectedProjection.public_items.length }), "catalog-disclosure"));
+    if (selectedProjection.omissions && Object.keys(selectedProjection.omissions).length) notes.append(text("p", t("workspace.ownerProjectionOmissions"), "catalog-disclosure"));
+  } else {
+    notes.append(text("p", t("workspace.historyDetailsMissing"), "catalog-disclosure"));
+    if (selectedProjection?.state === "deferred" || selectedProjection?.state === "missing") notes.append(text("p", t("workspace.ownerProjectionDeferred"), "catalog-disclosure"));
+  }
   if (["stale", "deferred", "unknown"].includes(catalog.state)) notes.append(text("p", t("workspace.historyMayLag"), "catalog-disclosure"));
   if (item.ambiguity) notes.append(text("p", t("workspace.historyIncomplete"), "catalog-disclosure"));
   body?.append(notes);
@@ -883,62 +933,28 @@ function renderHome(data) {
   clear(selector);
   clear(catalogState);
   const goal = data?.goal || {};
-  if (!goal.goal_id) {
-    selector.append(text("p", t("home.goalUnavailable"), "empty-copy"));
-    catalogState.className = "empty-state state-missing";
-    catalogState.append(badge("missing"), text("span", t("home.goalUnavailable")));
-    return;
-  }
-  const card = document.createElement("article");
-  card.className = "goal-selector-card";
-  const main = document.createElement("div");
-  main.className = "goal-selector-main";
-  const currentTitle = text("h2", "", "goal-display-title");
-  setDisplayTitle(currentTitle, compactGoalTitle(data), goalTitle(data));
-  main.append(text("p", t("home.currentGoal"), "card-label"), currentTitle);
-  const status = document.createElement("div");
-  status.className = "goal-card-states";
-  status.append(badge(goal.state || "unknown"), badge(qualityForData(data)));
-  main.append(status);
-  const open = text("button", t("home.openWorkspace"), "goal-open-button");
-  open.type = "button";
-  open.setAttribute("aria-label", `${t("home.openWorkspace")}: ${goalTitle(data)}`);
-  open.addEventListener("click", () => {
-    contextThreadOpen = false;
-    setSelection({ goal_ref: goalRef(data), lens: "trajectory", focus_ref: null, branch_path: [], thread_ref: goal.master_thread_id || goal.goal_id });
-    byId("center-surface")?.focus?.({ preventScroll: true });
-  });
-  card.append(main, open);
-  selector.append(card);
-
   const catalog = catalogInfo(data);
-  if (catalog.state === "missing" || catalog.state === "invalid") {
-    catalogState.className = `empty-state state-${catalog.state}`;
-    catalogState.dataset.catalogState = catalog.state;
-    catalogState.append(badge(catalog.state), text("span", catalog.state === "missing" ? t("home.catalogMissing") : t("home.catalogUnavailable")));
-    return;
-  }
-
-  const titledItems = catalog.items.filter((item) => item.title_state === "available" && item.title);
-  const hiddenCount = catalog.items.length - titledItems.length;
   const groups = ["active", "attention", "paused", "completed"];
   for (const group of groups) {
-    const items = titledItems.filter((item) => item.group === group);
+    const items = catalog.items.filter((item) => item.group === group);
     if (!items.length) continue;
     const section = document.createElement("section");
     section.className = "goal-group";
     section.append(text("h3", t(`home.group.${group}`), "goal-group-heading"));
     const list = document.createElement("div");
     list.className = "goal-list";
-    for (const item of items) {
+    const windowed = dashboardUI.pageWindow(items, pageFor(`catalog-${group}`), 6, selection.goal_ref);
+    for (const item of windowed.items) {
       const row = document.createElement("button");
       row.type = "button";
       row.className = "goal-list-item";
-      row.setAttribute("aria-label", `${t("home.openWorkspace")}: ${item.title}`);
+      row.setAttribute("aria-label", `${t("home.openWorkspace")}: ${catalogItemTitle(item)}`);
+      row.setAttribute("aria-pressed", String(selection.goal_ref === item.ref));
       const copy = document.createElement("span");
       copy.className = "goal-list-copy";
       const itemTitle = text("strong", "", "goal-display-title");
-      setDisplayTitle(itemTitle, compactDisplayText(item.title), item.title);
+      const displayTitle = catalogItemTitle(item);
+      setDisplayTitle(itemTitle, compactDisplayText(displayTitle), displayTitle);
       copy.append(itemTitle, text("span", statusLabel(item.lifecycle_state), "goal-list-state"));
       const recent = text("time", formatHumanRecency(item.last_observed_at), "goal-list-time");
       if (item.last_observed_at) recent.dateTime = item.last_observed_at;
@@ -947,22 +963,55 @@ function renderHome(data) {
         contextThreadOpen = false;
         setSelection({ goal_ref: item.ref, lens: "trajectory", focus_ref: null, branch_path: [], thread_ref: item.ref });
         byId("catalog-workspace-view")?.focus?.({ preventScroll: true });
-        announce(item.title);
+        announce(displayTitle);
       });
       list.append(row);
     }
     section.append(list);
+    showPageControls(section, `catalog-${group}`, windowed);
     selector.append(section);
   }
 
   catalogState.className = `catalog-note state-${catalog.state}`;
-  if (catalog.state === "stale" || catalog.state === "deferred") {
+  if (catalog.state === "missing" || catalog.state === "invalid") {
+    catalogState.className = `empty-state state-${catalog.state}`;
+    catalogState.dataset.catalogState = catalog.state;
+    catalogState.append(badge(catalog.state), text("span", catalog.state === "missing" ? t("home.catalogMissing") : t("home.catalogUnavailable")));
+  } else if (catalog.state === "stale" || catalog.state === "deferred" || catalog.state === "unknown") {
     catalogState.append(text("span", t("home.historyUpdating")));
-  } else if (!titledItems.length) {
+  } else if (!catalog.items.length) {
     catalogState.append(text("span", t("home.catalogEmpty")));
   }
-  if (hiddenCount > 0) catalogState.append(text("span", t("home.unnamedCount", { count: hiddenCount }), "catalog-muted"));
+  const unavailableCount = catalog.items.filter((item) => catalogItemTitle(item) === t("goal.titleUnavailable")).length;
+  if (unavailableCount > 0) catalogState.append(text("span", t("home.unnamedCount", { count: unavailableCount }), "catalog-muted"));
+  if (catalog.pagination?.next_cursor) catalogState.append(text("span", t("home.moreAvailable"), "catalog-muted"));
   if (!catalogState.children.length) catalogState.classList.add("hidden");
+
+  if (goal.goal_id) {
+    const card = document.createElement("article");
+    card.className = "goal-selector-card selected-runtime-goal";
+    const main = document.createElement("div");
+    main.className = "goal-selector-main";
+    const currentTitle = text("h2", "", "goal-display-title");
+    setDisplayTitle(currentTitle, compactGoalTitle(data), goalTitle(data));
+    main.append(text("p", t("home.currentGoal"), "card-label"), currentTitle);
+    const status = document.createElement("div");
+    status.className = "goal-card-states";
+    status.append(badge(goal.state || "unknown"), badge(qualityForData(data)));
+    main.append(status);
+    const open = text("button", t("home.openWorkspace"), "goal-open-button");
+    open.type = "button";
+    open.setAttribute("aria-label", `${t("home.openWorkspace")}: ${goalTitle(data)}`);
+    open.addEventListener("click", () => {
+      contextThreadOpen = false;
+      setSelection({ goal_ref: goalRef(data), lens: "trajectory", focus_ref: null, branch_path: [], thread_ref: goal.master_thread_id || goal.goal_id });
+      byId("center-surface")?.focus?.({ preventScroll: true });
+    });
+    card.append(main, open);
+    selector.append(card);
+  } else if (!catalog.items.length && catalog.state === "missing") {
+    selector.append(text("p", t("home.goalUnavailable"), "empty-copy"));
+  }
 }
 
 function renderBreadcrumb(data) {
@@ -1009,9 +1058,14 @@ function renderGoalSummary(data) {
   const participantSummary = data.participant_context?.summary || {};
   const count = participantSummary.participant_count ?? data.actor_activity?.summary?.actor_count;
   const participantState = data.participant_context?.state || data.actor_activity?.state || "unknown";
+  const aggregateCount = participantSummary.aggregate_count ?? participantSummary.invalid_count;
+  const aggregateLabel = aggregateCount == null ? "" : `: ${aggregateCount}`;
+  const peopleValue = participantState === "invalid"
+    ? t("participants.aggregateUnavailable", { count: aggregateLabel })
+    : count == null ? plural("person", null) : plural("person", count);
   target.append(
     summaryCard(t("trajectory.master"), humanOwner(holder.label || holder.holder, t("trajectory.masterUnknown")), t("trajectory.masterSummary"), lifecycleForData(data)),
-    summaryCard(t("trajectory.people"), count == null ? plural("person", null) : plural("person", count), t("participants.intro"), participantState),
+    summaryCard(t("trajectory.people"), peopleValue, t("participants.intro"), participantState),
     summaryCard(t("trajectory.nextFocus"), focus?.title || t("trajectory.nextFocusEmpty"), focusDetail, focus?.state || "unknown"),
   );
   if (people.length && people.length < (count || people.length)) {
@@ -1061,6 +1115,7 @@ function readRoute() {
 }
 
 function setSelection(patch) {
+  const previousGoalRef = selection.goal_ref;
   selection = SelectionContext.normalize({ ...selection, ...patch });
   if (Object.prototype.hasOwnProperty.call(patch, "goal_ref") && !patch.goal_ref) selectionQuality = null;
   if (Object.prototype.hasOwnProperty.call(patch, "focus_ref")) {
@@ -1071,6 +1126,7 @@ function setSelection(patch) {
   routeError = null;
   syncRoute();
   if (currentProjection) renderProjection(currentProjection);
+  if (Object.prototype.hasOwnProperty.call(patch, "goal_ref") && patch.goal_ref && patch.goal_ref !== previousGoalRef && currentProjection) refresh();
 }
 
 function createSurface(titleKey, introKey) {
@@ -1221,7 +1277,14 @@ function renderParticipantsLens(data, target) {
     card.append(select, badge(person.state), text("p", t("participants.role", { value: person.role }), "direction-meta"), text("p", t("participants.task", { value: person.task }), "direction-focus"));
     list.append(card);
   }
-  if (!windowed.items.length) list.append(text("p", t("participants.unknown"), "empty-copy"));
+  if (!windowed.items.length) {
+    const participantState = data?.participant_context?.state || data?.actor_activity?.state;
+    const aggregateCount = data?.participant_context?.summary?.aggregate_count;
+    const aggregateLabel = aggregateCount == null ? "" : `: ${aggregateCount}`;
+    list.append(text("p", participantState === "invalid"
+      ? t("participants.aggregateUnavailable", { count: aggregateLabel })
+      : t("participants.unknown"), "empty-copy"));
+  }
   surface.body.append(list);
   showPageControls(surface.body, "people", windowed);
   if (windowed.omitted) surface.body.append(text("p", t("participants.more", { count: windowed.total - windowed.items.length }), "panel-intro"));
@@ -1379,6 +1442,7 @@ function renderThread(data) {
   setBadge(quality, context ? (context.evidence_refs?.length ? "present" : context.state) : "missing");
   const selectionLabel = byId("thread-selection");
   if (selectionLabel) selectionLabel.textContent = context ? context.title : t("thread.noSelection");
+  target.append(text("p", t("thread.deferredNotice"), "thread-deferred"));
   if (!context) target.append(text("p", t("thread.noSelection"), "empty-state"));
   else {
     const card = document.createElement("article");
@@ -1505,10 +1569,13 @@ function renderNoProjection() {
 }
 
 async function refresh() {
+  if (refreshInFlight) return;
+  refreshInFlight = true;
   if (!currentProjection) { refreshState = "loading"; renderRefreshState(); }
   setProjectionBusy(true);
   try {
-    const response = await fetch("/api/projection", { cache: "no-store" });
+    const query = selection.goal_ref ? `?goal_ref=${encodeURIComponent(selection.goal_ref)}` : "";
+    const response = await fetch(`/api/projection${query}`, { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || data.error || t("refresh.failed"));
     const wasDegraded = refreshState !== "current" || !byId("alert")?.classList.contains("hidden");
@@ -1532,6 +1599,8 @@ async function refresh() {
     if (currentProjection) renderProjection(currentProjection); else renderNoProjection();
     setProjectionBusy(false);
     announce(t("refresh.failed"));
+  } finally {
+    refreshInFlight = false;
   }
 }
 

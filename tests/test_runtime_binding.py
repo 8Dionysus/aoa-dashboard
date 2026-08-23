@@ -217,6 +217,59 @@ class RuntimeBindingTests(unittest.TestCase):
         self.assertNotEqual(selected_a["goal_catalog_source"]["path"], selected_b["goal_catalog_source"]["path"])
         self.assertNotEqual(selected_a["pressure_source"]["path"], selected_b["pressure_source"]["path"])
 
+    @patch("aoa_dashboard.owner_context.discover_control_socket", side_effect=CodexGoalUnavailable("owner_socket_missing"))
+    def test_catalog_and_selected_goal_projection_bind_to_explicit_owner_commands(self, _socket: object) -> None:
+        binding_path, payload = self._binding("command", "goal-command", "thread-command")
+        task_root = Path(payload["sources"]["correlation"]["task_local_dir"])
+        catalog_path = Path(payload["sources"]["catalog"]["path"])
+        projection_path = task_root / "goal-projection.json"
+        projection_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "aoa_session_memory_goal_projection_v1",
+                    "artifact_type": "goal_projection_public",
+                    "state": "current",
+                    "currentness": "current",
+                    "goal_ref": "goal-command",
+                    "title": "Command-published Goal",
+                    "title_state": "available",
+                    "title_locale": "en",
+                    "lifecycle_state": "active",
+                    "summary": {"en": "A bounded selected Goal."},
+                    "public_items": [],
+                    "source": {"owner": "aoa-session-memory", "ref": "aoa-session-memory:goal-projection", "currentness": "current"},
+                    "claim_limit": "Owner projection only.",
+                }
+            ),
+            encoding="utf-8",
+        )
+        catalog_command = [sys.executable, "-c", "import pathlib,sys; print(pathlib.Path(sys.argv[1]).read_text())", str(catalog_path)]
+        projection_command = [sys.executable, "-c", "import pathlib,sys; print(pathlib.Path(sys.argv[1]).read_text())", str(projection_path)]
+        payload["sources"]["catalog"].pop("path")
+        payload["sources"]["catalog"]["publication"] = {
+            "capability": "aoa-session-memory.goal-catalog.read",
+            "command": catalog_command,
+        }
+        payload["sources"]["goal_projection"] = {
+            **self._owner("aoa-session-memory", "source_owner", "source_owner_metadata"),
+            "expected_schema_version": "aoa_session_memory_goal_projection_v1",
+            "publication": {
+                "capability": "aoa-session-memory.goal-projection.read",
+                "command": projection_command,
+                "goal_ref_arg": "--goal-ref",
+            },
+        }
+        binding_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        selected = load_config(binding_path)
+        self.assertEqual(selected["runtime_binding_state"], "bound")
+        self.assertEqual(selected["goal_catalog_source"]["publication"]["transport"], "command")
+        self.assertEqual(selected["goal_projection_source"]["publication"]["goal_ref_arg"], "--goal-ref")
+        projection = build_projection(binding_path, selected_goal_ref="goal-command")
+        self.assertEqual(projection["goal_catalog"]["state"], "current")
+        self.assertEqual(projection["selected_goal_projection"]["goal_ref"], "goal-command")
+        self.assertEqual(projection["selected_goal_projection"]["title_locale"], "en")
+
     def test_goal_anchor_swap_and_digest_drift_fail_closed(self) -> None:
         binding_a, payload_a = self._binding("alpha", "goal-alpha", "thread-alpha")
         binding_b, _ = self._binding("beta", "goal-beta", "thread-beta")
