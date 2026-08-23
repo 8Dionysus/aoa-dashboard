@@ -38,6 +38,10 @@ through adapters and retained only as bounded metadata plus provenance refs.
   fields remain bounded observations.
 - `goal_space_projection.schema.json` describes the read model served to the
   operator UI.
+- `goal_catalog_projection.schema.json` describes the dashboard-normalized
+  view of the versioned `aoa-session-memory` Goal catalog. The adapter admits
+  only the exact owner/schema pair, keeps source degradation, and omits raw
+  objectives, session bodies, usage, work chains, and host paths.
 - `master_filter_currentness.schema.json` defines the migration boundary for
   the mutable master return filter. The dashboard consumes an owner-authored
   current-head attestation plus append-only head history, compares the

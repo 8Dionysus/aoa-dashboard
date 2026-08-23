@@ -5,6 +5,9 @@
   const QUALITY = ["missing", "unknown", "stale", "deferred", "invalid"];
   const MAX_CONTEXT_ITEMS = 32;
   const MAX_CONTEXT_STRING = 512;
+  const CATALOG_SCHEMA = "aoa_dashboard_goal_catalog_projection_v1";
+  const CATALOG_GROUPS = ["active", "attention", "paused", "completed"];
+  const CATALOG_CURRENTNESS = ["current", "stale", "deferred", "unknown", "invalid"];
 
   function textOrNull(value, limit = MAX_CONTEXT_STRING) {
     if (value === null || value === undefined || value === "") return null;
@@ -146,9 +149,55 @@
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
       return { state: "missing", items: [], source: null, currentness: "missing", claim_limit: null, reason: "publisher_missing" };
     }
-    // No owner-published Goal catalog/schema is admitted by this source yet.
-    // A shaped candidate remains unqualified rather than creating authority.
-    return { state: "missing", items: [], source: null, currentness: "missing", claim_limit: null, reason: "publisher_unqualified" };
+    const source = candidate.source;
+    const qualified = candidate.schema_version === CATALOG_SCHEMA
+      && CATALOG_CURRENTNESS.includes(candidate.currentness)
+      && candidate.state === candidate.currentness
+      && source && typeof source === "object" && !Array.isArray(source)
+      && source.owner === "aoa-session-memory"
+      && source.ref === "aoa-session-memory:goal-lifecycles"
+      && source.owner_schema_version === "aoa_session_memory_goal_catalog_v1"
+      && source.currentness === candidate.currentness
+      && Array.isArray(candidate.items)
+      && candidate.items.length <= 500
+      && typeof candidate.claim_limit === "string" && candidate.claim_limit.length > 0;
+    if (!qualified) {
+      return { state: "missing", items: [], source: null, currentness: "missing", claim_limit: null, reason: "publisher_unqualified" };
+    }
+    const refs = new Set();
+    const items = [];
+    for (const value of candidate.items) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return { state: "invalid", items: [], source, currentness: "invalid", claim_limit: candidate.claim_limit, reason: "item_invalid" };
+      const ref = textOrNull(value.ref, 160);
+      const titleState = value.title_state;
+      const title = value.title === null ? null : textOrNull(value.title, 96);
+      if (!ref || refs.has(ref) || !CATALOG_GROUPS.includes(value.group) || !["available", "missing", "withheld"].includes(titleState)) {
+        return { state: "invalid", items: [], source, currentness: "invalid", claim_limit: candidate.claim_limit, reason: "item_invalid" };
+      }
+      if ((titleState === "available" && !title) || (titleState !== "available" && title !== null)) {
+        return { state: "invalid", items: [], source, currentness: "invalid", claim_limit: candidate.claim_limit, reason: "item_invalid" };
+      }
+      refs.add(ref);
+      items.push({
+        ref,
+        title,
+        title_state: titleState,
+        lifecycle_state: textOrNull(value.lifecycle_state, 40) || "unknown",
+        group: value.group,
+        first_observed_at: textOrNull(value.first_observed_at, 40),
+        last_observed_at: textOrNull(value.last_observed_at, 40),
+        ambiguity: Boolean(value.ambiguity),
+      });
+    }
+    return {
+      state: candidate.state,
+      items,
+      source,
+      currentness: candidate.currentness,
+      claim_limit: candidate.claim_limit,
+      counts_by_group: candidate.counts_by_group && typeof candidate.counts_by_group === "object" ? candidate.counts_by_group : {},
+      reason: null,
+    };
   }
 
   function optionalRecord(value) {

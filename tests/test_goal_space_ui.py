@@ -135,11 +135,23 @@ context.globalThis = context;
 vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 const ui = context.AoaDashboardUiState;
 const fabricated = { items: [{ goal_ref: "goal:1" }], source: { ref: "fixture://not-owner", owner: "fabricated-owner", currentness: "invented" }, claim_limit: "fabricated claim" };
+const admitted = {
+  schema_version: "aoa_dashboard_goal_catalog_projection_v1",
+  state: "stale",
+  currentness: "stale",
+  source: { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", owner_schema_version: "aoa_session_memory_goal_catalog_v1", currentness: "stale" },
+  items: [{ ref: "goal:1", title: "A human Goal", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: "2026-08-22T00:00:00Z", ambiguity: false }],
+  counts_by_group: { active: 1 },
+  claim_limit: "bounded owner projection",
+};
+const duplicate = { ...admitted, items: [admitted.items[0], { ...admitted.items[0] }] };
 const page = ui.pageWindow([{ ref: "a" }, { ref: "b" }, { ref: "c" }, { ref: "d" }], 0, 2, "d");
 process.stdout.write(JSON.stringify({
   arrayCatalog: ui.qualifiedCatalog([]),
   unqualifiedCatalog: ui.qualifiedCatalog({ items: [], claim_limit: "missing source" }),
   fabricatedCatalog: ui.qualifiedCatalog(fabricated),
+  admittedCatalog: ui.qualifiedCatalog(admitted),
+  duplicateCatalog: ui.qualifiedCatalog(duplicate),
   missingRecord: ui.optionalRecord(null),
   zeroRecord: ui.optionalRecord({ count: 0, latest: [] }),
   unknownRecord: ui.optionalRecord({ latest: [] }),
@@ -151,6 +163,11 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(observed["unqualifiedCatalog"]["state"], "missing")
         self.assertEqual(observed["fabricatedCatalog"]["state"], "missing")
         self.assertEqual(observed["fabricatedCatalog"]["reason"], "publisher_unqualified")
+        self.assertEqual(observed["admittedCatalog"]["state"], "stale")
+        self.assertEqual(observed["admittedCatalog"]["items"][0]["title"], "A human Goal")
+        self.assertEqual(observed["admittedCatalog"]["items"][0]["group"], "active")
+        self.assertEqual(observed["duplicateCatalog"]["state"], "invalid")
+        self.assertEqual(observed["duplicateCatalog"]["reason"], "item_invalid")
         self.assertEqual(observed["missingRecord"], {"state": "missing", "count": None, "latest": [], "evidence_refs": [], "claim_limit": None})
         self.assertEqual(observed["zeroRecord"]["state"], "bound")
         self.assertEqual(observed["zeroRecord"]["count"], 0)
@@ -374,6 +391,53 @@ process.stdout.write(JSON.stringify({ before, beforeRefs, after, afterRefs, insp
         self.assertTrue(observed["afterRefs"])
         self.assertEqual(observed["inspectorClass"], "diagnostics-inspector")
         self.assertEqual(observed["developerClass"], "developer-details")
+
+    def test_home_groups_owner_catalog_without_rendering_machine_refs(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function node(tag) {
+  const listeners = {};
+  return { tagName: tag, children: [], firstChild: null, className: "", textContent: "", dataset: {}, classList: { add() {}, remove() {}, toggle() {} }, append(...items) { this.children.push(...items); }, removeChild() {}, setAttribute(name, value) { this[name] = value; }, addEventListener(name, listener) { listeners[name] = listener; }, focus() {} };
+}
+const nodes = new Map([["goal-selector", node("div")], ["catalog-state", node("div")], ["live-region", node("div")]]);
+const document = { documentElement: { lang: "", dataset: {} }, title: "", querySelectorAll() { return []; }, getElementById(id) { return nodes.get(id) || null; }, createElement: node, addEventListener() {} };
+const context = { document, globalThis: null, localStorage: { getItem() { return null; }, setItem() {} }, location: { hash: "" }, history: { replaceState() {} }, fetch() { return new Promise(() => {}); }, setInterval() {}, addEventListener() {}, navigator: { language: "ru-RU" }, AoaDashboardTheme: { getMode() { return "dark"; }, subscribe() {} } };
+context.globalThis = context; context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+context.AoaDashboardApp.renderHome({
+  presentation: { goal: { title: { ru: "Текущая цель", en: "Current Goal" } } },
+  goal: { goal_id: "current-goal", title: "machine fallback", state: "bound" },
+  lifecycle: [],
+  goal_catalog: {
+    schema_version: "aoa_dashboard_goal_catalog_projection_v1",
+    state: "stale",
+    currentness: "stale",
+    source: { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", owner_schema_version: "aoa_session_memory_goal_catalog_v1", currentness: "stale" },
+    items: [
+      { ref: "019f9075-41a3-7933-a81d-f32bc4da12ca", title: "Развить пространство целей", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: "2026-08-22T21:00:00Z", ambiguity: false },
+      { ref: "019e967f-1747-7ec0-a056-9e626300d531", title: null, title_state: "withheld", lifecycle_state: "complete", group: "completed", first_observed_at: null, last_observed_at: null, ambiguity: true },
+    ],
+    counts_by_group: { active: 1, completed: 1 },
+    claim_limit: "bounded owner projection",
+  },
+});
+const rendered = JSON.stringify(nodes.get("goal-selector"));
+const note = JSON.stringify(nodes.get("catalog-state"));
+process.stdout.write(JSON.stringify({ rendered, note }));
+'''
+        )
+        self.assertIn("Текущая цель", observed["rendered"])
+        self.assertIn("Развить пространство целей", observed["rendered"])
+        self.assertIn("Активные", observed["rendered"])
+        self.assertNotIn("019f9075", observed["rendered"])
+        self.assertNotIn("019e967f", observed["rendered"])
+        self.assertIn("История целей обновляется", observed["note"])
+        self.assertIn("Ещё без отображаемого названия: 1", observed["note"])
 
     def test_refresh_interaction_snapshot_restores_details_scroll_drafts_and_focus(self) -> None:
         observed = run_node(

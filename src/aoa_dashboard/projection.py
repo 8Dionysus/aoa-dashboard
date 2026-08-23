@@ -14,6 +14,7 @@ from .cursor import (
     read_correlation_observation_log,
     rebuild_goal_local_projection,
 )
+from .goal_catalog import observe_goal_catalog
 from .model import LIFECYCLE_STATES, STATUS_VOCABULARY, Projection
 from .pressure import build_pressure_inbox, migrate_legacy_pressure_candidates
 from .sources import observe_all, observe_owner_surfaces, utc_now
@@ -327,6 +328,7 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     safe_sources = redact_legacy_metadata(sources)
     actor_activity = source_index["task-local-actor-activity"].get("metadata", {})
     presentation = config.get("presentation") if isinstance(config.get("presentation"), dict) else {}
+    goal_catalog = observe_goal_catalog(config)
     return {
         "schema_version": "aoa_dashboard_projection_v1",
         "generated_at": utc_now(),
@@ -340,6 +342,7 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
             "source_refs": goal_source.get("evidence_refs", []),
             "claim_limit": "The Goal Anchor is source binding; the dashboard does not own Goal semantics or acceptance.",
         },
+        "goal_catalog": goal_catalog,
         "correlation": safe_correlation,
         "correlation_read_model": goal_local_correlation,
         "pressure_inbox": pressure_inbox,

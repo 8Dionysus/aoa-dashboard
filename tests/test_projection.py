@@ -95,6 +95,10 @@ class ProjectionFixture:
             {
                 "goal_id": "test-goal",
                 "title": "Test goal",
+                "parent_posture": "paused",
+                "goal_catalog_source": {
+                    "path": str(self.root / "goal-catalog.json"),
+                },
                 "goal_anchor_path": str(self.anchor),
                 "goal_anchor_expected_sha256": hashlib.sha256(self.anchor.read_bytes()).hexdigest(),
                 "historical_bootstrap": {

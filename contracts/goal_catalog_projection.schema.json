@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/goal-catalog-projection-v1",
+  "title": "aoa-dashboard admitted Goal catalog projection",
+  "type": "object",
+  "required": ["schema_version", "state", "currentness", "items", "counts_by_group", "evidence_refs", "diagnostics", "claim_limit"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_goal_catalog_projection_v1"},
+    "state": {"enum": ["current", "stale", "deferred", "unknown", "invalid", "missing"]},
+    "currentness": {"enum": ["current", "stale", "deferred", "unknown", "invalid", "missing"]},
+    "generated_at": {"type": ["string", "null"]},
+    "source": {"type": ["object", "null"]},
+    "items": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": ["ref", "title", "title_state", "lifecycle_state", "group", "first_observed_at", "last_observed_at", "ambiguity"],
+        "properties": {
+          "ref": {"type": "string", "minLength": 1, "maxLength": 160},
+          "title": {"type": ["string", "null"], "maxLength": 96},
+          "title_state": {"enum": ["available", "missing", "withheld"]},
+          "lifecycle_state": {"type": "string"},
+          "group": {"enum": ["active", "attention", "paused", "completed"]},
+          "first_observed_at": {"type": ["string", "null"]},
+          "last_observed_at": {"type": ["string", "null"]},
+          "ambiguity": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "counts_by_group": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "evidence_refs": {"type": "array"},
+    "diagnostics": {"type": "array", "items": {"type": "string"}},
+    "claim_limit": {"type": "string"}
+  },
+  "additionalProperties": false
+}

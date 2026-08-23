@@ -3,6 +3,13 @@
   "profile": "host-local-first-slice",
   "goal_id": "aoa-dashboard-goal-01a00722-20260815",
   "title": "Create aoa-dashboard first working vertical slice",
+  "goal_catalog_source": {
+    "schema_version": "aoa_dashboard_goal_catalog_binding_v1",
+    "owner": "aoa-session-memory",
+    "path": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/goal-space-wave/goal-catalog.public.json",
+    "expected_schema_version": "aoa_session_memory_goal_catalog_v1",
+    "claim_limit": "Scope: owner-published Goal navigation."
+  },
   "presentation": {
     "schema_version": "aoa_dashboard_human_presentation_v1",
     "claim_limit": "Localized display fields are a bounded dashboard presentation; canonical Goal, owner, route, source, and actor values remain separate observations.",
@@ -364,7 +371,6 @@
   "stats_observed_freshness_status": "not_attested",
   "kag_projection_digest": "61feed0fd1fa15bffb8e50a76a929d8c900aa0b2330d7469497ad385254f9552",
   "kag_projection_updated_at": "2026-08-08T21:35:49.720109+00:00",
-  "parent_posture": "paused",
   "lifecycle": [
     {"step": "planned", "evidence": "goal_anchor"},
     {"step": "bound", "evidence": "actor_manifest_and_bootstrap"},

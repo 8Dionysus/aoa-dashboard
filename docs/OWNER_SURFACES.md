@@ -19,6 +19,10 @@ owns only the thin translation and presentation layer.
   The configured bootstrap session is explicitly historical; it is not the
   current holder. The live rollout source and archived raw source are both
   referenced; an advancing source marks the archive as deferred/stale.
+- `aoa-session-memory` also publishes the bounded Goal catalog consumed by the
+  home view. The dashboard admits its exact v1 schema, preserves its
+  currentness, and projects only safe titles, lifecycle grouping, timestamps,
+  and one stable ref per Goal.
 - Current Goal/thread return correlation is dashboard-owned derived metadata
   over the bounded task-local handoff/wake directory and master filter. It
   supports the historical task-local v2 witness beside the versioned

@@ -16,9 +16,10 @@
       "dashboard_annotation_v1",
       "action_intent_v1",
       "goal_local_correlation_projection_v1",
-      "goal_local_cursor_v1",
-      "pressure_inbox_v1",
-      "task_local_actor_activity_projection_v1"
+    "goal_local_cursor_v1",
+    "pressure_inbox_v1",
+    "task_local_actor_activity_projection_v1",
+    "aoa_dashboard_goal_catalog_projection_v1"
     ],
     "effects": [
       "read_named_owner_surfaces",
@@ -59,8 +60,8 @@
       "dashboard_action": "keep source deploy and live evidence distinct"
     },
     ".aoa-session-memory": {
-      "owns": "raw session material and freshness",
-      "dashboard_action": "retain refs and provenance; never promote a projection to proof"
+      "owns": "raw session material freshness and the bounded Goal catalog publisher",
+      "dashboard_action": "admit the exact Goal catalog schema and retain refs provenance and degradation"
     },
     "aoa-evals": {
       "owns": "proof review and eval verdicts",
@@ -120,6 +121,8 @@
     "docs/RELEASE_RECONCILIATION.md",
     "MANIFEST.in",
     "contracts/organ_contract.json",
+    "contracts/goal_catalog_projection.schema.json",
+    "src/aoa_dashboard/goal_catalog.py",
     "scripts/release_check.py",
     "scripts/validate_organ_contract.py",
     "tests/test_organ_contract.py"

@@ -43,6 +43,7 @@ let lastGoodAt = null;
 let lastAnnouncement = "";
 let workspaceMode = "observe";
 let contextThreadOpen = false;
+let homeCatalogSelection = null;
 let selectionQuality = null;
 let selection = SelectionContext.empty();
 let routeState = "home";
@@ -630,7 +631,7 @@ function renderHome(data) {
   main.append(text("p", t("home.currentGoal"), "card-label"), text("h2", goalTitle(data)));
   const status = document.createElement("div");
   status.className = "goal-card-states";
-  status.append(badge(lifecycleForData(data)), badge(qualityForData(data)));
+  status.append(badge(goal.state || "unknown"), badge(qualityForData(data)));
   main.append(status);
   const open = text("button", t("home.openWorkspace"), "goal-open-button");
   open.type = "button";
@@ -644,8 +645,59 @@ function renderHome(data) {
   selector.append(card);
 
   const catalog = catalogInfo(data);
-  catalogState.className = `empty-state state-${catalog.state === "missing" ? "missing" : "bound"}`;
-  catalogState.append(badge(catalog.state === "missing" ? "missing" : "bound"), text("span", catalog.state === "missing" ? t("home.catalogMissing") : t("home.currentGoal")), text("span", t("home.categoryUnavailable"), "empty-copy"));
+  if (catalog.state === "missing" || catalog.state === "invalid") {
+    catalogState.className = `empty-state state-${catalog.state}`;
+    catalogState.append(text("span", catalog.state === "missing" ? t("home.catalogMissing") : t("home.catalogUnavailable")));
+    return;
+  }
+
+  const titledItems = catalog.items.filter((item) => item.title_state === "available" && item.title);
+  const hiddenCount = catalog.items.length - titledItems.length;
+  const groups = ["active", "attention", "paused", "completed"];
+  for (const group of groups) {
+    const items = titledItems.filter((item) => item.group === group);
+    if (!items.length) continue;
+    const section = document.createElement("section");
+    section.className = "goal-group";
+    section.append(text("h3", t(`home.group.${group}`), "goal-group-heading"));
+    const list = document.createElement("div");
+    list.className = "goal-list";
+    for (const item of items) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "goal-list-item";
+      row.setAttribute("aria-pressed", String(homeCatalogSelection === item.ref));
+      const copy = document.createElement("span");
+      copy.className = "goal-list-copy";
+      copy.append(text("strong", item.title), text("span", statusLabel(item.lifecycle_state), "goal-list-state"));
+      const recent = text("time", formatHumanRecency(item.last_observed_at), "goal-list-time");
+      if (item.last_observed_at) recent.dateTime = item.last_observed_at;
+      row.append(copy, recent);
+      row.addEventListener("click", () => {
+        homeCatalogSelection = homeCatalogSelection === item.ref ? null : item.ref;
+        renderHome(data);
+        announce(item.title);
+      });
+      list.append(row);
+    }
+    section.append(list);
+    selector.append(section);
+  }
+
+  const selectedItem = titledItems.find((item) => item.ref === homeCatalogSelection);
+  catalogState.className = `catalog-note state-${catalog.state}`;
+  if (selectedItem) {
+    catalogState.append(
+      text("strong", selectedItem.title),
+      text("span", t("home.historyObserved", { value: formatHumanRecency(selectedItem.last_observed_at) })),
+    );
+  } else if (catalog.state === "stale" || catalog.state === "deferred") {
+    catalogState.append(text("span", t("home.historyUpdating")));
+  } else if (!titledItems.length) {
+    catalogState.append(text("span", t("home.catalogEmpty")));
+  }
+  if (hiddenCount > 0) catalogState.append(text("span", t("home.unnamedCount", { count: hiddenCount }), "catalog-muted"));
+  if (!catalogState.children.length) catalogState.classList.add("hidden");
 }
 
 function renderBreadcrumb(data) {
@@ -1192,6 +1244,7 @@ window.AoaDashboardApp = Object.freeze({
   sourceItems,
   diagnosticEntries,
   renderDiagnosticRoutes,
+  renderHome,
   refresh,
   getSelection: () => ({ ...selection, branch_path: [...selection.branch_path], expanded_branch_refs: [...selection.expanded_branch_refs], page_by_list: { ...selection.page_by_list } }),
 });

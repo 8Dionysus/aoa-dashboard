@@ -19,6 +19,7 @@ KNOWN_OWNERS = frozenset(
         "aoa-evals",
         "aoa-kag",
         "aoa-memo",
+        "aoa-session-memory",
         "aoa-sdk",
         "aoa-skills",
         "aoa-stats",

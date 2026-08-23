@@ -27,6 +27,9 @@ The dashboard owns seven local derived/operator surfaces:
    actor key and retains allowlisted process/session/terminal/usage observations
    with their source refs. It is an observation surface, not a lifecycle or
    runtime-health owner.
+8. a normalized Goal catalog view over the exact owner-published
+   `aoa_session_memory_goal_catalog_v1` snapshot. Grouping and presentation are
+   dashboard-owned; lifecycle history and Goal identity remain owner data.
 
 ## What remains outside the organ
 
