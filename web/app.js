@@ -228,7 +228,11 @@ function humanSourceLabel(value) {
 function goalTitle(data) {
   const goal = data?.goal || {};
   const configured = presentationField(presentationEntry(data, "goal"), "title", "");
-  if (goal.title_source === "codex_app_server_thread_goal") return humanValue(goal.title, t("goal.unnamed"));
+  if (goal.title_source === "codex_app_server_thread_goal") {
+    const ownerTitle = String(goal.title || "").replace(/\s+/g, " ").trim();
+    if (!ownerTitle) return t("goal.unnamed");
+    return ownerTitle.length > MAX_HUMAN_TEXT ? `${ownerTitle.slice(0, MAX_HUMAN_TEXT - 1)}…` : ownerTitle;
+  }
   return configured || humanValue(goal.title, t("goal.unnamed"));
 }
 

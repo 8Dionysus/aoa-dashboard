@@ -233,7 +233,7 @@ vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
 const app = context.AoaDashboardApp;
 const goal = { goal: { goal_id: "goal:future-one", title: "Canonical future goal" }, presentation: { goal: { title: { en: "Create the first Goal Space slice", ru: "Собрать первый рабочий срез пространства целей" } } } };
-const ownerGoal = { goal: { goal_id: "goal:current", title: "Live owner Goal", title_source: "codex_app_server_thread_goal" }, presentation: { goal: { title: { en: "Stale configured title", ru: "Устаревший заголовок" } } } };
+const ownerGoal = { goal: { goal_id: "goal:current", title: "Преобразовать aoa-dashboard в Goal Space", title_source: "codex_app_server_thread_goal" }, presentation: { goal: { title: { en: "Stale configured title", ru: "Устаревший заголовок" } } } };
 const recent = app.formatHumanRecency("2026-08-22T16:17:00Z", "2026-08-22T16:29:00Z");
 const old = app.formatHumanRecency("2026-08-01T09:10:45.123Z", "2026-08-22T16:29:00Z");
 const enTitle = app.goalTitle(goal);
@@ -247,7 +247,7 @@ process.stdout.write(JSON.stringify({ recent, old, enTitle, ownerTitle, hasSecon
         self.assertFalse(observed["hasSeconds"])
         self.assertFalse(observed["hasIso"])
         self.assertEqual(observed["enTitle"], "Create the first Goal Space slice")
-        self.assertEqual(observed["ownerTitle"], "Live owner Goal")
+        self.assertEqual(observed["ownerTitle"], "Преобразовать aoa-dashboard в Goal Space")
 
     def test_generic_localized_presentation_handles_future_goals_and_hides_technical_cards(self) -> None:
         observed = run_node(
