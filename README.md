@@ -1,5 +1,7 @@
 # aoa-dashboard
 
+> Current release: `v0.1.0`. See [CHANGELOG](CHANGELOG.md) for release notes.
+
 The owner-bounded AoA Goal Space/operator surface.
 It reads a current Goal Anchor, a historical `.aoa` bootstrap binding, the
 current task-local Goal/thread handoff and wake directory, the `aoa-stats`
