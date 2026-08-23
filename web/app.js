@@ -428,6 +428,8 @@ function qualityForData(data) {
 }
 
 function lifecycleForData(data) {
+  const ownerState = data?.goal?.state;
+  if (data?.goal?.title_source === "codex_app_server_thread_goal" && ownerState) return ownerState;
   const values = arrayOrEmpty(data?.lifecycle);
   for (const step of [...LIFECYCLE].reverse()) {
     const item = values.find((candidate) => candidate?.step === step && candidate.state && !QUALITY.includes(candidate.state));
@@ -1310,6 +1312,7 @@ window.AoaDashboardApp = Object.freeze({
   formatHumanRecency,
   formatAbsoluteMinute,
   goalTitle,
+  lifecycleForData,
   directionItems,
   participantItems,
   sourceItems,

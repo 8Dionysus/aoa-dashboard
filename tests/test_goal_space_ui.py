@@ -238,8 +238,10 @@ const recent = app.formatHumanRecency("2026-08-22T16:17:00Z", "2026-08-22T16:29:
 const old = app.formatHumanRecency("2026-08-01T09:10:45.123Z", "2026-08-22T16:29:00Z");
 const enTitle = app.goalTitle(goal);
 const ownerTitle = app.goalTitle(ownerGoal);
+const ownerLifecycle = app.lifecycleForData({ goal: { state: "active", title_source: "codex_app_server_thread_goal" }, lifecycle: [{ step: "planned", state: "planned" }] });
+const legacyLifecycle = app.lifecycleForData({ goal: { state: "active" }, lifecycle: [{ step: "planned", state: "planned" }] });
 context.AoaDashboardI18n.createI18n;
-process.stdout.write(JSON.stringify({ recent, old, enTitle, ownerTitle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasIso: /T|Z/.test(old) }));
+process.stdout.write(JSON.stringify({ recent, old, enTitle, ownerTitle, ownerLifecycle, legacyLifecycle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasIso: /T|Z/.test(old) }));
 '''
         )
         self.assertIn("12", observed["recent"])
@@ -248,6 +250,8 @@ process.stdout.write(JSON.stringify({ recent, old, enTitle, ownerTitle, hasSecon
         self.assertFalse(observed["hasIso"])
         self.assertEqual(observed["enTitle"], "Create the first Goal Space slice")
         self.assertEqual(observed["ownerTitle"], "Преобразовать aoa-dashboard в Goal Space")
+        self.assertEqual(observed["ownerLifecycle"], "active")
+        self.assertEqual(observed["legacyLifecycle"], "planned")
 
     def test_generic_localized_presentation_handles_future_goals_and_hides_technical_cards(self) -> None:
         observed = run_node(

@@ -194,7 +194,7 @@ h1, h2, h3 { font-family: inherit; font-weight: 650; letter-spacing: -.025em; }
 .mode-button:hover { color: var(--ink); background: var(--surface-tint); }
 .mode-button.active { color: var(--button-ink); background: var(--button-bg); }
 .goal-hero { display: flex; justify-content: space-between; gap: 28px; align-items: end; padding: 22px 0 26px; }
-.goal-hero-copy h1 { max-width: 800px; margin-bottom: 10px; font-size: clamp(36px, 5vw, 60px); line-height: 1; }
+.goal-hero-copy h1 { max-width: 920px; margin-bottom: 10px; font-size: clamp(30px, 3vw, 44px); line-height: 1.06; }
 .goal-summary-copy { max-width: 700px; margin-bottom: 0; color: var(--muted); font-size: 15px; line-height: 1.45; }
 .goal-hero-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: end; color: var(--muted); }
 .recency { color: var(--muted); font-size: 12px; white-space: nowrap; }
