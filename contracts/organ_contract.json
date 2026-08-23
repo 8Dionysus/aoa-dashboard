@@ -116,7 +116,11 @@
     "docs/ADMISSION.md",
     "docs/DIRECTION.md",
     "docs/RELEASE_POSTURE.md",
+    "docs/RELEASING.md",
+    "docs/RELEASE_RECONCILIATION.md",
+    "MANIFEST.in",
     "contracts/organ_contract.json",
+    "scripts/release_check.py",
     "scripts/validate_organ_contract.py",
     "tests/test_organ_contract.py"
   ],

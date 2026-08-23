@@ -1,12 +1,15 @@
 # Release posture
 
-`aoa-dashboard` currently has source and test posture only.
+`aoa-dashboard` `v0.1.0` is an owner-local, source/test/bootstrap release.
+The release establishes a public source identity and a reproducible package
+route; it does not widen the organ's derived-read or deferred-intent boundary.
 
 | Claim | Current evidence | Ceiling |
 | --- | --- | --- |
-| independent repository identity | public GitHub remote and clean landed `main` | source landing |
+| independent repository identity | public GitHub remote, exact `v0.1.0` tag and clean landed `main` | public source identity |
 | organ contract | committed contract, docs, validator and tests | source contract |
 | federation registration | center registry and SDK workspace registration | source/workspace discovery |
+| release publication | canonical changelog, annotated tag and GitHub Release | source/test/bootstrap publication |
 | private organ access | no dashboard record; default-deny v2 route documented | not admitted |
 | deployment | no dashboard deployment is claimed by this organ contract | unknown/not claimed |
 | live health | no live service claim | unknown/not claimed |
@@ -23,3 +26,17 @@ GitHub validation protects source landing. It does not promote a repository to
 runtime or private admission. Any future release must preserve the owner map,
 run the local contract gate, and carry exact source, registry, deployment,
 proof, and acceptance evidence separately.
+
+## Owner-local publication route
+
+`aoa-dashboard` is an optional SDK workspace repository but is intentionally not
+in the SDK `OWNER_RELEASE_REPOS` publication set. The source-only release route
+therefore belongs here: run `scripts/release_check.py`, the organ validator,
+the unit/JSON/compile/JavaScript/build gates, and the exact GitHub PR route;
+then tag the exact landed `main` commit and create the Release body from
+`CHANGELOG.md`. Do not use `aoa release --all-due` for this repository and do
+not infer federation publication from workspace discovery.
+
+Artifact hashes and any available trust/attestation evidence are recorded as
+release evidence, not as proof of runtime admission, deployment, health, or
+human acceptance.

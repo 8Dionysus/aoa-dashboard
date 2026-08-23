@@ -1,0 +1,12 @@
+include AGENTS.md
+include CHANGELOG.md
+include README.md
+include pyproject.toml
+recursive-include config *.json
+recursive-include contracts *.json *.md
+recursive-include docs *.md
+recursive-include packaging *
+recursive-include scripts *.py
+recursive-include tests *.py
+recursive-include web *.css *.html *.js
+recursive-include .github *.md *.yml
