@@ -71,10 +71,10 @@
       <section id="home-view" class="home-view" aria-labelledby="home-heading">
         <div class="page-intro">
           <div>
-            <h1 id="home-heading" data-i18n="home.heading">Choose a Goal</h1>
-            <p class="page-summary" data-i18n="home.summary">A calm view of the work that is moving now.</p>
+            <h1 id="home-heading" data-i18n="home.heading">Goals</h1>
+            <p class="page-summary" data-i18n="home.summary">Choose a Goal to see its workspace.</p>
           </div>
-          <p class="page-note" data-i18n="home.sourceNote">The current Goal is available from its source.</p>
+          <p class="page-note" data-i18n="home.sourceNote">Active and past Goals</p>
         </div>
         <div id="goal-selector" class="goal-selector"></div>
         <div id="catalog-state" class="empty-state"></div>
@@ -104,7 +104,7 @@
           <div class="workspace-controls">
             <div class="mode-switch" role="group" aria-label="Workspace mode" data-i18n-aria-label="mode.label">
               <button type="button" class="mode-button active" data-mode="observe" data-i18n="mode.observe" aria-pressed="true">Observe</button>
-              <button type="button" class="mode-button" data-mode="operate" data-i18n="mode.operate" aria-pressed="false">Record</button>
+              <button type="button" class="mode-button" data-mode="operate" data-i18n="mode.operate" aria-pressed="false">Operate</button>
             </div>
             <button id="thread-toggle" type="button" class="quiet-button" data-i18n="thread.toggle" aria-expanded="false" aria-controls="context-thread">Inspect</button>
           </div>
@@ -126,7 +126,7 @@
         <section id="goal-summary" class="summary-grid" aria-label="Goal overview" data-i18n-aria-label="workspace.summaryLabel"></section>
         <section id="attention-strip" class="attention-strip" aria-label="Current attention" data-i18n-aria-label="workspace.attentionLabel"></section>
 
-        <div class="workspace-grid">
+        <div id="workspace-grid" class="workspace-grid">
           <aside class="workspace-rail" aria-label="Goal views" data-i18n-aria-label="workspace.navigationLabel">
             <p class="rail-heading" data-i18n="rail.heading">Within this Goal</p>
             <nav class="lens-nav" aria-label="Goal views" data-i18n-aria-label="rail.lensesLabel">

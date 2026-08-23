@@ -33,6 +33,7 @@ const MAX_PEOPLE = 6;
 const MAX_SOURCES = 12;
 const MAX_REFS = 12;
 const MAX_HUMAN_TEXT = 96;
+const MAX_GOAL_DISPLAY = 68;
 const ADMITTED_ROUTE_CURRENTNESS = new Set(["current", "current_at_read"]);
 
 const SelectionContext = dashboardUI.SelectionContext;
@@ -245,6 +246,42 @@ function goalTitle(data) {
   return configured || humanValue(goal.title, t("goal.unnamed"));
 }
 
+function compactDisplayText(value, limit = MAX_GOAL_DISPLAY) {
+  const candidate = String(value || "").replace(/\s+/g, " ").trim();
+  if (!candidate || candidate.length <= limit) return candidate;
+  const words = candidate.split(" ");
+  let compact = "";
+  for (const word of words) {
+    const next = compact ? `${compact} ${word}` : word;
+    if (next.length > limit - 1) break;
+    compact = next;
+  }
+  if (!compact) compact = candidate.slice(0, limit - 1).trimEnd();
+  return `${compact}…`;
+}
+
+function compactGoalTitle(data) {
+  const full = goalTitle(data);
+  const configured = presentationEntry(data, "goal");
+  const explicit = presentationField(configured, "short_title", "")
+    || presentationField(configured, "compact_title", "");
+  return compactDisplayText(explicit || full);
+}
+
+function setDisplayTitle(node, visible, full) {
+  if (!node) return;
+  node.textContent = visible || full || "";
+  if (full && visible && visible !== full) {
+    node.setAttribute("aria-label", full);
+    node.title = full;
+    node.dataset.fullTitleAvailable = "true";
+  } else {
+    node.removeAttribute?.("aria-label");
+    node.removeAttribute?.("title");
+    if (node.dataset) delete node.dataset.fullTitleAvailable;
+  }
+}
+
 function goalRef(data) {
   return data?.goal?.goal_id || data?.goal?.goal_ref || null;
 }
@@ -368,6 +405,7 @@ function captureInteractionState() {
 
 function updateThreadVisibility() {
   const thread = byId("context-thread");
+  byId("workspace-grid")?.classList?.toggle?.("thread-collapsed", !contextThreadOpen);
   if (thread) {
     thread.classList?.toggle?.("collapsed", !contextThreadOpen);
     thread.setAttribute?.("aria-hidden", String(!contextThreadOpen));
@@ -602,6 +640,25 @@ function humanParticipantName(value, fallback = "") {
   return candidate;
 }
 
+function explicitParticipantLabel(participant, identity, configured) {
+  const candidates = [
+    presentationField(configured, "name", ""),
+    presentationField(configured, "label", ""),
+    presentationField(configured, "display_name", ""),
+    participant?.display_name,
+    participant?.label,
+    participant?.name,
+    identity?.display_name,
+    identity?.label,
+    identity?.name,
+  ];
+  for (const candidate of candidates) {
+    const label = humanParticipantName(candidate, "");
+    if (label) return label;
+  }
+  return "";
+}
+
 function humanModelName(value, fallback = "") {
   const candidate = String(value || "").trim();
   if (!candidate || candidate.length > 64 || !/^[A-Za-z0-9][A-Za-z0-9._:/+-]*$/.test(candidate)) return fallback;
@@ -617,7 +674,7 @@ function participantContextItems(data) {
     const rawRole = String(identity.role_id || "");
     const role = presentationField(configured, "role", "")
       || (/external[_\s-]+codex|agent/i.test(rawRole) ? t("participants.workingAgent") : t("participants.roleUnknown"));
-    const publishedLabel = presentationField(configured, "name", "") || humanParticipantName(identity.display_name, "");
+    const publishedLabel = explicitParticipantLabel(participant, identity, configured);
     const title = publishedLabel || t("participants.personNumber", { count: index + 1 });
     const taskValue = presentationField(configured, "task", "")
       || humanValue(task.summary, t("participants.workUnavailable"));
@@ -653,7 +710,7 @@ function participantItems(data) {
     const rawRole = String(identity.role_id || "");
     const role = presentationField(configured, "role", "")
       || (/external[_\s-]+codex|agent/i.test(rawRole) ? t("participants.workingAgent") : t("participants.roleUnknown"));
-    const publishedLabel = presentationField(configured, "name", "") || presentationField(configured, "label", "") || humanParticipantName(identity.label, "");
+    const publishedLabel = explicitParticipantLabel(actor, identity, configured);
     const publishedHolder = humanParticipantName(responsibility.holder, "");
     const title = publishedLabel || publishedHolder || t("participants.personNumber", { count: index + 1 });
     const model = presentationField(configured, "model", "") || humanModelName(identity.model_id, "");
@@ -751,7 +808,7 @@ function renderHeader(data) {
     connection.className = `connection-state state-${refreshState === "current" ? "ready" : refreshState}`;
   }
   const heading = byId("workspace-heading");
-  if (heading) heading.textContent = title;
+  setDisplayTitle(heading, compactGoalTitle(data), title);
   const focus = nextFocus(data);
   const summary = byId("workspace-summary");
   if (summary) summary.textContent = t(focus ? "workspace.summary" : "workspace.summaryNoFocus", { state: statusLabel(lifecycle), focus: focus?.title || t("trajectory.nextFocusEmpty") });
@@ -795,7 +852,8 @@ function renderCatalogWorkspace(data, item) {
     body?.append(text("p", t("workspace.historyUnavailable"), "catalog-disclosure state-missing"));
     return;
   }
-  if (heading) heading.textContent = item.title || t("goal.unnamed");
+  const fullTitle = item.title || t("goal.unnamed");
+  setDisplayTitle(heading, compactDisplayText(fullTitle), fullTitle);
   if (summary) summary.textContent = t("workspace.historySummary");
   setBadge(lifecycle, item.lifecycle_state);
   if (recency) {
@@ -835,7 +893,9 @@ function renderHome(data) {
   card.className = "goal-selector-card";
   const main = document.createElement("div");
   main.className = "goal-selector-main";
-  main.append(text("p", t("home.currentGoal"), "card-label"), text("h2", goalTitle(data)));
+  const currentTitle = text("h2", "", "goal-display-title");
+  setDisplayTitle(currentTitle, compactGoalTitle(data), goalTitle(data));
+  main.append(text("p", t("home.currentGoal"), "card-label"), currentTitle);
   const status = document.createElement("div");
   status.className = "goal-card-states";
   status.append(badge(goal.state || "unknown"), badge(qualityForData(data)));
@@ -854,7 +914,8 @@ function renderHome(data) {
   const catalog = catalogInfo(data);
   if (catalog.state === "missing" || catalog.state === "invalid") {
     catalogState.className = `empty-state state-${catalog.state}`;
-    catalogState.append(text("span", catalog.state === "missing" ? t("home.catalogMissing") : t("home.catalogUnavailable")));
+    catalogState.dataset.catalogState = catalog.state;
+    catalogState.append(badge(catalog.state), text("span", catalog.state === "missing" ? t("home.catalogMissing") : t("home.catalogUnavailable")));
     return;
   }
 
@@ -876,7 +937,9 @@ function renderHome(data) {
       row.setAttribute("aria-label", `${t("home.openWorkspace")}: ${item.title}`);
       const copy = document.createElement("span");
       copy.className = "goal-list-copy";
-      copy.append(text("strong", item.title), text("span", statusLabel(item.lifecycle_state), "goal-list-state"));
+      const itemTitle = text("strong", "", "goal-display-title");
+      setDisplayTitle(itemTitle, compactDisplayText(item.title), item.title);
+      copy.append(itemTitle, text("span", statusLabel(item.lifecycle_state), "goal-list-state"));
       const recent = text("time", formatHumanRecency(item.last_observed_at), "goal-list-time");
       if (item.last_observed_at) recent.dateTime = item.last_observed_at;
       row.append(copy, recent);
@@ -1532,6 +1595,8 @@ window.AoaDashboardApp = Object.freeze({
   formatHumanRecency,
   formatAbsoluteMinute,
   goalTitle,
+  compactGoalTitle,
+  compactDisplayText,
   lifecycleForData,
   nextFocus,
   attentionFocus,

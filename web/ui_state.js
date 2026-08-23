@@ -149,6 +149,24 @@
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
       return { state: "missing", items: [], source: null, currentness: "missing", claim_limit: null, reason: "publisher_missing" };
     }
+    const emptyState = ["missing", "invalid"].includes(candidate.state)
+      && candidate.currentness === candidate.state
+      && candidate.schema_version === CATALOG_SCHEMA
+      && candidate.source === null
+      && Array.isArray(candidate.items)
+      && candidate.items.length === 0
+      && typeof candidate.claim_limit === "string"
+      && candidate.claim_limit.length > 0;
+    if (emptyState) {
+      return {
+        state: candidate.state,
+        items: [],
+        source: null,
+        currentness: candidate.state,
+        claim_limit: candidate.claim_limit,
+        reason: candidate.state === "missing" ? "publisher_missing" : "publisher_invalid",
+      };
+    }
     const source = candidate.source;
     const qualified = candidate.schema_version === CATALOG_SCHEMA
       && CATALOG_CURRENTNESS.includes(candidate.currentness)
@@ -162,7 +180,7 @@
       && candidate.items.length <= 500
       && typeof candidate.claim_limit === "string" && candidate.claim_limit.length > 0;
     if (!qualified) {
-      return { state: "missing", items: [], source: null, currentness: "missing", claim_limit: null, reason: "publisher_unqualified" };
+      return { state: "invalid", items: [], source: null, currentness: "invalid", claim_limit: null, reason: "publisher_unqualified" };
     }
     const refs = new Set();
     const items = [];

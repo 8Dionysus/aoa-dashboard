@@ -54,6 +54,8 @@ class GoalSpaceUiStateTests(unittest.TestCase):
         self.assertIn(".settings-panel > summary { position: relative; z-index: 3;", styles)
         self.assertIn(".settings-content { position: absolute; z-index: 2;", styles)
         self.assertIn(".settings-content { top: calc(100% + 8px); right: 0; }", styles)
+        self.assertIn(".lens-hint { display: none;", styles)
+        self.assertIn(".lens-button.active .lens-hint { display: block; }", styles)
         self.assertNotIn(".settings-content { position: fixed", styles)
 
     def test_operate_route_requires_admitted_currentness_and_exact_context(self) -> None:
@@ -165,6 +167,8 @@ const duplicate = { ...admitted, items: [admitted.items[0], { ...admitted.items[
 const page = ui.pageWindow([{ ref: "a" }, { ref: "b" }, { ref: "c" }, { ref: "d" }], 0, 2, "d");
 process.stdout.write(JSON.stringify({
   arrayCatalog: ui.qualifiedCatalog([]),
+  emptyMissingCatalog: ui.qualifiedCatalog({ schema_version: "aoa_dashboard_goal_catalog_projection_v1", state: "missing", currentness: "missing", source: null, items: [], claim_limit: "Scope: owner-published Goal navigation." }),
+  emptyInvalidCatalog: ui.qualifiedCatalog({ schema_version: "aoa_dashboard_goal_catalog_projection_v1", state: "invalid", currentness: "invalid", source: null, items: [], claim_limit: "Scope: owner-published Goal navigation." }),
   unqualifiedCatalog: ui.qualifiedCatalog({ items: [], claim_limit: "missing source" }),
   fabricatedCatalog: ui.qualifiedCatalog(fabricated),
   admittedCatalog: ui.qualifiedCatalog(admitted),
@@ -177,8 +181,10 @@ process.stdout.write(JSON.stringify({
 '''
         )
         self.assertEqual(observed["arrayCatalog"]["state"], "missing")
-        self.assertEqual(observed["unqualifiedCatalog"]["state"], "missing")
-        self.assertEqual(observed["fabricatedCatalog"]["state"], "missing")
+        self.assertEqual(observed["emptyMissingCatalog"]["state"], "missing")
+        self.assertEqual(observed["emptyInvalidCatalog"]["state"], "invalid")
+        self.assertEqual(observed["unqualifiedCatalog"]["state"], "invalid")
+        self.assertEqual(observed["fabricatedCatalog"]["state"], "invalid")
         self.assertEqual(observed["fabricatedCatalog"]["reason"], "publisher_unqualified")
         self.assertEqual(observed["admittedCatalog"]["state"], "stale")
         self.assertEqual(observed["admittedCatalog"]["items"][0]["title"], "A human Goal")
@@ -256,10 +262,13 @@ const old = app.formatHumanRecency("2026-08-01T09:10:45.123Z", "2026-08-22T16:29
 const absolute = app.formatAbsoluteMinute("2026-08-01T09:10:45.123Z");
 const enTitle = app.goalTitle(goal);
 const ownerTitle = app.goalTitle(ownerGoal);
+const longGoal = { goal: { goal_id: "goal:long", title: "Create a calm modern Goal-first workspace for the active and historical work view" } };
+const compactLong = app.compactGoalTitle(longGoal);
+const explicitCompact = app.compactGoalTitle({ ...longGoal, presentation: { goal: { short_title: { en: "Goal workspace" } } } });
 const ownerLifecycle = app.lifecycleForData({ goal: { state: "active", title_source: "codex_app_server_thread_goal" }, lifecycle: [{ step: "planned", state: "planned" }] });
 const legacyLifecycle = app.lifecycleForData({ goal: { state: "active" }, lifecycle: [{ step: "planned", state: "planned" }] });
 context.AoaDashboardI18n.createI18n;
-process.stdout.write(JSON.stringify({ recent, old, absolute, enTitle, ownerTitle, ownerLifecycle, legacyLifecycle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasAbsoluteSeconds: /:\d{2}:\d{2}/.test(absolute), hasIso: /T|Z/.test(old) }));
+process.stdout.write(JSON.stringify({ recent, old, absolute, enTitle, ownerTitle, compactLong, explicitCompact, ownerLifecycle, legacyLifecycle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasAbsoluteSeconds: /:\d{2}:\d{2}/.test(absolute), hasIso: /T|Z/.test(old) }));
 '''
         )
         self.assertIn("12", observed["recent"])
@@ -269,6 +278,9 @@ process.stdout.write(JSON.stringify({ recent, old, absolute, enTitle, ownerTitle
         self.assertFalse(observed["hasIso"])
         self.assertEqual(observed["enTitle"], "Create the first Goal Space slice")
         self.assertEqual(observed["ownerTitle"], "Преобразовать aoa-dashboard в Goal Space")
+        self.assertLessEqual(len(observed["compactLong"]), 68)
+        self.assertTrue(observed["compactLong"].endswith("…"))
+        self.assertEqual(observed["explicitCompact"], "Goal workspace")
         self.assertEqual(observed["ownerLifecycle"], "active")
         self.assertEqual(observed["legacyLifecycle"], "planned")
 
@@ -544,6 +556,35 @@ process.stdout.write(JSON.stringify({ en: human(enPerson), ru: human(ruPerson), 
         self.assertNotIn("thread:", json.dumps(observed["en"]))
         self.assertFalse(observed["before"])
         self.assertTrue(observed["after"])
+
+    def test_explicit_owner_labels_replace_numbered_participants_without_inference(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  globalThis: null,
+  document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; } },
+  localStorage: { getItem() { return null; }, setItem() {} },
+  navigator: { language: "en-US" },
+  location: { hash: "" },
+  history: { replaceState() {} },
+  fetch() { return new Promise(() => {}); },
+  setInterval() {},
+  addEventListener() {},
+};
+context.globalThis = context;
+context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const actor = context.AoaDashboardApp.participantItems({ actor_activity: { actors: [{ actor_key: "actor:one", identity: { label: "actor:one", display_name: "Luna", role_id: "external_codex_incarnation" }, task: {}, responsibility: {} }] } })[0];
+const participant = context.AoaDashboardApp.participantItems({ participant_context: { participants: [{ ref: "actor:two", display_name: "Мира", identity: { role_id: "external_codex_incarnation" }, task_context: {}, model_realization: {} }] } })[0];
+process.stdout.write(JSON.stringify({ actor: actor.title, participant: participant.title }));
+'''
+        )
+        self.assertEqual(observed, {"actor": "Luna", "participant": "Мира"})
 
     def test_diagnostics_materializes_raw_detail_only_after_developer_disclosure(self) -> None:
         observed = run_node(
