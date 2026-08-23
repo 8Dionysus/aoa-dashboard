@@ -7,6 +7,7 @@ lifecycle, or any action execution route.
 
 from __future__ import annotations
 
+import argparse
 import json
 import locale
 import sys
@@ -161,6 +162,7 @@ class DashboardBackend:
         *,
         host: str = LOOPBACK_HOST,
         port: int = 0,
+        binding_path: str | None = None,
         handler: type[BaseHTTPRequestHandler] = DashboardHandler,
         server_factory: ServerFactory = _create_backend_server,
     ) -> None:
@@ -170,6 +172,7 @@ class DashboardBackend:
             raise ValueError("desktop backend port must be between 0 and 65535")
         self.host = host
         self.port = port
+        self.binding_path = binding_path
         self.handler = handler
         self._server_factory = server_factory
         self._server: ThreadingHTTPServer | None = None
@@ -207,6 +210,7 @@ class DashboardBackend:
                 server = self._server_factory((self.host, self.port), self.handler)
                 address = server.server_address
                 self._server = server
+                setattr(server, "binding_path", self.binding_path)
                 self._url = dashboard_url(address)
                 self._state = "running"
                 self._thread = threading.Thread(
@@ -285,14 +289,15 @@ if GTK_AVAILABLE:
         def __init__(
             self,
             *,
-            backend_factory: Callable[[], DashboardBackend] = DashboardBackend,
+            backend_factory: Callable[[], DashboardBackend] | None = None,
+            binding_path: str | None = None,
             locale_getter: Callable[[int], tuple[str | None, str | None]] = locale.getlocale,
             style_manager: Any | None = None,
         ) -> None:
             # No NON_UNIQUE flag is set: Gio.Application provides single-instance
             # behavior for this stable application id.
             super().__init__(application_id=APPLICATION_ID)
-            self._backend_factory = backend_factory
+            self._backend_factory = backend_factory or (lambda: DashboardBackend(binding_path=binding_path))
             self._style_manager = style_manager if style_manager is not None else Adw.StyleManager.get_default()
             self._backend: DashboardBackend | None = None
             self._window: Any | None = None
@@ -507,9 +512,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     except DesktopDependencyError as exc:
         print(f"aoa-dashboard desktop shell unavailable: {exc}", file=sys.stderr)
         return 2
-    application = DashboardApplication()
+    raw_args = list(argv) if argv is not None else list(sys.argv)
+    program = raw_args[0] if raw_args else "aoa-dashboard-desktop"
+    parser = argparse.ArgumentParser(description="Run the aoa-dashboard desktop shell")
+    parser.add_argument("--binding", type=str, help="explicit owner-qualified runtime Goal binding JSON")
+    parsed, gio_args = parser.parse_known_args(raw_args[1:] if raw_args else [])
+    application = DashboardApplication(binding_path=parsed.binding)
     try:
-        return int(application.run(list(argv) if argv is not None else sys.argv))
+        return int(application.run([program, *gio_args]))
     except KeyboardInterrupt:
         # Gio's SIGINT fallback raises after asking the application to quit.
         # Treat that operator close as a normal application shutdown.

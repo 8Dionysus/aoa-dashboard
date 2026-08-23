@@ -937,13 +937,25 @@ def observe_current_correlation(
 ) -> dict[str, Any]:
     current = config.get("current_correlation")
     if not isinstance(current, dict):
+        binding_state = config.get("runtime_binding_state")
+        if binding_state == "missing":
+            return _source(
+                state="missing",
+                freshness="missing",
+                observation="No owner-qualified runtime binding selected; current correlation is withheld.",
+                metadata={"schema_version": CORRELATION_PROJECTION_VERSION, "envelopes": []},
+                refs=[],
+                degradation=["runtime_binding_not_selected"],
+                claim_limit=_base_claim_limit(),
+            )
+        degraded_binding_state = binding_state if binding_state in {"stale", "deferred", "unknown", "invalid"} else "unknown"
         return _source(
-            state="invalid",
-            freshness="invalid",
+            state=degraded_binding_state,
+            freshness=degraded_binding_state,
             observation="Current correlation config is missing or not an object.",
             metadata={"schema_version": CORRELATION_PROJECTION_VERSION, "envelopes": []},
             refs=[],
-            degradation=["current_correlation_config_invalid"],
+            degradation=["current_correlation_config_invalid" if degraded_binding_state == "unknown" else f"runtime_binding_{degraded_binding_state}"],
             claim_limit=_base_claim_limit(),
         )
     expected_thread = current.get("master_thread_id")

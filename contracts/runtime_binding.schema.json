@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/runtime-binding-v1",
+  "title": "Owner-qualified aoa-dashboard runtime Goal binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "binding_id", "owner", "authority", "access_scope", "claim_policy", "claim_limit", "state", "currentness", "selected_goal", "sources"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_runtime_binding_v1"},
+    "binding_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "owner": {"enum": ["aoa-sdk", "master-thread"]},
+    "authority": {"enum": ["source_owner", "master_decision"]},
+    "access_scope": {"const": "owner_bounded"},
+    "claim_policy": {"type": "string", "minLength": 1, "maxLength": 96},
+    "claim_limit": {"type": "string", "minLength": 1, "maxLength": 640},
+    "state": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+    "currentness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+    "selected_goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goal_id", "master_thread_id"],
+      "properties": {
+        "goal_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "master_thread_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "title": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goal_anchor", "codex_goal", "codex_thread", "topology", "catalog", "correlation", "pressure"],
+      "properties": {
+        "goal_anchor": {"$ref": "#/$defs/source"},
+        "codex_goal": {"$ref": "#/$defs/source"},
+        "codex_thread": {"$ref": "#/$defs/source"},
+        "topology": {"$ref": "#/$defs/source"},
+        "catalog": {"$ref": "#/$defs/source"},
+        "correlation": {"$ref": "#/$defs/source"},
+        "pressure": {"$ref": "#/$defs/source"},
+        "historical": {"$ref": "#/$defs/source"},
+        "actor": {"$ref": "#/$defs/source"},
+        "stats": {"$ref": "#/$defs/source"}
+      }
+    },
+    "owner_surfaces": {"type": "array", "items": {"$ref": "#/$defs/source"}},
+    "source": {"$ref": "#/$defs/source"}
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["owner", "authority", "access_scope", "claim_policy", "claim_limit"],
+      "properties": {
+        "owner": {"type": "string", "minLength": 1, "maxLength": 128},
+        "authority": {"enum": ["source_owner", "master_decision"]},
+        "access_scope": {"const": "owner_bounded"},
+        "claim_policy": {"type": "string", "minLength": 1, "maxLength": 96},
+        "claim_limit": {"type": "string", "minLength": 1, "maxLength": 640},
+        "currentness": {"enum": ["current", "current_at_read"]}
+      }
+    }
+  }
+}

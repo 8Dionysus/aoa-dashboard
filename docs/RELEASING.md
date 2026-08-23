@@ -27,6 +27,7 @@ Run from the clean release-prep or exact landed-main worktree:
 ```text
 python3 scripts/release_check.py
 python3 scripts/validate_organ_contract.py
+python3 scripts/validate_default_binding.py
 python3 -m unittest discover -s tests -v
 for contract in contracts/*.json; do python3 -m json.tool "$contract" >/dev/null; done
 python3 -m compileall -q src scripts tests

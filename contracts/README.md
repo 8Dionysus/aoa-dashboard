@@ -54,5 +54,10 @@ through adapters and retained only as bounded metadata plus provenance refs.
   current-head attestation plus append-only head history, compares the
   attested SHA-256 with one read of the filter bytes, and fails closed on
   missing, stale, ambiguous, conflicting, or unannounced rollback evidence.
+- `runtime_binding.schema.json` defines the explicit
+  `aoa_dashboard_runtime_binding_v1` process input. It binds the selected Goal
+  and every current source through owner, authority, access, currentness, and
+  claim-limit fields; it is consumed as read evidence and does not grant role,
+  runtime, proof, acceptance, or action authority.
 - `dashboard_annotation.schema.json` and `action_intent.schema.json` are
   append-only dashboard-owned records.

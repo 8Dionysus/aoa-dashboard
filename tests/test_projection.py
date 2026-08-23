@@ -38,6 +38,7 @@ CORRELATION_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "contracts" / "c
 CORRELATION_SCHEMA_VALIDATOR = Draft202012Validator(
     json.loads(CORRELATION_SCHEMA_PATH.read_text(encoding="utf-8"))
 )
+DEMO_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "demo" / "first-slice.json"
 from aoa_dashboard.sources import observe_goal  # noqa: E402
 from aoa_dashboard.source_binding import read_file_snapshot  # noqa: E402
 
@@ -91,7 +92,7 @@ class ProjectionFixture:
         self.actor_manifest.write_text("{}", encoding="utf-8")
 
     def config(self) -> dict:
-        config = copy.deepcopy(load_config())
+        config = copy.deepcopy(load_config(DEMO_CONFIG_PATH))
         config.update(
             {
                 "goal_id": "test-goal",
@@ -501,7 +502,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertIsNone(rebuilt["cursor"]["source_collisions"][0]["winner"])
 
     def test_current_real_receipt_directory_is_bound_when_available(self) -> None:
-        config = load_config()
+        config = load_config(DEMO_CONFIG_PATH)
         current = config["current_correlation"]
         if not Path(current["task_local_dir"]).is_dir():
             self.skipTest("task-local receipt directory is not present")

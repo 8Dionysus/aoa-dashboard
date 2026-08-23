@@ -121,21 +121,30 @@
     "docs/RELEASE_POSTURE.md",
     "docs/RELEASING.md",
     "docs/RELEASE_RECONCILIATION.md",
+    "config/bootstrap.json",
+    "config/demo/first-slice.json",
     "MANIFEST.in",
     "contracts/organ_contract.json",
     "contracts/goal_catalog_projection.schema.json",
     "contracts/codex_goal_thread_projection.schema.json",
     "contracts/participant_context.schema.json",
+    "contracts/runtime_binding.schema.json",
+    "src/aoa_dashboard/runtime_binding.py",
     "src/aoa_dashboard/goal_catalog.py",
     "scripts/release_check.py",
+    "scripts/validate_default_binding.py",
     "scripts/validate_organ_contract.py",
+    "tests/test_runtime_binding.py",
     "tests/test_organ_contract.py"
   ],
   "validation": {
     "local": [
       "python3 scripts/validate_organ_contract.py",
+      "python3 scripts/validate_default_binding.py",
+      "python3 scripts/release_check.py",
       "python3 -m unittest discover -s tests -v",
-      "for contract in contracts/*.json; do python3 -m json.tool $contract >/dev/null; done"
+      "for contract in contracts/*.json; do python3 -m json.tool $contract >/dev/null; done",
+      "git diff --check"
     ],
     "ci_workflow": ".github/workflows/repo-validation.yml",
     "required_check_name": "Repo Validation"

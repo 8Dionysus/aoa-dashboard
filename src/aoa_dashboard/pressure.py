@@ -388,6 +388,12 @@ def pressure_digest(record: dict[str, Any]) -> str:
     return content_digest(_stable_pressure(value))
 
 
+def pressure_read_model_digest(value: dict[str, Any]) -> str:
+    """Return the deterministic digest for one emitted pressure read model."""
+
+    return content_digest(_stable_pressure(value))
+
+
 def _legacy_ref(correlation_source: dict[str, Any]) -> tuple[dict[str, Any], list[str], str | None]:
     metadata = correlation_source.get("metadata") if isinstance(correlation_source.get("metadata"), dict) else {}
     master_filter = metadata.get("master_filter") if isinstance(metadata.get("master_filter"), dict) else {}
@@ -518,7 +524,7 @@ def _legacy_projection(candidate: dict[str, Any]) -> dict[str, Any]:
 
 def build_pressure_inbox(
     *,
-    goal_id: str,
+    goal_id: str | None,
     records: list[dict[str, Any]] | None,
     legacy_candidates: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -639,7 +645,7 @@ def build_pressure_inbox(
         "errors": _safe_diagnostic_list(errors),
         "claim_limit": PRESSURE_CLAIM_LIMIT,
     }
-    model["read_model_digest"] = content_digest(_stable_pressure(model))
+    model["read_model_digest"] = pressure_read_model_digest(model)
     return model
 
 

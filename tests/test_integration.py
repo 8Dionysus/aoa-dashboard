@@ -38,6 +38,11 @@ class IntegrationWiringTests(unittest.TestCase):
             set(data_files),
             {"web/index.html", "web/app.js", "web/i18n.js", "web/preferences.js", "web/styles.css", "web/theme.js", "web/ui_state.js"},
         )
+        self.assertEqual(
+            project["tool"]["setuptools"]["data-files"]["share/aoa-dashboard/config"],
+            ["config/bootstrap.json"],
+        )
+        self.assertNotIn("config/demo/first-slice.json", project["tool"]["setuptools"]["data-files"]["share/aoa-dashboard/config"])
 
     def test_static_server_serves_bilingual_and_theme_assets(self) -> None:
         server = ThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)

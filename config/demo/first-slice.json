@@ -1,0 +1,441 @@
+{
+  "schema_version": "aoa_dashboard_bootstrap_config_v1",
+  "profile": "historical-demo-instance",
+  "goal_id": "aoa-dashboard-goal-01a00722-20260815",
+  "title": "Create aoa-dashboard first working vertical slice",
+  "owner_goal_source": {
+    "enabled": true,
+    "kind": "codex_app_server_thread_goal",
+    "method": "thread/goal/get",
+    "access": "read_only",
+    "claim_limit": "Current Goal objective and lifecycle are read from the Codex owner API for the exact master thread."
+  },
+  "owner_thread_source": {
+    "enabled": true,
+    "kind": "codex_app_server_thread_context",
+    "methods": ["thread/read", "thread/list"],
+    "relation_queries": ["parentThreadId", "ancestorThreadId"],
+    "requires_experimental_api": true,
+    "access": "read_only",
+    "claim_limit": "Exact Thread metadata and scoped relation pages only; no branch lifecycle or participant authority."
+  },
+  "goal_topology_source": {
+    "enabled": true,
+    "owner": "master-thread",
+    "relative_path": "goal-space-wave/goal-space-dag.json",
+    "expected_schema_version": "aoa_dashboard_goal_space_task_dag_v1",
+    "claim_limit": "Master-owned task-local planning topology; no node is proof, acceptance or runtime health."
+  },
+  "goal_catalog_source": {
+    "schema_version": "aoa_dashboard_goal_catalog_binding_v1",
+    "owner": "aoa-session-memory",
+    "path": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/goal-space-wave/goal-catalog.public.json",
+    "expected_schema_version": "aoa_session_memory_goal_catalog_v1",
+    "claim_limit": "Scope: owner-published Goal navigation."
+  },
+  "presentation": {
+    "schema_version": "aoa_dashboard_human_presentation_v1",
+    "claim_limit": "Localized display fields are a bounded dashboard presentation; canonical Goal, owner, route, source, and actor values remain separate observations.",
+    "goal": {
+      "title": {
+        "en": "Create the first Goal Space slice",
+        "ru": "Собрать первый рабочий срез пространства целей"
+      }
+    },
+    "directions": {
+      "G0": {
+        "title": {"en": "Goal anchor", "ru": "Опора цели"},
+        "relationship": {"en": "Sets the shared goal", "ru": "Задаёт общую цель"},
+        "focus": {"en": "Keep the goal visible", "ru": "Сохранять цель видимой"},
+        "next": {"en": "Continue from the current goal", "ru": "Продолжить от текущей цели"}
+      },
+      "D1": {
+        "title": {"en": "Ownership", "ru": "Граница владения"},
+        "relationship": {"en": "Sets the boundary", "ru": "Задаёт границу"},
+        "focus": {"en": "Keep the view within its owner", "ru": "Сохранять представление в своей зоне"},
+        "next": {"en": "Use the owner boundary", "ru": "Следовать границе владельца"}
+      },
+      "D2": {
+        "title": {"en": "Shared view", "ru": "Общее представление"},
+        "relationship": {"en": "Gives the work a common shape", "ru": "Придаёт работе общий вид"},
+        "focus": {"en": "Keep the view understandable", "ru": "Сохранять ясность представления"},
+        "next": {"en": "Read the shared view", "ru": "Читать общее представление"}
+      },
+      "D3": {
+        "title": {"en": "Source links", "ru": "Связи с источниками"},
+        "relationship": {"en": "Connects the view to its sources", "ru": "Связывает представление с источниками"},
+        "focus": {"en": "Keep each observation traceable", "ru": "Сохранять проверяемость наблюдений"},
+        "next": {"en": "Check the available sources", "ru": "Проверить доступные источники"}
+      },
+      "D4": {
+        "title": {"en": "Observation history", "ru": "История наблюдений"},
+        "relationship": {"en": "Keeps changes together", "ru": "Собирает изменения вместе"},
+        "focus": {"en": "Keep earlier observations from being lost", "ru": "Не терять предыдущие наблюдения"},
+        "next": {"en": "Review the next change", "ru": "Проверить следующее изменение"}
+      },
+      "D5": {
+        "title": {"en": "People and returns", "ru": "Люди и возвраты"},
+        "relationship": {"en": "Shows who is carrying the work", "ru": "Показывает, кто несёт работу"},
+        "focus": {"en": "Keep responsibility and activity distinct", "ru": "Разделять ответственность и активность"},
+        "next": {"en": "Inspect the people view", "ru": "Открыть представление людей"}
+      },
+      "D6": {
+        "title": {"en": "Operator view", "ru": "Представление оператора"},
+        "relationship": {"en": "Brings the work into one view", "ru": "Собирает работу в одном представлении"},
+        "focus": {"en": "Keep the next useful focus visible", "ru": "Сохранять следующий фокус видимым"},
+        "next": {"en": "Choose a view to inspect", "ru": "Выбрать представление для просмотра"}
+      },
+      "D7": {
+        "title": {"en": "Trust and actions", "ru": "Доверие и действия"},
+        "relationship": {"en": "Separates seeing from acting", "ru": "Разделяет наблюдение и действие"},
+        "focus": {"en": "Keep records non-executing", "ru": "Сохранять записи неисполняющими"},
+        "next": {"en": "Record only a bounded request", "ru": "Записать только ограниченный запрос"}
+      },
+      "D8": {
+        "title": {"en": "Current Goal", "ru": "Текущая цель"},
+        "relationship": {"en": "Lets the view observe itself", "ru": "Позволяет представлению наблюдать себя"},
+        "focus": {"en": "Keep the current work connected", "ru": "Сохранять связь с текущей работой"},
+        "next": {"en": "Open the current Goal", "ru": "Открыть текущую цель"}
+      },
+      "D9": {
+        "title": {"en": "Independent review", "ru": "Независимая проверка"},
+        "relationship": {"en": "Keeps review separate from the view", "ru": "Отделяет проверку от представления"},
+        "focus": {"en": "Do not turn a green check into acceptance", "ru": "Не считать зелёную проверку принятием"},
+        "next": {"en": "Wait for the review owner", "ru": "Дождаться владельца проверки"}
+      },
+      "P∞": {
+        "title": {"en": "New requests", "ru": "Новые запросы"},
+        "relationship": {"en": "Keeps new pressure visible", "ru": "Сохраняет новое давление видимым"},
+        "focus": {"en": "Keep a new request bounded", "ru": "Ограничить новый запрос"},
+        "next": {"en": "Send it to the responsible owner", "ru": "Передать ответственному владельцу"}
+      }
+    },
+    "pressures": {
+      "pressure:d4:cursor-conflict-retention": {
+        "title": {"en": "Keep updates clear", "ru": "Сохранять ясность обновлений"},
+        "relationship": {"en": "Needs review", "ru": "Нужна проверка"},
+        "focus": {"en": "Without a stable history, an earlier observation can be lost.", "ru": "Без устойчивой истории можно потерять предыдущее наблюдение."},
+        "next": {"en": "Review the next step with the owner", "ru": "Проверить следующий шаг с владельцем"}
+      },
+      "pressure:p-infinity:structured-inbox": {
+        "title": {"en": "Keep new requests bounded", "ru": "Ограничивать новые запросы"},
+        "relationship": {"en": "Needs an owner decision", "ru": "Нужно решение владельца"},
+        "focus": {"en": "A new request stays visible without becoming an action.", "ru": "Новый запрос остаётся видимым и не становится действием."},
+        "next": {"en": "Send the request to the responsible owner", "ru": "Передать запрос ответственному владельцу"}
+      }
+    },
+    "participants": {
+      "roles": {
+        "external_codex_incarnation": {"en": "Working agent", "ru": "Рабочий агент"}
+      }
+    }
+  },
+  "goal_anchor_path": "/home/dionysus/.codex/attachments/11f36fe1-23db-4a4f-bce5-cbbdc77a9033/pasted-text-1.txt",
+  "goal_anchor_expected_sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
+  "historical_bootstrap": {
+    "binding_id": "bootstrap-session-065-edeac-historical",
+    "session_manifest_path": "/srv/AbyssOS/.aoa/sessions/2026-08-15__065__ты-принимаешь-первую-самостоятельную/session.manifest.json",
+    "session_archive_raw_path": "/srv/AbyssOS/.aoa/sessions/2026-08-15__065__ты-принимаешь-первую-самостоятельную/raw/session.raw.jsonl",
+    "actor_manifest_path": "/srv/abyss-machine/runtimes/codex-incarnations/sha256-edeac34cba6361d9086a5d6da20b1cd2a05cf49b88fe499a6abab58fad5be987/incarnation-home.json",
+    "configured_scope": "historical_bootstrap",
+    "current_holder": false,
+    "claim_limit": "The bootstrap session/edeac incarnation is retained as historical context only and is not the current holder."
+  },
+  "current_correlation": {
+    "master_thread_id": "01a00722-0291-72e0-8310-559da802d6e1",
+    "task_local_dir": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815",
+    "master_filter_path": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
+    "master_filter_currentness": {
+      "schema_version": "aoa_dashboard_master_filter_currentness_binding_v1",
+      "owner": "master-thread",
+      "authority": "master_decision",
+      "access_scope": "owner_bounded",
+      "filter_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
+      "current_head_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-current-head.attested.json",
+      "history_ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-head-history.attested.jsonl",
+      "claim_limit": "The master-thread current-head contract is owner evidence consumed by the dashboard; it is not dashboard authority, proof, acceptance, or a runtime action route."
+    },
+    "legacy_snapshot_binding": {
+      "schema_version": "aoa_dashboard_legacy_snapshot_binding_v1",
+      "expected_sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
+      "snapshot_role": "historical_bootstrap_only",
+      "claim_limit": "The former expected digest is retained as historical bootstrap evidence only; it is never used to decide currentness after migration."
+    },
+    "handoff_glob": "*-luna-handoff.json",
+    "wake_glob": "*.wake-receipt.json",
+    "ignored_handoff_names": [],
+    "ignored_wake_names": [],
+    "current_holder": "master-thread:01a00722-0291-72e0-8310-559da802d6e1 (Sol integration holder)",
+    "claim_limit": "Current Goal/thread and task-local receipts are a dashboard correlation surface, not role, runtime, proof, acceptance, or human authority."
+  },
+  "correlation_projection": {
+    "observation_log_path": "/tmp/aoa-dashboard-state/correlation_observations.jsonl",
+    "checkpoint_path": "/tmp/aoa-dashboard-state/correlation_checkpoint.json",
+    "materialization": "explicit_owner_controlled",
+    "claim_limit": "The HTTP projection reads this local ledger but never writes it; explicit materialization is append-only and dashboard-derived."
+  },
+  "pressure_inbox": [
+    {
+      "schema_version": "aoa_dashboard_pressure_record_v1",
+      "goal_id": "aoa-dashboard-goal-01a00722-20260815",
+      "pressure_ref": {
+        "id": "pressure:d4:cursor-conflict-retention",
+        "kind": "goal_criterion_pressure",
+        "ref": "goal:aoa-dashboard-goal-01a00722-20260815#D4",
+        "sha256": null,
+        "currentness": "current_at_read",
+        "owner": "aoa-dashboard",
+        "access_scope": "dashboard_local",
+        "authority": "dashboard_derived",
+        "claim_policy": "dashboard_derived_read_model",
+        "snapshot_role": "derived_pressure_identity",
+        "claim_limit": "The pressure identity is dashboard-derived metadata, not source-owner authority."
+      },
+      "evidence": [
+        {
+          "ref": "/home/dionysus/.codex/attachments/11f36fe1-23db-4a4f-bce5-cbbdc77a9033/pasted-text-1.txt",
+          "owner": "goal-anchor",
+          "kind": "goal_anchor",
+          "sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
+          "currentness": "unknown",
+          "access_scope": "owner_bounded",
+          "authority": "source_owner",
+          "claim_policy": "source_owner_metadata",
+          "expected_sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
+          "snapshot_role": "configured_snapshot",
+          "claim_limit": "The Goal Anchor is task-local input, not dashboard authority."
+        },
+        {
+          "ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
+          "owner": "master-thread",
+          "kind": "task_local_master_filter",
+          "sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
+          "currentness": "deferred",
+          "freshness": "deferred",
+          "access_scope": "owner_bounded",
+          "authority": "master_decision",
+          "claim_policy": "master_decision_disposition",
+          "snapshot_role": "historical_bootstrap_only",
+          "degradation": ["historical_bootstrap_only", "currentness_attestation"],
+          "claim_limit": "The former master-filter digest is historical bootstrap context only; currentness comes from the owner current-head contract."
+        }
+      ],
+      "affected_goal_criterion": "D4 requires a deterministic Goal-local correlation rebuild with cursor/checkpoint drift detection and retained conflict provenance.",
+      "consequence_of_omission": "Replay or source drift could silently replace an owner-qualified observation and make the dashboard look more certain than its evidence.",
+      "natural_owner": {
+        "owner": "aoa-dashboard",
+        "owner_ref": "dashboard:correlation_read_model",
+        "authority": "dashboard_derived",
+        "access_scope": "dashboard_local",
+        "claim_policy": "dashboard_derived_read_model"
+      },
+      "checked_existing_surfaces": [
+        {
+          "surface": "current_correlation.master_filter_path and handoff/wake globs",
+          "owner": "aoa-dashboard",
+          "result": "partial",
+          "ref": "dashboard:src/aoa_dashboard/correlation.py",
+          "access_scope": "dashboard_local",
+          "authority": "dashboard_derived",
+          "claim_policy": "derived_navigation",
+          "claim_limit": "The existing adapter validates task-local correlation but has no durable cursor/checkpoint ledger."
+        },
+        {
+          "surface": "aoa-agents responsibility and return semantics",
+          "owner": "aoa-agents",
+          "result": "reused",
+          "ref": "/srv/AbyssOS/aoa-agents",
+          "access_scope": "owner_bounded",
+          "authority": "source_owner",
+          "claim_policy": "source_owner_metadata",
+          "claim_limit": "The dashboard consumes owner metadata and does not redefine actor meaning."
+        }
+      ],
+      "independence_signals": {
+        "status": "present",
+        "signals": ["D4 is a separately addressed Luna implementation holder.", "Independent review remains a later master gate."],
+        "claim_policy": "historical_context",
+        "claim_limit": "Independence signals identify routing posture; they are not proof or acceptance."
+      },
+      "recommended_trigger_strength": "required_branch",
+      "stop_line": "Retain and display the observation ledger only; do not select a conflict winner, change owner truth, or execute a wake/action route.",
+      "wake_condition": "Wake the master when a cursor drift or unresolved conflict needs owner disposition, or when independent review is ready.",
+      "next_route": {
+        "owner": "master-thread",
+        "owner_ref": "master_thread:01a00722-0291-72e0-8310-559da802d6e1",
+        "route": "filter exact pressure-cursor-ui handoff and independently review rebuild/conflict semantics",
+        "reason": "The master owns return filtering and integration decisions after the bounded implementation return.",
+        "critical": true,
+        "authority": "master_decision",
+        "access_scope": "owner_bounded",
+        "effect": "none",
+        "claim_policy": "master_decision_disposition",
+        "claim_limit": "This is a display-only next route; the dashboard cannot wake or execute it."
+      },
+      "outcome": {
+        "state": "new_required_obligation",
+        "owner": "master-thread",
+        "claim_policy": "master_decision_disposition",
+        "claim_limit": "The outcome records task-local routing, not owner acceptance."
+      },
+      "claim_policy": "dashboard_derived_read_model",
+      "claim_limit": "This pressure record is a dashboard-owned derived intake; source owners retain all semantic authority."
+    },
+    {
+      "schema_version": "aoa_dashboard_pressure_record_v1",
+      "goal_id": "aoa-dashboard-goal-01a00722-20260815",
+      "pressure_ref": {
+        "id": "pressure:p-infinity:structured-inbox",
+        "kind": "goal_criterion_pressure",
+        "ref": "goal:aoa-dashboard-goal-01a00722-20260815#P-infinity",
+        "sha256": null,
+        "currentness": "current_at_read",
+        "owner": "aoa-dashboard",
+        "access_scope": "dashboard_local",
+        "authority": "dashboard_derived",
+        "claim_policy": "dashboard_derived_read_model",
+        "snapshot_role": "derived_pressure_identity",
+        "claim_limit": "The pressure identity is dashboard-derived metadata, not source-owner authority."
+      },
+      "evidence": [
+        {
+          "ref": "/home/dionysus/.codex/attachments/11f36fe1-23db-4a4f-bce5-cbbdc77a9033/pasted-text-1.txt",
+          "owner": "goal-anchor",
+          "kind": "goal_anchor",
+          "sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
+          "currentness": "unknown",
+          "access_scope": "owner_bounded",
+          "authority": "source_owner",
+          "claim_policy": "source_owner_metadata",
+          "expected_sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
+          "snapshot_role": "configured_snapshot",
+          "claim_limit": "The Goal Anchor defines the pressure intake fields and routing boundary."
+        },
+        {
+          "ref": "/srv/abyss-machine/tmp/ai/aoa-dashboard-goal-01a00722-20260815/master-return-disposition.json",
+          "owner": "master-thread",
+          "kind": "task_local_master_filter",
+          "sha256": "c7a7d8b247287729bea1a7fc4bf6766836ef8926228c14f8ca16ebf5742226d6",
+          "currentness": "deferred",
+          "freshness": "deferred",
+          "access_scope": "owner_bounded",
+          "authority": "master_decision",
+          "claim_policy": "master_decision_disposition",
+          "snapshot_role": "historical_bootstrap_only",
+          "degradation": ["historical_bootstrap_only", "currentness_attestation"],
+          "claim_limit": "The former master-filter digest is historical bootstrap context only; currentness comes from the owner current-head contract."
+        }
+      ],
+      "affected_goal_criterion": "P-infinity requires every discovered pressure to retain owner, evidence, omission consequence, independence, trigger strength, stop-line, wake condition, next route and outcome.",
+      "consequence_of_omission": "Unstructured pressure can disappear into prose, lose its natural owner, or be misread as permission for the dashboard to act.",
+      "natural_owner": {
+        "owner": "aoa-dashboard",
+        "owner_ref": "dashboard:pressure_inbox",
+        "authority": "dashboard_derived",
+        "access_scope": "dashboard_local",
+        "claim_policy": "dashboard_derived_read_model"
+      },
+      "checked_existing_surfaces": [
+        {
+          "surface": "current_correlation.new_obligations and rejected_or_deferred_claims",
+          "owner": "aoa-dashboard",
+          "result": "partial",
+          "ref": "dashboard:correlation_read_model/migration",
+          "access_scope": "dashboard_local",
+          "authority": "dashboard_derived",
+          "claim_policy": "derived_navigation",
+          "claim_limit": "Legacy text is redacted to a digest; deferred candidates remain until structured fields are present."
+        },
+        {
+          "surface": "aoa-agents trigger strengths and stop-line semantics",
+          "owner": "aoa-agents",
+          "result": "reused",
+          "ref": "/srv/AbyssOS/aoa-agents/skills/aoa-agents-skills",
+          "access_scope": "owner_bounded",
+          "authority": "source_owner",
+          "claim_policy": "source_owner_metadata",
+          "claim_limit": "Trigger strength is a recommendation; the dashboard cannot form or wake an actor."
+        }
+      ],
+      "independence_signals": {
+        "status": "present",
+        "signals": ["Pressure intake is a separate P-infinity concern from wake receipt compatibility.", "Critical route is returned to the master for filtering."],
+        "claim_policy": "historical_context",
+        "claim_limit": "Independence signals do not establish evaluator independence or owner acceptance."
+      },
+      "recommended_trigger_strength": "required_branch",
+      "stop_line": "Display critical routes with effect:none and preserve missing/unknown fields; do not turn a pressure card into a button that executes an owner action.",
+      "wake_condition": "Wake the master when a pressure is malformed, lacks a natural owner, conflicts with another pressure, or needs a new DAG branch.",
+      "next_route": {
+        "owner": "master-thread",
+        "owner_ref": "master_thread:01a00722-0291-72e0-8310-559da802d6e1",
+        "route": "filter the structured pressure-inbox return without converting dashboard routes into action authority",
+        "reason": "The master decides whether a pressure is absorbed, branched, transferred, or residual.",
+        "critical": true,
+        "authority": "master_decision",
+        "access_scope": "owner_bounded",
+        "effect": "none",
+        "claim_policy": "master_decision_disposition",
+        "claim_limit": "The dashboard only displays this route and cannot perform the wake or branch decision."
+      },
+      "outcome": {
+        "state": "new_required_obligation",
+        "owner": "master-thread",
+        "claim_policy": "master_decision_disposition",
+        "claim_limit": "The outcome is a bounded task-local disposition candidate, not a verdict."
+      },
+      "claim_policy": "dashboard_derived_read_model",
+      "claim_limit": "This pressure record is an owner-bounded derived observation with no operational authority."
+    }
+  ],
+  "actor_receipt_path": "/srv/AbyssOS/aoa-agents/.aoa/live_receipts/actor-responsibility-execution-receipts.jsonl",
+  "stats_surface_path": "/srv/AbyssOS/aoa-stats/state/generated/source_coverage_summary.min.json",
+  "stats_registry_path": "/srv/AbyssOS/aoa-stats/mechanics/recurrence/parts/live-receipt-refresh/config/live_receipt_sources.json",
+  "stats_observed_freshness_status": "not_attested",
+  "kag_projection_digest": "61feed0fd1fa15bffb8e50a76a929d8c900aa0b2330d7469497ad385254f9552",
+  "kag_projection_updated_at": "2026-08-08T21:35:49.720109+00:00",
+  "lifecycle": [
+    {"step": "planned", "evidence": "goal_anchor"},
+    {"step": "bound", "evidence": "actor_manifest_and_bootstrap"},
+    {"step": "running", "evidence": "live_session_source"},
+    {"step": "paused", "evidence": "parent_posture"},
+    {"step": "returned", "evidence": "goal_scoped_return_receipt"},
+    {"step": "reviewed", "evidence": "independent_eval_packet"},
+    {"step": "accepted", "evidence": "owner_acceptance"},
+    {"step": "wake requested", "evidence": "handoff_delivery"},
+    {"step": "reentered", "evidence": "master_reentry_event"}
+  ],
+  "dag": [
+    {"id": "G0", "title": "Goal Anchor and master cycle", "pressure": "master must see real increment"},
+    {"id": "D1", "title": "Organ and ownership", "pressure": "missing goal-space owner"},
+    {"id": "D2", "title": "Goal Space contracts", "pressure": "no shared typed read model"},
+    {"id": "D3", "title": "Owner adapters and provenance", "pressure": "source/deploy/live divergence"},
+    {"id": "D4", "title": "Correlation read model", "pressure": "runtime event drift"},
+    {"id": "D5", "title": "Actor, runtime, return, wake", "pressure": "actor and session coverage"},
+    {"id": "D6", "title": "Operator UI", "pressure": "operators lack one truthful view"},
+    {"id": "D7", "title": "Trust, access, privacy, action", "pressure": "read and write planes need separation"},
+    {"id": "D8", "title": "Dogfood current Goal", "pressure": "the organ must observe its own creation"},
+    {"id": "D9", "title": "Independent evaluation and acceptance", "pressure": "green proxy cannot be verdict"},
+    {"id": "P∞", "title": "Pressure intake", "pressure": "new pressures need bounded routing"}
+  ],
+  "owner_surfaces": [
+    {"owner": "aoa-agents", "source_path": "/srv/AbyssOS/aoa-agents", "runtime_path": null, "authority": "role, obligation, responsibility, handoff, return, wake", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-skills", "source_path": "/srv/AbyssOS/aoa-skills", "runtime_path": null, "authority": "capability ABI, navigation, task-local DAG", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-sdk", "source_path": "/srv/AbyssOS/aoa-sdk", "runtime_path": null, "authority": "RunPlan and runtime-neutral incarnation binding", "kag_snapshot_state": "stale"},
+    {"owner": "abyss-stack", "source_path": "/home/dionysus/src/abyss-stack", "runtime_path": "/srv/AbyssOS/abyss-stack", "authority": "runtime lifecycle and deployed service", "kag_snapshot_state": "stale"},
+    {"owner": ".aoa/session-memory", "source_path": "/srv/AbyssOS/.aoa", "runtime_path": "/srv/AbyssOS/.aoa", "authority": "raw session refs, archive, freshness", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-evals", "source_path": "/srv/AbyssOS/aoa-evals", "runtime_path": null, "authority": "proof, review, eval verdict", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-memo", "source_path": "/srv/AbyssOS/aoa-memo", "runtime_path": null, "authority": "reviewed durable memory", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-stats", "source_path": "/srv/AbyssOS/aoa-stats", "runtime_path": null, "authority": "measurement compatibility and derived stats", "kag_snapshot_state": "stale"},
+    {"owner": "aoa-kag", "source_path": "/srv/AbyssOS/aoa-kag", "runtime_path": null, "authority": "derived navigation and evidence-bearing relations", "kag_snapshot_state": "current_snapshot"}
+  ],
+  "claim_limits": [
+    "This is a dashboard-owned derived view, not source-owner truth.",
+    "A file observation is not process health, runtime success, proof, review, or acceptance.",
+    "Raw session bodies and private actor payloads are not exposed in the projection.",
+    "The .aoa archive is stale or deferred while its live source advances.",
+    "aoa-stats freshness is unknown because the live surface reports not_attested.",
+    "KAG is a stale navigation snapshot and cannot establish current owner facts.",
+    "An action intent is recorded for a future owner route and is never executed here."
+  ]
+}

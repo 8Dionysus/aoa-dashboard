@@ -58,6 +58,20 @@ def _error_source(source_id: str, owner: str, path: str, error: str) -> dict[str
     }
 
 
+def _missing_source(source_id: str, owner: str, path: str | None, observation: str) -> dict[str, Any]:
+    ref = path or f"{owner}:unselected"
+    return {
+        "id": source_id,
+        "owner": owner,
+        "state": "missing",
+        "freshness": "missing",
+        "observation": observation,
+        "metadata": {},
+        "evidence_refs": [_ref("unselected source", ref, "No selected owner binding is available; no current fact is inferred.")],
+        "claim_limit": "Missing source input is not converted to zero, success, or owner truth.",
+    }
+
+
 def _read_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -69,7 +83,10 @@ def _read_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
 
 
 def observe_goal(config: dict[str, Any], snapshot: FileSnapshot | None = None) -> dict[str, Any]:
-    path = Path(config["goal_anchor_path"])
+    path_value = config.get("goal_anchor_path")
+    if not isinstance(path_value, str) or not path_value:
+        return _missing_source("goal-anchor", "goal-anchor", None, "No Goal Anchor is selected without an explicit runtime binding.")
+    path = Path(path_value)
     stats = _stat(path)
     claim_limit = "Anchor binding and digest are source evidence; they do not prove execution, review, or acceptance."
     snapshot = snapshot or read_file_snapshot(
@@ -108,8 +125,8 @@ def observe_goal(config: dict[str, Any], snapshot: FileSnapshot | None = None) -
         "freshness": snapshot.currentness,
         "observation": observation,
         "metadata": {
-            "goal_id": config["goal_id"],
-            "title": config["title"],
+            "goal_id": config.get("goal_id"),
+            "title": config.get("title"),
             "anchor_digest": snapshot.digest,
             "anchor_expected_sha256": snapshot.expected_digest,
             "anchor_currentness": snapshot.currentness,
@@ -194,8 +211,12 @@ def observe_session(config: dict[str, Any]) -> dict[str, Any]:
             "session_manifest_path": config.get("session_manifest_path"),
             "session_archive_raw_path": config.get("session_archive_raw_path"),
         }
-    manifest_path = Path(historical.get("session_manifest_path") or "")
-    archive_path = Path(historical.get("session_archive_raw_path") or "")
+    manifest_value = historical.get("session_manifest_path")
+    archive_value = historical.get("session_archive_raw_path")
+    if not isinstance(manifest_value, str) or not manifest_value or not isinstance(archive_value, str) or not archive_value:
+        return _missing_source("aoa-session-memory", ".aoa/session-memory", None, "No historical session binding is selected.")
+    manifest_path = Path(manifest_value)
+    archive_path = Path(archive_value)
     manifest, error = _read_json(manifest_path)
     manifest_ref = _ref(
         "session manifest",
@@ -292,7 +313,10 @@ def observe_session(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def observe_actor_receipts(config: dict[str, Any]) -> dict[str, Any]:
-    path = Path(config["actor_receipt_path"])
+    path_value = config.get("actor_receipt_path")
+    if not isinstance(path_value, str) or not path_value:
+        return _missing_source("actor-responsibility-receipts", "aoa-agents", None, "No actor publisher is selected by the runtime binding.")
+    path = Path(path_value)
     stats = _stat(path)
     claim_limit = "An actor receipt belongs to its owning actor route; it cannot be reassigned to this Goal without a goal-scoped match."
     ref = _ref("aoa-agents live responsibility receipts", str(path), claim_limit)
@@ -345,8 +369,12 @@ def observe_actor_receipts(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def observe_stats(config: dict[str, Any], actor_source: dict[str, Any]) -> dict[str, Any]:
-    path = Path(config["stats_surface_path"])
-    registry_path = Path(config["stats_registry_path"])
+    path_value = config.get("stats_surface_path")
+    registry_value = config.get("stats_registry_path")
+    if not isinstance(path_value, str) or not path_value or not isinstance(registry_value, str) or not registry_value:
+        return _missing_source("aoa-stats-source-coverage", "aoa-stats", None, "No aoa-stats publisher is selected by the runtime binding.")
+    path = Path(path_value)
+    registry_path = Path(registry_value)
     value, error = _read_json(path)
     claim_limit = "This is an aoa-stats derived surface; source authority, freshness, and owner acceptance remain outside the dashboard."
     refs = [
@@ -400,6 +428,9 @@ def observe_stats(config: dict[str, Any], actor_source: dict[str, Any]) -> dict[
 
 def observe_kag(config: dict[str, Any]) -> dict[str, Any]:
     claim_limit = "KAG is derived navigation evidence; this snapshot cannot establish current owner truth, proof, deployment, or acceptance."
+    digest = config.get("kag_projection_digest")
+    if not isinstance(digest, str) or not digest:
+        return _missing_source("aoa-kag-projection", "aoa-kag", None, "No KAG projection binding is selected by the runtime binding.")
     return {
         "id": "aoa-kag-projection",
         "owner": "aoa-kag",
@@ -407,12 +438,12 @@ def observe_kag(config: dict[str, Any]) -> dict[str, Any]:
         "freshness": "stale",
         "observation": "The configured KAG projection is a readable 2026-08-08 navigation snapshot; owner digests are not all current.",
         "metadata": {
-            "projection_digest": config.get("kag_projection_digest"),
+            "projection_digest": digest,
             "updated_at": config.get("kag_projection_updated_at"),
             "retrieval_eval": "missing",
         },
         "evidence_refs": [
-            _json_ref("KAG projection", f"aoa-kag://projections/{config.get('kag_projection_digest')}", claim_limit),
+            _json_ref("KAG projection", f"aoa-kag://projections/{digest}", claim_limit),
             _ref("KAG owner checkout", "/srv/AbyssOS/aoa-kag", claim_limit),
         ],
         "claim_limit": claim_limit,
@@ -485,6 +516,8 @@ def _git_snapshot(path: Path) -> dict[str, Any]:
 def observe_owner_surfaces(config: dict[str, Any]) -> list[dict[str, Any]]:
     surfaces: list[dict[str, Any]] = []
     for item in config.get("owner_surfaces", []):
+        if not isinstance(item, dict) or not isinstance(item.get("source_path"), str) or not item.get("source_path"):
+            continue
         source_path = Path(item["source_path"])
         source_snapshot = _git_snapshot(source_path)
         runtime_path = item.get("runtime_path")
@@ -505,10 +538,15 @@ def observe_owner_surfaces(config: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def observe_all(config: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    goal_snapshot = read_file_snapshot(
-        Path(config["goal_anchor_path"]),
-        expected_digest=config.get("goal_anchor_expected_sha256"),
-        parser="text",
+    goal_path = config.get("goal_anchor_path")
+    goal_snapshot = (
+        read_file_snapshot(
+            Path(goal_path),
+            expected_digest=config.get("goal_anchor_expected_sha256"),
+            parser="text",
+        )
+        if isinstance(goal_path, str) and goal_path
+        else None
     )
     goal = observe_goal(config, goal_snapshot)
     session = observe_session(config)

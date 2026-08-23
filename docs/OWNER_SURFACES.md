@@ -28,10 +28,11 @@ owns only the thin translation and presentation layer.
   supports the historical task-local v2 witness beside the versioned
   owner-shaped `aoa-sdk` v1 source, preserving exact refs/content digests,
   explicit digest normalization provenance, freshness, missingness, and
-  failure. The v1 admitted binding set is currently empty; config strings are
-  candidate input only and cannot establish owner authority. A future
-  owner-qualified admission route must be supplied by the stronger owner
-  surface before v1 can be canonical or reenter. It does not take ownership of
+  failure. The owner-shaped wake-receipt v1 admitted binding set is currently
+  empty; config strings are candidate input only and cannot establish owner
+  authority. The separate runtime Goal binding is admitted only from an
+  explicit owner-qualified process input and does not make a wake receipt
+  canonical or reenter. It does not take ownership of
   role, runtime, proof, return acceptance, parent resume, or semantic
   continuation.
 - Codex app-server is the semantic owner for the exact Goal and Thread. The
@@ -69,6 +70,9 @@ owns only the thin translation and presentation layer.
 - KAG: derived navigation/index owner. Its 2026-08-08 projection is retained
   as a stale snapshot reference and cannot make current owner claims.
 
-The external bindings are in `config/bootstrap.json`. They are deliberately
-host-local for this first dogfood slice and are not portable deployment
-defaults.
+`config/bootstrap.json` contains only the reusable selection contract. The
+selected Goal, thread, topology, catalog, correlation, and pressure paths are
+supplied at process start through an explicit owner-qualified runtime binding;
+they are not copied into the shipped default. The first-slice instance remains
+under `config/demo/first-slice.json` as explicit historical/demo data and is
+never the current holder or default product binding.

@@ -14,8 +14,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the host-local aoa-dashboard slice")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--binding",
+        type=Path,
+        help="explicit owner-qualified runtime Goal binding JSON; omit to remain fail-closed",
+    )
     args = parser.parse_args()
-    serve(args.host, args.port)
+    serve(args.host, args.port, args.binding)
 
 
 if __name__ == "__main__":

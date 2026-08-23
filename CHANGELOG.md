@@ -2,7 +2,21 @@
 
 ## [Unreleased]
 
-No unreleased changes are claimed after `0.1.0`.
+### Changed
+
+- The shipped bootstrap is now reusable: an explicit owner-qualified runtime
+  binding selects the Goal, thread, topology, catalog, correlation, and
+  pressure sources; no binding remains fail-closed.
+
+### Validation
+
+- Added two-binding, fail-closed, mismatch, demo-isolation, default-scan, and
+  packaging coverage for the reusable bootstrap route.
+
+### Notes
+
+- The historical first-slice instance remains an explicit demo input and is
+  not the default current product binding.
 
 ## [0.1.0] - 2026-08-22
 

@@ -3,11 +3,14 @@
 > Current release: `v0.1.0`. See [CHANGELOG](CHANGELOG.md) for release notes.
 
 The owner-bounded AoA Goal Space/operator surface.
-It reads a current Goal Anchor, a historical `.aoa` bootstrap binding, the
-current task-local Goal/thread handoff and wake directory, the `aoa-stats`
+With an explicit owner-qualified runtime binding it reads the selected Goal
+Anchor, owner Goal/thread context, task-local Goal/thread handoff and wake
+directory, Goal topology, Goal catalog, pressure context, the `aoa-stats`
 source-coverage projection, the optional `aoa-agents` responsibility feed, and
 bounded owner/KAG metadata. It produces a typed derived projection and a small
-operator UI with source/ref/digest drill-down.
+operator UI with source/ref/digest drill-down. Without that binding, the
+projection remains fail-closed and does not invent a current Goal. The bundled
+first-slice material is an explicit historical/demo opt-in only.
 
 The dashboard is not an authority plane. It does not create roles, run actors,
 execute runtime actions, issue eval verdicts, accept work, or rewrite owner
@@ -46,17 +49,21 @@ upgraded.
 ## Run
 
 ```text
-python3 scripts/run_dashboard.py --host 127.0.0.1 --port 8765
+python3 scripts/run_dashboard.py --host 127.0.0.1 --port 8765 \
+  --binding /path/to/owner-qualified-runtime-binding.json
 ```
 
-The default binding is `config/bootstrap.json`. Override it with
-`AOA_DASHBOARD_CONFIG`. Runtime records go to
+`config/bootstrap.json` is a reusable selector, not a current instance. Omit
+`--binding` to keep the read model fail-closed, or pass one explicit
+owner-qualified `aoa_dashboard_runtime_binding_v1` JSON document. The
+historical first-slice instance is available only through the explicit
+`config/demo/first-slice.json` path. Runtime records go to
 `AOA_DASHBOARD_STATE_ROOT` (default `/tmp/aoa-dashboard-state`).
 The correlation ledger and checkpoint paths are configured under
 `correlation_projection`; the HTTP read path does not create or mutate them.
 
 Open `http://127.0.0.1:8765/`. The UI reads `/api/projection` and polls it
-periodically; no fixture data is bundled or loaded.
+periodically; no instance data is loaded by default.
 
 ### Native desktop shell
 
@@ -82,8 +89,11 @@ the dashboard's provenance, missingness, and claim limits are unchanged.
 
 ```text
 python3 scripts/validate_organ_contract.py
+python3 scripts/validate_default_binding.py
+python3 scripts/release_check.py
 python3 -m unittest discover -s tests -v
 for contract in contracts/*.json; do python3 -m json.tool "$contract" >/dev/null; done
+git diff --check
 ```
 
 The same route is run by the `Repo Validation` GitHub workflow.
@@ -110,12 +120,14 @@ historical `task_local_actor_wake_receipt_v2` witness and recognizes the
 versioned owner-shaped `aoa_codex_wake_receipt_v1` source without merging their
 schemas. The v1 adapter preserves the raw receipt ref/content digest and raw
 `sha256:<hex>` handoff field while comparing only an explicit normalized value.
-No owner-qualified v1 binding is currently admitted: the default bootstrap has
-no candidate binding, and a missing, unlanded, forged, or merely shaped config
-value remains raw candidate evidence with null canonical owner refs, invalid
-state, and no re-entry. A future route must provide independently admitted
-owner evidence from the stronger owner surface; dashboard config strings cannot
-create that authority. The owner ABI does not publish
+The owner-shaped wake-receipt v1 admission set remains empty: a missing,
+unlanded, forged, or merely shaped wake receipt remains candidate evidence with
+null canonical owner refs, invalid state, and no re-entry. Separately, the
+runtime process may consume one explicit `aoa_dashboard_runtime_binding_v1`
+document only when its source descriptors are owner-qualified, current at read,
+and internally matched. The reusable bootstrap does not contain that instance;
+dashboard configuration cannot create the authority represented by the source
+owners. The owner ABI does not publish
 `handoff_message_submitted`, so the dashboard keeps it unknown (`null`) for v1
 instead of reconstructing it from the outcome. `goal_resume_requested` is
 explicitly `null` for v1, unsupported, and missing receipts, and preserves the

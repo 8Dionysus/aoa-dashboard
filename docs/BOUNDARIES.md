@@ -58,12 +58,14 @@ the lifecycle step (`planned`, `bound`, `running`, `paused`, `returned`,
 quality (`missing`, `unknown`, `stale`, `deferred`, `invalid`). A step can be
 known to be a step while its expected evidence is missing or deferred.
 
-The current holder is bound through the Goal/thread and task-local receipt
-directory in `current_correlation`. The old session/edeac bootstrap remains a
-separate `historical_bootstrap` binding and is never used as current-holder
+The current Goal/thread and task-local receipt directory are selected through
+an explicit owner-qualified runtime binding and then exposed to the derived
+adapter through `current_correlation`. The old session/edeac bootstrap remains
+a separate historical/demo binding and is never used as current-holder.
 Wake delivery is transport evidence only. The dashboard keeps the
 task-local v2 witness and owner-shaped SDK v1 source as distinct families; the
-current independently admitted v1 binding set is empty, so v1 remains raw
+current independently admitted wake-receipt v1 binding set is empty, so v1
+remains raw
 candidate evidence with null canonical owner refs, invalid state, and no
 re-entry. An unlanded, forged, or merely shaped config string cannot create
 owner authority. A future owner-qualified route must come from the stronger

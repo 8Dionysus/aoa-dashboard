@@ -1,0 +1,580 @@
+"""Resolve one explicit owner-qualified runtime Goal binding.
+
+The reusable bootstrap describes how a binding is selected; it does not carry
+an instance.  A selected binding is an owner-published, read-only JSON
+contract passed to the process explicitly.  This module validates that
+contract and projects only its allowlisted source bindings into the legacy
+adapter configuration shape.
+"""
+
+from __future__ import annotations
+
+import copy
+import re
+from pathlib import Path
+from typing import Any
+
+from .source_binding import (
+    FileSnapshot,
+    is_sha256,
+    read_file_snapshot,
+    snapshot_ref,
+)
+
+
+RUNTIME_BINDING_SCHEMA = "aoa_dashboard_runtime_binding_v1"
+RUNTIME_OBSERVATION_SCHEMA = "aoa_dashboard_runtime_binding_observation_v1"
+PRESSURE_CONTEXT_SCHEMA = "aoa_dashboard_pressure_context_v1"
+CURRENT_STATES = frozenset({"current", "current_at_read"})
+QUALITY_STATES = frozenset({"current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"})
+OWNER_LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,127}$")
+SAFE_ID_RE = re.compile(r"^[^\x00\n\r\t]{1,256}$")
+CLAIM_POLICY_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,95}$")
+BINDING_OWNERS = frozenset({"aoa-sdk", "master-thread"})
+CLAIM_LIMIT = (
+    "The runtime binding is an owner-qualified read contract consumed by the "
+    "dashboard; it is not role, runtime, proof, acceptance, or action authority."
+)
+SELECTION_CLAIM_LIMIT = (
+    "The selected Goal and thread are taken from the exact owner-qualified "
+    "binding supplied for this projection read."
+)
+
+
+class RuntimeBindingError(ValueError):
+    """Raised when a selected runtime binding cannot be admitted."""
+
+
+def _text(value: Any, field: str, *, maximum: int = 256) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > maximum or not SAFE_ID_RE.fullmatch(value):
+        raise RuntimeBindingError(f"runtime_binding_{field}_invalid")
+    return value.strip()
+
+
+def _optional_text(value: Any, field: str, *, maximum: int = 256) -> str | None:
+    if value is None:
+        return None
+    return _text(value, field, maximum=maximum)
+
+
+def _owner_descriptor(value: Any, field: str, *, expected_owner: str | None = None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RuntimeBindingError(f"runtime_binding_{field}_missing")
+    owner = _text(value.get("owner"), f"{field}_owner", maximum=128)
+    if not OWNER_LABEL_RE.fullmatch(owner) or owner == "aoa-dashboard":
+        raise RuntimeBindingError(f"runtime_binding_{field}_owner_invalid")
+    if expected_owner is not None and owner != expected_owner:
+        raise RuntimeBindingError(f"runtime_binding_{field}_owner_mismatch")
+    authority = _text(value.get("authority"), f"{field}_authority", maximum=96)
+    if authority not in {"source_owner", "master_decision"}:
+        raise RuntimeBindingError(f"runtime_binding_{field}_authority_invalid")
+    access_scope = _text(value.get("access_scope"), f"{field}_access_scope", maximum=96)
+    if access_scope != "owner_bounded":
+        raise RuntimeBindingError(f"runtime_binding_{field}_access_scope_invalid")
+    claim_policy = _text(value.get("claim_policy"), f"{field}_claim_policy", maximum=96)
+    if not CLAIM_POLICY_RE.fullmatch(claim_policy):
+        raise RuntimeBindingError(f"runtime_binding_{field}_claim_policy_invalid")
+    claim_limit = _text(value.get("claim_limit"), f"{field}_claim_limit", maximum=640)
+    currentness = value.get("currentness")
+    if currentness is not None and currentness not in CURRENT_STATES:
+        raise RuntimeBindingError(f"runtime_binding_{field}_currentness_not_current")
+    return {
+        "owner": owner,
+        "authority": authority,
+        "access_scope": access_scope,
+        "claim_policy": claim_policy,
+        "claim_limit": claim_limit,
+        **({"currentness": currentness} if currentness is not None else {}),
+    }
+
+
+def _path(value: Any, field: str) -> str:
+    result = _text(value, field, maximum=4096)
+    if not Path(result).is_absolute():
+        raise RuntimeBindingError(f"runtime_binding_{field}_must_be_absolute")
+    return str(Path(result).resolve(strict=False))
+
+
+def _sha(value: Any, field: str) -> str | None:
+    if value is None:
+        return None
+    if not is_sha256(value):
+        raise RuntimeBindingError(f"runtime_binding_{field}_invalid")
+    return value
+
+
+def _relative_path(value: Any, field: str) -> str:
+    result = _text(value, field, maximum=512)
+    path = Path(result)
+    if path.is_absolute() or ".." in path.parts:
+        raise RuntimeBindingError(f"runtime_binding_{field}_invalid")
+    return result
+
+
+def _glob(value: Any, field: str) -> str:
+    result = _text(value, field, maximum=256)
+    if result in {".", ".."} or "/" in result or "\\" in result:
+        raise RuntimeBindingError(f"runtime_binding_{field}_invalid")
+    return result
+
+
+def _text_list(value: Any, field: str, *, maximum: int = 64) -> list[str]:
+    if not isinstance(value, list) or len(value) > maximum:
+        raise RuntimeBindingError(f"runtime_binding_{field}_invalid")
+    result: list[str] = []
+    for index, item in enumerate(value):
+        result.append(_text(item, f"{field}_{index}", maximum=256))
+    return result
+
+
+def _source_ref(
+    snapshot: FileSnapshot,
+    *,
+    label: str,
+    owner: str,
+    authority: str,
+    claim_policy: str,
+    claim_limit: str,
+    extra_degradation: list[str] | None = None,
+) -> dict[str, Any]:
+    return snapshot_ref(
+        snapshot,
+        label=label,
+        kind="runtime_binding",
+        owner=owner,
+        access_scope="owner_bounded",
+        authority=authority,
+        claim_policy=claim_policy,
+        claim_limit=claim_limit,
+        extra_degradation=extra_degradation,
+    )
+
+
+def _empty_observation(
+    state: str,
+    reason: str,
+    *,
+    path: Path | None = None,
+    evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": RUNTIME_OBSERVATION_SCHEMA,
+        "state": state,
+        "currentness": state,
+        "binding_id": None,
+        "selected_goal": None,
+        "source": evidence,
+        "diagnostics": [reason],
+        "claim_limit": CLAIM_LIMIT,
+        **({"binding_path": str(path)} if path is not None else {}),
+    }
+
+
+def _binding_observation(
+    *,
+    state: str,
+    binding_id: str | None,
+    selected_goal: dict[str, str] | None,
+    evidence: dict[str, Any] | None,
+    diagnostics: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": RUNTIME_OBSERVATION_SCHEMA,
+        "state": state,
+        "currentness": "current_at_read" if state == "bound" else state,
+        "binding_id": binding_id,
+        "selected_goal": selected_goal,
+        "source": evidence,
+        "diagnostics": sorted(set(diagnostics or [])),
+        "claim_limit": CLAIM_LIMIT,
+    }
+
+
+def _validate_selected_goal(payload: dict[str, Any]) -> dict[str, str]:
+    selected = payload.get("selected_goal")
+    if not isinstance(selected, dict):
+        raise RuntimeBindingError("runtime_binding_selected_goal_missing")
+    goal_id = _text(selected.get("goal_id"), "selected_goal_id", maximum=256)
+    thread_id = _text(selected.get("master_thread_id"), "selected_master_thread_id", maximum=256)
+    result = {"goal_id": goal_id, "master_thread_id": thread_id}
+    title = selected.get("title")
+    if title is not None:
+        result["title"] = _text(title, "selected_title", maximum=256)
+    return result
+
+
+def _validate_currentness(payload: dict[str, Any]) -> str:
+    currentness = payload.get("currentness")
+    state = payload.get("state", currentness)
+    if currentness not in QUALITY_STATES or state not in QUALITY_STATES or state != currentness:
+        raise RuntimeBindingError("runtime_binding_currentness_invalid")
+    return currentness
+
+
+def _validate_source_map(payload: dict[str, Any], selected: dict[str, str]) -> dict[str, Any]:
+    sources = payload.get("sources")
+    if not isinstance(sources, dict):
+        raise RuntimeBindingError("runtime_binding_sources_missing")
+
+    goal_anchor = _owner_descriptor(sources.get("goal_anchor"), "goal_anchor", expected_owner="goal-anchor")
+    goal_anchor["path"] = _path(sources["goal_anchor"].get("path"), "goal_anchor_path")
+    goal_anchor["expected_sha256"] = _sha(sources["goal_anchor"].get("expected_sha256"), "goal_anchor_expected_sha256")
+
+    codex_goal = _owner_descriptor(sources.get("codex_goal"), "codex_goal", expected_owner="codex-app-server")
+    if sources["codex_goal"].get("enabled") is not True or sources["codex_goal"].get("method") != "thread/goal/get":
+        raise RuntimeBindingError("runtime_binding_codex_goal_contract_invalid")
+    codex_goal.update({"enabled": True, "kind": "codex_app_server_thread_goal", "method": "thread/goal/get", "access": "read_only"})
+    if sources["codex_goal"].get("socket_path") is not None:
+        codex_goal["socket_path"] = _path(sources["codex_goal"].get("socket_path"), "codex_goal_socket_path")
+
+    codex_thread = _owner_descriptor(sources.get("codex_thread"), "codex_thread", expected_owner="codex-app-server")
+    raw_thread = sources["codex_thread"]
+    if raw_thread.get("enabled") is not True:
+        raise RuntimeBindingError("runtime_binding_codex_thread_disabled")
+    methods = raw_thread.get("methods")
+    relation_queries = raw_thread.get("relation_queries")
+    if methods != ["thread/read", "thread/list"] or relation_queries != ["parentThreadId", "ancestorThreadId"]:
+        raise RuntimeBindingError("runtime_binding_codex_thread_contract_invalid")
+    codex_thread.update(
+        {
+            "enabled": True,
+            "kind": "codex_app_server_thread_context",
+            "methods": list(methods),
+            "relation_queries": list(relation_queries),
+            "requires_experimental_api": raw_thread.get("requires_experimental_api") is True,
+        }
+    )
+    if raw_thread.get("socket_path") is not None:
+        codex_thread["socket_path"] = _path(raw_thread.get("socket_path"), "codex_thread_socket_path")
+
+    topology = _owner_descriptor(sources.get("topology"), "topology", expected_owner="master-thread")
+    raw_topology = sources["topology"]
+    topology.update(
+        {
+            "enabled": True,
+            "relative_path": _relative_path(raw_topology.get("relative_path"), "topology_relative_path"),
+            "expected_schema_version": _text(raw_topology.get("expected_schema_version"), "topology_schema", maximum=128),
+        }
+    )
+
+    catalog = _owner_descriptor(sources.get("catalog"), "catalog", expected_owner="aoa-session-memory")
+    raw_catalog = sources["catalog"]
+    if raw_catalog.get("expected_schema_version") != "aoa_session_memory_goal_catalog_v1":
+        raise RuntimeBindingError("runtime_binding_catalog_schema_invalid")
+    catalog.update(
+        {
+            "schema_version": "aoa_dashboard_goal_catalog_binding_v1",
+            "path": _path(raw_catalog.get("path"), "catalog_path"),
+            "expected_schema_version": "aoa_session_memory_goal_catalog_v1",
+        }
+    )
+
+    correlation = _owner_descriptor(sources.get("correlation"), "correlation", expected_owner="master-thread")
+    raw_correlation = sources["correlation"]
+    task_local_dir = _path(raw_correlation.get("task_local_dir"), "correlation_task_local_dir")
+    master_filter_path = _path(raw_correlation.get("master_filter_path"), "correlation_master_filter_path")
+    if raw_correlation.get("master_thread_id") not in {None, selected["master_thread_id"]}:
+        raise RuntimeBindingError("runtime_binding_correlation_thread_mismatch")
+    currentness_binding = raw_correlation.get("master_filter_currentness")
+    if not isinstance(currentness_binding, dict):
+        raise RuntimeBindingError("runtime_binding_currentness_binding_missing")
+    currentness_copy = copy.deepcopy(currentness_binding)
+    if currentness_copy.get("owner") != "master-thread" or currentness_copy.get("authority") != "master_decision" or currentness_copy.get("access_scope") != "owner_bounded":
+        raise RuntimeBindingError("runtime_binding_currentness_owner_invalid")
+    if _path(currentness_copy.get("filter_ref"), "currentness_filter_ref") != master_filter_path:
+        raise RuntimeBindingError("runtime_binding_currentness_filter_mismatch")
+    currentness_copy["filter_ref"] = master_filter_path
+    currentness_copy["current_head_ref"] = _path(currentness_copy.get("current_head_ref"), "currentness_current_head_ref")
+    currentness_copy["history_ref"] = _path(currentness_copy.get("history_ref"), "currentness_history_ref")
+    correlation.update(
+        {
+            "master_thread_id": selected["master_thread_id"],
+            "task_local_dir": task_local_dir,
+            "master_filter_path": master_filter_path,
+            "master_filter_currentness": currentness_copy,
+            "handoff_glob": _glob(raw_correlation.get("handoff_glob"), "correlation_handoff_glob"),
+            "wake_glob": _glob(raw_correlation.get("wake_glob"), "correlation_wake_glob"),
+            "ignored_handoff_names": _text_list(raw_correlation.get("ignored_handoff_names", []), "correlation_ignored_handoff_names"),
+            "ignored_wake_names": _text_list(raw_correlation.get("ignored_wake_names", []), "correlation_ignored_wake_names"),
+        }
+    )
+    holder = raw_correlation.get("current_holder")
+    if holder is not None:
+        correlation["current_holder"] = _text(holder, "correlation_current_holder", maximum=256)
+    legacy_snapshot = raw_correlation.get("legacy_snapshot_binding")
+    if legacy_snapshot is not None:
+        if not isinstance(legacy_snapshot, dict):
+            raise RuntimeBindingError("runtime_binding_legacy_snapshot_invalid")
+        correlation["legacy_snapshot_binding"] = copy.deepcopy(legacy_snapshot)
+
+    pressure = _owner_descriptor(sources.get("pressure"), "pressure")
+    raw_pressure = sources["pressure"]
+    if raw_pressure.get("expected_schema_version") != PRESSURE_CONTEXT_SCHEMA:
+        raise RuntimeBindingError("runtime_binding_pressure_schema_invalid")
+    pressure.update(
+        {
+            "path": _path(raw_pressure.get("path"), "pressure_path"),
+            "expected_schema_version": PRESSURE_CONTEXT_SCHEMA,
+        }
+    )
+
+    result: dict[str, Any] = {
+        "goal_anchor": goal_anchor,
+        "codex_goal": codex_goal,
+        "codex_thread": codex_thread,
+        "topology": topology,
+        "catalog": catalog,
+        "correlation": correlation,
+        "pressure": pressure,
+    }
+
+    optional = {
+        "historical": ("historical", "aoa-session-memory"),
+        "actor": ("actor", "aoa-agents"),
+        "stats": ("stats", "aoa-stats"),
+    }
+    for key, (_name, expected_owner) in optional.items():
+        raw = sources.get(key)
+        if raw is None:
+            continue
+        descriptor = _owner_descriptor(raw, key, expected_owner=expected_owner)
+        if key == "historical":
+            if raw.get("scope") != "historical_bootstrap" or raw.get("current_holder") is not False:
+                raise RuntimeBindingError("runtime_binding_historical_scope_invalid")
+            descriptor.update(
+                {
+                    "binding_id": _text(raw.get("binding_id"), "historical_binding_id", maximum=256),
+                    "session_manifest_path": _path(raw.get("session_manifest_path"), "historical_manifest_path"),
+                    "session_archive_raw_path": _path(raw.get("session_archive_raw_path"), "historical_archive_path"),
+                    "actor_manifest_path": _path(raw.get("actor_manifest_path"), "historical_actor_manifest_path") if raw.get("actor_manifest_path") is not None else None,
+                    "configured_scope": "historical_bootstrap",
+                    "current_holder": False,
+                }
+            )
+        elif key == "actor":
+            descriptor["path"] = _path(raw.get("path"), "actor_receipt_path")
+        else:
+            descriptor["path"] = _path(raw.get("path"), "stats_surface_path")
+            descriptor["registry_path"] = _path(raw.get("registry_path"), "stats_registry_path")
+            descriptor["freshness_status"] = _text(raw.get("freshness_status", "unknown"), "stats_freshness_status", maximum=64)
+        result[key] = descriptor
+
+    owner_surfaces = payload.get("owner_surfaces", [])
+    if not isinstance(owner_surfaces, list) or len(owner_surfaces) > 32:
+        raise RuntimeBindingError("runtime_binding_owner_surfaces_invalid")
+    normalized_surfaces: list[dict[str, Any]] = []
+    for index, item in enumerate(owner_surfaces):
+        if not isinstance(item, dict):
+            raise RuntimeBindingError(f"runtime_binding_owner_surface_{index}_invalid")
+        descriptor = _owner_descriptor(item, f"owner_surface_{index}")
+        descriptor["owner"] = _text(item.get("owner"), f"owner_surface_{index}_owner", maximum=128)
+        descriptor["source_path"] = _path(item.get("source_path"), f"owner_surface_{index}_source_path")
+        runtime_path = item.get("runtime_path")
+        descriptor["runtime_path"] = _path(runtime_path, f"owner_surface_{index}_runtime_path") if runtime_path is not None else None
+        descriptor["kag_snapshot_state"] = item.get("kag_snapshot_state")
+        normalized_surfaces.append(descriptor)
+    result["owner_surfaces"] = normalized_surfaces
+    return result
+
+
+def _read_pressure_context(
+    descriptor: dict[str, Any],
+    *,
+    selected_goal_id: str,
+) -> tuple[list[dict[str, Any]], str, dict[str, Any], list[str]]:
+    path = Path(descriptor["path"])
+    snapshot = read_file_snapshot(path, parser="json")
+    evidence = snapshot_ref(
+        snapshot,
+        label="Owner pressure context",
+        kind="pressure_context",
+        owner=descriptor["owner"],
+        access_scope="owner_bounded",
+        authority=descriptor["authority"],
+        claim_policy=descriptor["claim_policy"],
+        claim_limit=descriptor["claim_limit"],
+    )
+    if snapshot.currentness != "current_at_read" or not isinstance(snapshot.parsed, dict):
+        return [], snapshot.currentness, evidence, ["pressure_context_not_current"]
+    payload = snapshot.parsed
+    try:
+        if payload.get("schema_version") != PRESSURE_CONTEXT_SCHEMA:
+            raise RuntimeBindingError("pressure_context_schema_unsupported")
+        if payload.get("owner") != descriptor["owner"] or payload.get("authority") != descriptor["authority"]:
+            raise RuntimeBindingError("pressure_context_owner_invalid")
+        if payload.get("state") != "current_at_read" or payload.get("currentness") != "current_at_read":
+            raise RuntimeBindingError("pressure_context_currentness_invalid")
+        if payload.get("goal_id") != selected_goal_id:
+            raise RuntimeBindingError("pressure_context_goal_mismatch")
+        items = payload.get("items")
+        if not isinstance(items, list):
+            raise RuntimeBindingError("pressure_context_items_invalid")
+        return copy.deepcopy(items), "current_at_read", evidence, []
+    except RuntimeBindingError as exc:
+        return [], "invalid", evidence, [str(exc)]
+
+
+def _flatten_binding(
+    base: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    binding_path: Path,
+    binding_snapshot: FileSnapshot,
+    selected: dict[str, str],
+    descriptors: dict[str, Any],
+) -> dict[str, Any]:
+    config = copy.deepcopy(base)
+    config.update(
+        {
+            "schema_version": "aoa_dashboard_resolved_config_v1",
+            "profile": "owner-qualified-runtime",
+            "runtime_binding_state": "bound",
+            "runtime_binding_observation": _binding_observation(
+                state="bound",
+                binding_id=_text(payload.get("binding_id"), "binding_id", maximum=256),
+                selected_goal={"goal_id": selected["goal_id"], "master_thread_id": selected["master_thread_id"]},
+                evidence=_source_ref(
+                    binding_snapshot,
+                    label="Selected runtime Goal binding",
+                    owner=_text(payload.get("owner"), "owner", maximum=128),
+                    authority=_text(payload.get("authority"), "authority", maximum=96),
+                    claim_policy=_text(payload.get("claim_policy"), "claim_policy", maximum=96),
+                    claim_limit=_text(payload.get("claim_limit"), "claim_limit", maximum=640),
+                ),
+            ),
+            "runtime_binding_source_path": str(binding_path),
+            "goal_id": selected["goal_id"],
+            "title": selected.get("title"),
+            "goal_anchor_path": descriptors["goal_anchor"]["path"],
+            "goal_anchor_expected_sha256": descriptors["goal_anchor"].get("expected_sha256"),
+            "owner_goal_source": descriptors["codex_goal"],
+            "owner_thread_source": descriptors["codex_thread"],
+            "goal_topology_source": descriptors["topology"],
+            "goal_catalog_source": descriptors["catalog"],
+            "current_correlation": descriptors["correlation"],
+            "owner_surfaces": descriptors["owner_surfaces"],
+            "pressure_inbox": [],
+            "pressure_source": descriptors["pressure"],
+        }
+    )
+    historical = descriptors.get("historical")
+    if historical is not None:
+        config["historical_bootstrap"] = historical
+    else:
+        config["historical_bootstrap"] = {}
+    actor = descriptors.get("actor")
+    stats = descriptors.get("stats")
+    config["actor_receipt_path"] = actor.get("path") if actor else None
+    config["stats_surface_path"] = stats.get("path") if stats else None
+    config["stats_registry_path"] = stats.get("registry_path") if stats else None
+    config["stats_observed_freshness_status"] = stats.get("freshness_status", "unknown") if stats else "unknown"
+
+    pressure_items, pressure_state, pressure_evidence, pressure_diagnostics = _read_pressure_context(
+        descriptors["pressure"], selected_goal_id=selected["goal_id"]
+    )
+    config["pressure_inbox"] = pressure_items
+    config["pressure_source_state"] = pressure_state
+    config["pressure_source_evidence"] = pressure_evidence
+    config["pressure_source_diagnostics"] = pressure_diagnostics
+    return config
+
+
+def resolve_runtime_binding(base: dict[str, Any], path: str | Path | None) -> dict[str, Any]:
+    """Return a resolved config or a reusable fail-closed config."""
+
+    config = copy.deepcopy(base)
+    if path is None:
+        config["runtime_binding_state"] = "missing"
+        config["runtime_binding_observation"] = _empty_observation("missing", "runtime_binding_not_selected")
+        return config
+    binding_path = Path(path).resolve(strict=False)
+    snapshot = read_file_snapshot(binding_path, parser="json")
+    evidence = snapshot_ref(
+        snapshot,
+        label="Selected runtime Goal binding",
+        kind="runtime_binding",
+        owner="aoa-sdk",
+        access_scope="owner_bounded",
+        authority="source_owner",
+        claim_policy="runtime_binding",
+        claim_limit=CLAIM_LIMIT,
+    )
+    if snapshot.currentness == "missing":
+        config["runtime_binding_state"] = "missing"
+        config["runtime_binding_observation"] = _empty_observation("missing", "runtime_binding_source_missing", path=binding_path, evidence=evidence)
+        return config
+    if snapshot.currentness != "current_at_read" or not isinstance(snapshot.parsed, dict):
+        state = snapshot.currentness if snapshot.currentness in QUALITY_STATES else "invalid"
+        config["runtime_binding_state"] = state
+        config["runtime_binding_observation"] = _empty_observation(state, "runtime_binding_source_not_current", path=binding_path, evidence=evidence)
+        return config
+    payload = snapshot.parsed
+    try:
+        if payload.get("schema_version") != RUNTIME_BINDING_SCHEMA:
+            raise RuntimeBindingError("runtime_binding_schema_unsupported")
+        currentness = _validate_currentness(payload)
+        if currentness not in CURRENT_STATES:
+            config["runtime_binding_state"] = currentness
+            config["runtime_binding_observation"] = _empty_observation(currentness, "runtime_binding_not_current", path=binding_path, evidence=evidence)
+            return config
+        owner = _text(payload.get("owner"), "owner", maximum=128)
+        if owner not in BINDING_OWNERS:
+            raise RuntimeBindingError("runtime_binding_owner_invalid")
+        authority = _text(payload.get("authority"), "authority", maximum=96)
+        if authority not in {"source_owner", "master_decision"}:
+            raise RuntimeBindingError("runtime_binding_authority_invalid")
+        access_scope = _text(payload.get("access_scope"), "access_scope", maximum=96)
+        if access_scope != "owner_bounded":
+            raise RuntimeBindingError("runtime_binding_access_scope_invalid")
+        claim_policy = _text(payload.get("claim_policy"), "claim_policy", maximum=96)
+        if not CLAIM_POLICY_RE.fullmatch(claim_policy):
+            raise RuntimeBindingError("runtime_binding_claim_policy_invalid")
+        _text(payload.get("claim_limit"), "claim_limit", maximum=640)
+        selected = _validate_selected_goal(payload)
+        descriptors = _validate_source_map(payload, selected)
+        resolved = _flatten_binding(
+            base,
+            payload,
+            binding_path=binding_path,
+            binding_snapshot=snapshot,
+            selected=selected,
+            descriptors=descriptors,
+        )
+        return resolved
+    except (RuntimeBindingError, TypeError, KeyError) as exc:
+        config["runtime_binding_state"] = "invalid"
+        config["runtime_binding_observation"] = _empty_observation("invalid", str(exc), path=binding_path, evidence=evidence)
+        return config
+
+
+def mark_historical_demo(config: dict[str, Any], *, path: str | Path) -> dict[str, Any]:
+    """Mark an explicitly selected legacy/demo instance without making it default."""
+
+    result = copy.deepcopy(config)
+    historical = result.get("historical_bootstrap")
+    if not isinstance(historical, dict):
+        historical = {}
+    correlation = result.get("current_correlation")
+    if not isinstance(correlation, dict):
+        correlation = {}
+    result["runtime_binding_state"] = "historical_demo_opt_in"
+    result["runtime_binding_observation"] = {
+        "schema_version": RUNTIME_OBSERVATION_SCHEMA,
+        "state": "deferred",
+        "currentness": "deferred",
+        "binding_id": historical.get("binding_id"),
+        "selected_goal": {
+            "goal_id": result.get("goal_id"),
+            "master_thread_id": correlation.get("master_thread_id"),
+        },
+        "source": {
+            "owner": ".aoa-session-memory",
+            "ref": str(Path(path).resolve(strict=False)),
+            "currentness": "deferred",
+            "snapshot_role": "historical_bootstrap_only",
+            "claim_limit": "Explicit demo data is historical context only and is never the default current binding.",
+        },
+        "diagnostics": ["historical_bootstrap_only"],
+        "claim_limit": "Explicit demo data is historical context only and is never the default current binding.",
+    }
+    return result
