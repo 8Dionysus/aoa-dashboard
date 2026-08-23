@@ -22,6 +22,8 @@ SCHEMA_VERSION = "aoa_dashboard_participant_envelope_v1"
 DIMENSION_STATES = frozenset({"present", "missing", "unknown", "stale", "deferred", "invalid"})
 LIFECYCLE_STATES = frozenset({"planned", "bound", "running", "paused", "returned", "reviewed", "accepted", "reentered"})
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+RELATION_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+RELATION_KEYS = frozenset({"kind", "state", "source", "owner", "parent", "fork", "thread", "branch", "trajectory", "relationship", "relations", "goal"})
 CLAIM_LIMIT = (
     "Participant context is a dashboard adapter over bounded owner/task-local "
     "observations. It does not establish human identity, role authority, model "
@@ -66,6 +68,28 @@ def _model_subject(value: Any) -> dict[str, str] | None:
     return {"kind": kind, "source": source, "digest": digest}
 
 
+def _safe_relations(value: Any, *, depth: int = 0) -> dict[str, Any]:
+    if not isinstance(value, dict) or depth > 2:
+        return {}
+    result: dict[str, Any] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not RELATION_KEY_RE.fullmatch(key):
+            continue
+        if key not in RELATION_KEYS and not key.endswith(("_id", "_ref")):
+            continue
+        if isinstance(item, dict):
+            nested = _safe_relations(item, depth=depth + 1)
+            if nested:
+                result[key] = nested
+        elif isinstance(item, list):
+            values = [str(entry).strip() for entry in item[:32] if isinstance(entry, (str, int)) and str(entry).strip()]
+            if values:
+                result[key] = values
+        elif isinstance(item, (str, int, float, bool)):
+            result[key] = item.strip() if isinstance(item, str) else item
+    return result
+
+
 def _owner_diagnostics(owner_goal_context: dict[str, Any]) -> list[str]:
     values: list[str] = []
     for container in (
@@ -87,6 +111,7 @@ def _task_context(
     task = _dict(actor.get("task"))
     correlation = _dict(actor.get("correlation"))
     task_id = _string(task.get("task_id"))
+    task_ref = _string(task.get("task_ref")) or task_id
     summary = _string(task.get("summary")) or _string(task.get("title"))
     task_observation_state = "present" if task_id or summary else ("missing" if actor.get("payload_state") == "missing" else "unknown")
     goal_ref = _dict(owner_goal_context.get("goal_ref"))
@@ -148,6 +173,8 @@ def _task_context(
         "state": state,
         "observation_state": task_observation_state,
         "task_id": task_id,
+        "task_ref": task_ref,
+        "title": summary,
         "summary": summary,
         "goal_thread": {
             "state": join_state,
@@ -174,14 +201,20 @@ def _identity(actor: dict[str, Any], inherited_quality: str | None = None) -> di
     role_resolution_ref = _string(identity.get("role_resolution_ref"))
     obligation_ref = _string(identity.get("obligation_ref"))
     owner_display_name = _string(identity.get("display_name"))
+    observed_name = _string(identity.get("name"))
+    role_name = _string(identity.get("role_name"))
     candidate_label = _string(identity.get("label"))
-    any_observation = any((role_id, specialization_id, tier_id, role_resolution_ref, obligation_ref, candidate_label))
+    any_observation = any((role_id, specialization_id, tier_id, role_resolution_ref, obligation_ref, candidate_label, observed_name, role_name))
     if any_observation:
         state = "present"
     else:
         state = "missing" if actor.get("payload_state") == "missing" else "unknown"
     state = propagate_quality_state(state, actor.get("freshness"), inherited_quality)
     display_state = "present" if owner_display_name else "missing"
+    name_state = "present" if observed_name else ("missing" if actor.get("payload_state") == "missing" else "unknown")
+    role_state = "present" if role_id or role_name else ("missing" if actor.get("payload_state") == "missing" else "unknown")
+    name_state = propagate_quality_state(name_state, actor.get("freshness"), inherited_quality)
+    role_state = propagate_quality_state(role_state, actor.get("freshness"), inherited_quality)
     return {
         "state": state,
         "role_id": role_id,
@@ -191,6 +224,10 @@ def _identity(actor: dict[str, Any], inherited_quality: str | None = None) -> di
         "obligation_ref": obligation_ref,
         "display_name": owner_display_name,
         "display_name_state": display_state,
+        "name": observed_name,
+        "name_state": name_state,
+        "role_name": role_name,
+        "role_state": role_state,
         "candidate_label": candidate_label,
         "source": _source(
             _refs(actor.get("evidence_refs")),
@@ -235,6 +272,41 @@ def _model(actor: dict[str, Any], inherited_quality: str | None = None) -> dict[
     }
 
 
+def _relationships(
+    actor: dict[str, Any],
+    owner_goal_context: dict[str, Any],
+    inherited_quality: str | None = None,
+) -> dict[str, Any]:
+    task_local = _safe_relations(actor.get("relationships"))
+    owner_relations = owner_goal_context.get("relations") if isinstance(owner_goal_context.get("relations"), dict) else {}
+    owner_thread_view = _dict(owner_goal_context.get("thread"))
+    owner_thread = owner_thread_view.get("thread") if isinstance(owner_thread_view.get("thread"), dict) else {}
+    states = [
+        normalize_quality_state(task_local.get("state"), fallback="missing" if not task_local else "present"),
+        normalize_quality_state(owner_thread_view.get("state"), fallback="unknown"),
+    ]
+    states.extend(
+        normalize_quality_state(_dict(value).get("state"), fallback="unknown")
+        for value in owner_relations.values()
+        if isinstance(value, dict)
+    )
+    state = combine_quality_states(*states, all_missing="missing")
+    state = propagate_quality_state(state, actor.get("freshness"), inherited_quality)
+    return {
+        "state": state,
+        "task_local": task_local,
+        "owner_thread": {
+            "state": owner_thread_view.get("state", "missing"),
+            "thread_id": owner_thread.get("thread_id"),
+            "parent_thread_id": owner_thread.get("parent_thread_id"),
+            "forked_from_id": owner_thread.get("forked_from_id"),
+            "name": owner_thread.get("name"),
+        },
+        "owner_relations": owner_relations,
+        "claim_limit": "Relations are bounded owner/task-local observations; they do not establish complete branch, trajectory, or participant authority.",
+    }
+
+
 def _runtime(actor: dict[str, Any], inherited_quality: str | None = None) -> dict[str, Any]:
     groups = {name: _dict(actor.get(name)) for name in ("process", "session", "terminal", "wake_return", "usage")}
     states = [_state(group.get("state"), "unknown") for group in groups.values()]
@@ -270,6 +342,7 @@ def _participant(
     identity = _identity(actor, inherited_quality)
     task_context = _task_context(actor, owner_goal_context, inherited_quality)
     model = _model(actor, inherited_quality)
+    relationships = _relationships(actor, owner_goal_context, inherited_quality)
     runtime = _runtime(actor, inherited_quality)
     dimensions = {
         "identity": identity["state"],
@@ -290,6 +363,7 @@ def _participant(
         "identity": identity,
         "task_context": task_context,
         "model_realization": model,
+        "relationships": relationships,
         "runtime_evidence": runtime,
         "evidence_refs": _refs(actor.get("evidence_refs")),
         "diagnostics": sorted(diagnostics),

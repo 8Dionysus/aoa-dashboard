@@ -365,6 +365,10 @@ class RuntimeBindingTests(unittest.TestCase):
         self.assertEqual(projection["goal"]["master_thread_id"], "thread-alpha")
         self.assertEqual(projection["goal_topology"]["state"], "bound")
         self.assertEqual(projection["goal_topology"]["nodes"][0]["title"], "alpha topology")
+        self.assertEqual(len(projection["dag"]), len(projection["goal_topology"]["nodes"]))
+        self.assertEqual(projection["branches"][0]["ref"], "dag:GS1")
+        self.assertEqual(projection["trajectories"][0]["kind"], "planning_dependency_closure")
+        self.assertIn("master_context", projection)
         self.assertEqual(projection["goal_catalog"]["items"][0]["ref"], "goal-alpha")
         self.assertEqual(projection["pressure_inbox"]["goal_id"], "goal-alpha")
 

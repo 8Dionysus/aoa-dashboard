@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -83,6 +84,75 @@ def _first_identifier(payloads: list[dict[str, Any]], paths: Iterable[str]) -> s
             if result is not None:
                 return result
     return None
+
+
+def _first_dict(payloads: list[dict[str, Any]], paths: Iterable[str]) -> dict[str, Any] | None:
+    for payload in payloads:
+        for path in _candidate_paths(paths):
+            value = _lookup(payload, path)
+            if isinstance(value, dict):
+                return value
+    return None
+
+
+RELATION_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+RELATION_KEYS = frozenset(
+    {
+        "kind",
+        "state",
+        "source",
+        "owner",
+        "parent",
+        "fork",
+        "thread",
+        "branch",
+        "trajectory",
+        "relationship",
+        "relations",
+        "goal",
+    }
+)
+
+
+def _safe_relation_value(value: Any, *, depth: int = 0) -> Any:
+    if depth > 2:
+        return None
+    if isinstance(value, str):
+        return _safe_text(value)
+    if isinstance(value, bool) or isinstance(value, (int, float)):
+        return value
+    if isinstance(value, list):
+        values = [_safe_relation_value(item, depth=depth + 1) for item in value[:32]]
+        return [item for item in values if item is not None]
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or not RELATION_KEY_RE.fullmatch(key):
+                continue
+            if key not in RELATION_KEYS and not key.endswith(("_id", "_ref")):
+                continue
+            safe = _safe_relation_value(item, depth=depth + 1)
+            if safe is not None:
+                result[key] = safe
+        return result
+    return None
+
+
+def _first_relations(payloads: list[dict[str, Any]], paths: Iterable[str]) -> dict[str, Any] | None:
+    value = _first_dict(payloads, paths)
+    safe = _safe_relation_value(value)
+    return safe if isinstance(safe, dict) and safe else None
+
+
+def _model_subject(value: dict[str, Any] | None) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, str] = {}
+    for key in ("kind", "source", "digest"):
+        item = _safe_text(value.get(key))
+        if item is not None:
+            result[key] = item
+    return result or None
 
 
 def _first_number(
@@ -217,6 +287,14 @@ def _build_actor(
         payloads,
         ("actor.name", "responsibility_state.holder", "owner.name", "reviewer.name"),
     )
+    observed_name = _first_text(
+        payloads,
+        ("identity.name", "actor.name", "owner.name", "reviewer.name"),
+    )
+    display_name = _first_text(
+        payloads,
+        ("identity.display_name", "actor.display_name", "owner.display_name", "reviewer.display_name"),
+    )
     incarnation_id = _first_identifier(
         payloads,
         ("incarnation_id", "incarnation", "identity.incarnation_id", "actor.incarnation_id"),
@@ -234,6 +312,22 @@ def _build_actor(
             "reviewer.role",
         ),
     )
+    role_name = _first_text(
+        payloads,
+        ("identity.role_name", "actor.role_name", "owner.role_name", "reviewer.role_name", "role.name"),
+    )
+    specialization_id = _first_identifier(
+        payloads,
+        ("specialization_id", "identity.specialization_id", "actor.specialization_id", "role.specialization_id"),
+    )
+    tier_id = _first_identifier(
+        payloads,
+        ("tier_id", "identity.tier_id", "actor.tier_id", "role.tier_id"),
+    )
+    role_resolution_ref = _first_identifier(
+        payloads,
+        ("role_resolution_ref", "identity.role_resolution_ref", "role.resolution_ref"),
+    )
     model_id = _first_identifier(
         payloads,
         (
@@ -245,6 +339,22 @@ def _build_actor(
             "actor.model",
         ),
     )
+    model_identity_ref = _first_identifier(
+        payloads,
+        ("model_identity_ref", "identity.model_identity_ref", "model.identity_ref", "model_realization.model_identity_ref"),
+    )
+    model_realization_ref = _first_identifier(
+        payloads,
+        ("model_realization_ref", "model.realization_ref", "model_realization.model_realization_ref"),
+    )
+    fit_projection_ref = _first_identifier(
+        payloads,
+        ("fit_projection_ref", "model.fit_projection_ref", "model_realization.fit_projection_ref"),
+    )
+    runtime_subject = _model_subject(_first_dict(
+        payloads,
+        ("runtime_subject", "model.runtime_subject", "model_realization.runtime_subject"),
+    ))
     mandate_id = _first_identifier(payloads, ("mandate_id", "mandate.id", "identity.mandate_id"))
     obligation_id = _first_identifier(payloads, ("obligation_id", "obligation.id", "identity.obligation_id"))
     task_id = _first_identifier(
@@ -260,6 +370,11 @@ def _build_actor(
             "actor.responsibility",
             "responsibility_state.scope",
         ),
+    )
+    task_ref = _first_identifier(payloads, ("task.ref", "task.task_ref", "task_ref"))
+    relationships = _first_relations(
+        payloads,
+        ("relationships", "relations", "relationship", "actor.relationships", "task.relationships"),
     )
     actor_key = actor_id or incarnation_id or (f"return:{return_id}" if return_id else "actor:unknown")
 
@@ -365,19 +480,39 @@ def _build_actor(
             "claim_limit": "Explicit task-local correlation identity is retained for comparison only; it does not create a cross-owner Goal or actor binding.",
         },
         "identity": {
-            "state": "observed" if any((actor_id, actor_label, incarnation_id, role_id, model_id)) else ("missing" if not payloads else "unknown"),
+            "state": "observed" if any((actor_id, actor_label, incarnation_id, role_id, model_id, observed_name, display_name, role_name, specialization_id, tier_id, role_resolution_ref)) else ("missing" if not payloads else "unknown"),
             "actor_id": actor_id,
             "incarnation_id": incarnation_id,
             "role_id": role_id,
+            "role_name": role_name,
+            "specialization_id": specialization_id,
+            "tier_id": tier_id,
+            "role_resolution_ref": role_resolution_ref,
             "model_id": model_id,
             "label": actor_label or actor_id or incarnation_id or (f"return {return_id}" if return_id else "actor identity unknown"),
+            "name": observed_name,
+            "display_name": display_name,
             "claim_limit": FIELD_CLAIM_LIMIT,
         },
         "task": {
             "state": "observed" if task_id or task_summary else ("missing" if not payloads else "unknown"),
             "task_id": task_id,
+            "task_ref": task_ref,
             "summary": task_summary,
             "claim_limit": "Task values are bounded task-local return observations; they do not establish assignment, completion, or acceptance.",
+        },
+        "model_realization": {
+            "state": "observed" if any((model_identity_ref, model_realization_ref, fit_projection_ref, runtime_subject)) else ("missing" if not payloads else "unknown"),
+            "model_identity_ref": model_identity_ref,
+            "model_realization_ref": model_realization_ref,
+            "fit_projection_ref": fit_projection_ref,
+            "runtime_subject": runtime_subject,
+            "claim_limit": "Explicit model owner descriptors are retained as observations only; they do not establish fit, activation, or runtime health.",
+        },
+        "relationships": {
+            "state": "observed" if relationships else ("missing" if not payloads else "unknown"),
+            "items": relationships or {},
+            "claim_limit": "Relationship fields are allowlisted task-local observations; they do not establish a complete participant graph or branch authority.",
         },
         "responsibility": {
             "state": "observed" if responsibility_state or responsibility_holder else ("missing" if not payloads else "unknown"),

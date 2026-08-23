@@ -13,7 +13,10 @@ from .source_binding import read_file_snapshot, snapshot_ref
 OWNER_SCHEMA = "aoa_dashboard_goal_space_task_dag_v1"
 DASHBOARD_SCHEMA = "aoa_dashboard_goal_topology_projection_v1"
 NODE_ID_RE = re.compile(r"^[A-Z][A-Z0-9-]{0,23}$")
-STATE_RE = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
+# The master owns the state vocabulary.  Current task-local states can embed
+# node references (for example ``armed_after_GS32_GS33``), so the adapter only
+# validates a bounded opaque token instead of guessing a dashboard enum.
+STATE_RE = re.compile(r"^[a-z][A-Za-z0-9_-]{0,95}$")
 TECHNICAL_TITLE_RE = re.compile(
     r"(?:^[/~.]|/(?:home|srv|tmp|var|run|etc|opt|usr)/|"
     r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|"
@@ -31,6 +34,8 @@ def _empty(state: str, reason: str, evidence: dict[str, Any] | None = None) -> d
         "currentness": state,
         "nodes": [],
         "root_ids": [],
+        "branches": [],
+        "trajectories": [],
         "source": None,
         "evidence_refs": [evidence] if evidence else [],
         "diagnostics": [reason],
@@ -129,6 +134,77 @@ def _validate_graph(nodes: list[dict[str, Any]]) -> list[str]:
     return [node["id"] for node in nodes if node["id"] not in depended_on]
 
 
+def _dependency_closure(node_id: str, by_id: dict[str, dict[str, Any]]) -> list[str]:
+    """Return one deterministic dependency closure without inventing a path."""
+
+    ordered: list[str] = []
+    visited: set[str] = set()
+
+    def visit(current: str) -> None:
+        if current in visited:
+            return
+        visited.add(current)
+        for dependency in by_id[current]["depends_on"]:
+            visit(dependency)
+        ordered.append(current)
+
+    visit(node_id)
+    return ordered
+
+
+def _branch_projection(
+    node: dict[str, Any],
+    *,
+    evidence_refs: list[dict[str, Any]],
+    claim_limit: str,
+) -> dict[str, Any]:
+    return {
+        "ref": f"dag:{node['id']}",
+        "kind": "planning_node",
+        "node_id": node["id"],
+        "title": node["title"],
+        "state": node["source_state"],
+        "source_state": node["source_state"],
+        "observation_state": "bound",
+        "identity_state": "unknown",
+        "identity_reason": "canonical_branch_owner_not_published",
+        "owner": node.get("owner"),
+        "scope": node.get("scope"),
+        "user_facing": node["user_facing"],
+        "depends_on": [f"dag:{item}" for item in node["depends_on"]],
+        "evidence_refs": evidence_refs,
+        "claim_limit": claim_limit,
+    }
+
+
+def _trajectory_projections(
+    nodes: list[dict[str, Any]],
+    root_ids: list[str],
+    *,
+    evidence_refs: list[dict[str, Any]],
+    claim_limit: str,
+) -> list[dict[str, Any]]:
+    by_id = {node["id"]: node for node in nodes}
+    trajectories: list[dict[str, Any]] = []
+    for root_id in root_ids:
+        closure = _dependency_closure(root_id, by_id)
+        trajectories.append(
+            {
+                "ref": f"trajectory:{root_id}",
+                "kind": "planning_dependency_closure",
+                "frontier_ref": f"dag:{root_id}",
+                "node_refs": [f"dag:{item}" for item in closure],
+                "state": "bound",
+                "complete": True,
+                "identity_state": "unknown",
+                "identity_reason": "canonical_trajectory_owner_not_published",
+                "evidence_refs": evidence_refs,
+                "claim_limit": claim_limit,
+            }
+        )
+    return trajectories
+
+
 def observe_goal_topology(config: dict[str, Any]) -> dict[str, Any]:
     binding = config.get("goal_topology_source")
     if not isinstance(binding, dict) or binding.get("enabled") is not True:
@@ -137,7 +213,12 @@ def observe_goal_topology(config: dict[str, Any]) -> dict[str, Any]:
         path = _source_path(config, binding)
     except ValueError as exc:
         return _empty("invalid", str(exc))
-    snapshot = read_file_snapshot(path, parser="json")
+    expected_digest = binding.get("expected_sha256")
+    snapshot = read_file_snapshot(
+        path,
+        expected_digest=expected_digest if isinstance(expected_digest, str) else None,
+        parser="json",
+    )
     evidence = snapshot_ref(
         snapshot,
         label="Current Goal topology",
@@ -150,6 +231,8 @@ def observe_goal_topology(config: dict[str, Any]) -> dict[str, Any]:
     )
     if snapshot.currentness == "missing":
         return _empty("missing", "topology_source_missing", evidence)
+    if snapshot.currentness == "stale":
+        return _empty("stale", "topology_source_stale", evidence)
     if snapshot.currentness == "invalid" or not isinstance(snapshot.parsed, dict):
         return _empty("invalid", "topology_source_invalid", evidence)
     payload = snapshot.parsed
@@ -176,6 +259,17 @@ def observe_goal_topology(config: dict[str, Any]) -> dict[str, Any]:
         return _empty("invalid", str(exc), evidence)
     evidence["currentness"] = "current_at_read"
     evidence["freshness"] = "current_at_read"
+    claim_limit_value = claim_limit
+    branches = [
+        _branch_projection(node, evidence_refs=[evidence], claim_limit=claim_limit_value)
+        for node in nodes
+    ]
+    trajectories = _trajectory_projections(
+        nodes,
+        root_ids,
+        evidence_refs=[evidence],
+        claim_limit=claim_limit_value,
+    )
     return {
         "schema_version": DASHBOARD_SCHEMA,
         "state": "bound",
@@ -183,6 +277,8 @@ def observe_goal_topology(config: dict[str, Any]) -> dict[str, Any]:
         "updated_at": updated_at,
         "nodes": nodes,
         "root_ids": root_ids,
+        "branches": branches,
+        "trajectories": trajectories,
         "source": {
             "owner": "master-thread",
             "ref": str(path),
@@ -191,5 +287,5 @@ def observe_goal_topology(config: dict[str, Any]) -> dict[str, Any]:
         },
         "evidence_refs": [evidence],
         "diagnostics": [],
-        "claim_limit": claim_limit,
+        "claim_limit": claim_limit_value,
     }

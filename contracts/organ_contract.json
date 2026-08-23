@@ -21,7 +21,9 @@
       "task_local_actor_activity_projection_v1",
       "aoa_dashboard_goal_catalog_projection_v1",
       "aoa_dashboard_codex_goal_thread_observation_v1",
-      "aoa_dashboard_participant_envelope_v1"
+      "aoa_dashboard_participant_envelope_v1",
+      "aoa_dashboard_master_context_projection_v1",
+      "aoa_dashboard_goal_topology_projection_v1"
     ],
     "effects": [
       "read_named_owner_surfaces",
@@ -128,6 +130,8 @@
     "contracts/goal_catalog_projection.schema.json",
     "contracts/codex_goal_thread_projection.schema.json",
     "contracts/participant_context.schema.json",
+    "contracts/master_context_projection.schema.json",
+    "contracts/goal_topology_projection.schema.json",
     "contracts/runtime_binding.schema.json",
     "src/aoa_dashboard/runtime_binding.py",
     "src/aoa_dashboard/goal_catalog.py",

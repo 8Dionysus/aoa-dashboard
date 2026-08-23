@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/master-context-projection-v1",
+  "title": "Bounded dashboard Master context projection",
+  "type": "object",
+  "required": ["schema_version", "state", "currentness", "goal_ref", "thread_observation", "relations", "goal_catalog", "topology", "sources", "diagnostics", "claim_limit"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_master_context_projection_v1"},
+    "state": {"enum": ["bound", "missing", "unknown", "stale", "deferred", "invalid"]},
+    "currentness": {"type": "string"},
+    "goal_ref": {"type": "object"},
+    "goal": {"type": ["object", "null"]},
+    "thread": {"type": ["object", "null"]},
+    "thread_observation": {"type": "object"},
+    "relations": {"type": "object"},
+    "master_filter": {"type": ["object", "null"]},
+    "current_holder": {"type": ["object", "null"]},
+    "goal_catalog": {"type": "object", "required": ["state", "currentness", "claim_limit"], "properties": {"state": {"type": "string"}, "currentness": {"type": "string"}, "source": {"type": ["object", "null"]}, "claim_limit": {"type": "string"}}, "additionalProperties": true},
+    "topology": {"type": "object", "required": ["state", "currentness", "frontier_refs", "branch_count", "trajectory_count", "claim_limit"], "properties": {"state": {"type": "string"}, "currentness": {"type": "string"}, "frontier_refs": {"type": "array", "items": {"type": "string"}}, "branch_count": {"type": "integer", "minimum": 0}, "trajectory_count": {"type": "integer", "minimum": 0}, "claim_limit": {"type": "string"}}, "additionalProperties": true},
+    "sources": {"type": "array", "items": {"type": "object"}},
+    "evidence_refs": {"type": "array", "items": {"type": "object"}},
+    "diagnostics": {"type": "array", "items": {"type": "string"}},
+    "claim_limit": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

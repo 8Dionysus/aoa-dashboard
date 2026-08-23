@@ -650,6 +650,18 @@ class CorrelationAdapterTests(unittest.TestCase):
                 "model": "gpt-5.6-luna:max",
                 "responsibility": "Review the Goal catalog integration",
             },
+            "identity": {
+                "name": "Luna",
+                "display_name": "Luna owner label",
+                "role_name": "Independent read-model holder",
+            },
+            "task": {"ref": "aoa-task:catalog", "title": "Review the Goal catalog integration"},
+            "model_realization": {
+                "model_identity_ref": "aoa-models:model:gpt",
+                "model_realization_ref": "aoa-models:realization:gpt",
+                "runtime_subject": {"kind": "model", "source": "runtime:subject", "digest": "c" * 64},
+            },
+            "relationships": {"parent_thread_id": self.fixture.thread, "branch_ref": "dag:GS31"},
             "runtime": {
                 "incarnation": "incarnation:alpha",
                 "process_pid": 731,
@@ -698,7 +710,12 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(alpha["identity"]["label"], "Luna")
         self.assertEqual(alpha["identity"]["role_id"], "external_codex_incarnation")
         self.assertEqual(alpha["identity"]["model_id"], "gpt-5.6-luna:max")
+        self.assertEqual(alpha["identity"]["display_name"], "Luna owner label")
+        self.assertEqual(alpha["identity"]["role_name"], "Independent read-model holder")
         self.assertEqual(alpha["task"]["summary"], "Review the Goal catalog integration")
+        self.assertEqual(alpha["task"]["task_ref"], "aoa-task:catalog")
+        self.assertEqual(alpha["model_realization"]["state"], "observed")
+        self.assertEqual(alpha["relationships"]["items"]["branch_ref"], "dag:GS31")
         self.assertEqual(alpha["responsibility"]["holder"], "independent Luna Max implementation holder")
         self.assertEqual(alpha["process"]["process_id"], "731")
         self.assertEqual(alpha["session"]["session_id"], "session-alpha")

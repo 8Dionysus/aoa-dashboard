@@ -57,6 +57,8 @@ def main() -> int:
             "task_local_actor_activity_projection_v1",
             "aoa_dashboard_codex_goal_thread_observation_v1",
             "aoa_dashboard_participant_envelope_v1",
+            "aoa_dashboard_master_context_projection_v1",
+            "aoa_dashboard_goal_topology_projection_v1",
         }.issubset(owned),
         "owned surface set is incomplete",
     )

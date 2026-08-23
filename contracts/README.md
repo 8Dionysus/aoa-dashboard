@@ -47,7 +47,14 @@ through adapters and retained only as bounded metadata plus provenance refs.
   relation pages without claiming a complete branch.
 - `participant_context.schema.json` describes the dashboard adapter envelope
   whose identity, task, model, and runtime dimensions degrade independently.
-  It does not admit a human name, role mandate, model fit, or runtime health.
+  Explicit task-local names remain observations; the envelope does not promote
+  them to canonical human identity, role mandate, model fit, or runtime health.
+- `master_context_projection.schema.json` describes the read-only join of exact
+  Goal/thread metadata, Master-filter evidence, catalog currentness, and
+  planning topology without promoting any source to another owner's truth.
+- `goal_topology_projection.schema.json` describes structural planning nodes and
+  dependency closures. It does not create canonical branch or trajectory
+  lifecycle authority.
 - `goal_catalog_projection.schema.json` describes the dashboard-normalized
   view of the versioned `aoa-session-memory` Goal catalog. The adapter admits
   only the exact owner/schema pair, keeps source degradation, and omits raw

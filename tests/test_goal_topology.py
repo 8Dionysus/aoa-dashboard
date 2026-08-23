@@ -60,6 +60,38 @@ class GoalTopologyTests(unittest.TestCase):
         self.assertTrue(observed["nodes"][1]["user_facing"])
         self.assertFalse(observed["nodes"][0]["user_facing"])
         self.assertEqual(observed["source"]["owner"], "master-thread")
+        self.assertEqual([item["ref"] for item in observed["branches"]], ["dag:GS1", "dag:GS2"])
+        self.assertEqual(observed["trajectories"][0]["node_refs"], ["dag:GS1", "dag:GS2"])
+
+    def test_current_owner_state_with_embedded_node_refs_is_admitted(self) -> None:
+        self.write(
+            nodes=[
+                {"id": "GS32", "title": "First support direction", "state": "completed", "depends_on": []},
+                {
+                    "id": "GS33",
+                    "title": "Second support direction",
+                    "state": "armed_after_GS32_GS33",
+                    "depends_on": ["GS32"],
+                },
+            ]
+        )
+        observed = observe_goal_topology(self.config())
+        self.assertEqual(observed["state"], "bound")
+        self.assertEqual(observed["nodes"][1]["source_state"], "armed_after_GS32_GS33")
+        self.assertEqual(observed["branches"][1]["state"], "armed_after_GS32_GS33")
+
+    def test_malformed_and_stale_topology_sources_remain_distinct(self) -> None:
+        self.write(nodes=[{"id": "GS1", "title": "First direction", "state": "bad\nstate", "depends_on": []}])
+        malformed = observe_goal_topology(self.config())
+        self.assertEqual(malformed["state"], "invalid")
+        self.assertEqual(malformed["diagnostics"], ["topology_node_state_invalid"])
+
+        self.write()
+        stale_config = self.config()
+        stale_config["goal_topology_source"]["expected_sha256"] = "0" * 64
+        stale = observe_goal_topology(stale_config)
+        self.assertEqual(stale["state"], "stale")
+        self.assertEqual(stale["diagnostics"], ["topology_source_stale"])
 
     def test_goal_mismatch_and_cycles_fail_closed(self) -> None:
         self.write(goal_ref="other")

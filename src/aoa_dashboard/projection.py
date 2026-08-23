@@ -17,6 +17,7 @@ from .cursor import (
 )
 from .goal_catalog import observe_goal_catalog
 from .goal_topology import observe_goal_topology
+from .master_context import project_master_context
 from .owner_context import observe_codex_goal_context
 from .participant_context import project_participant_context
 from .model import LIFECYCLE_STATES, STATUS_VOCABULARY, Projection
@@ -391,18 +392,16 @@ def build_projection(
     goal_topology = observe_goal_topology(config)
     dag: list[dict[str, Any]] = []
     if goal_topology.get("state") == "bound":
-        root_ids = set(goal_topology["root_ids"])
-        owner_state = owner_goal.get("goal", {}).get("status") if isinstance(owner_goal.get("goal"), dict) else None
         for node in goal_topology["nodes"]:
-            if node["id"] not in root_ids:
-                continue
             dag.append(
                 {
                     "id": node["id"],
                     "title": node["title"],
                     "source_kind": "master_goal_topology",
+                    "branch_ref": f"dag:{node['id']}",
                     "owner": node.get("owner"),
-                    "state": owner_state or "unknown",
+                    "state": node["source_state"],
+                    "observation_state": "bound",
                     "source_state": node["source_state"],
                     "depends_on": node["depends_on"],
                     "observation": node.get("scope"),
@@ -454,6 +453,12 @@ def build_projection(
     participant_context = project_participant_context(actor_activity, owner_goal_context)
     presentation = config.get("presentation") if isinstance(config.get("presentation"), dict) else {}
     goal_catalog = observe_goal_catalog(config)
+    master_context = project_master_context(
+        owner_goal_context,
+        safe_correlation,
+        goal_catalog,
+        goal_topology,
+    )
     legacy_goal = {
         "goal_id": config.get("goal_id"),
         "title": config.get("title"),
@@ -497,6 +502,7 @@ def build_projection(
         "goal": goal,
         "owner_goal": owner_goal,
         "owner_goal_context": owner_goal_context,
+        "master_context": master_context,
         "goal_topology": goal_topology,
         "goal_catalog": goal_catalog,
         "correlation": safe_correlation,
@@ -512,6 +518,8 @@ def build_projection(
         "actor_activity": actor_activity,
         "participant_context": participant_context,
         "dag": dag,
+        "branches": goal_topology.get("branches", []),
+        "trajectories": goal_topology.get("trajectories", []),
         "lifecycle": lifecycle,
         "state_inventory": state_inventory,
         "sources": safe_sources,

@@ -107,6 +107,14 @@ def test_missing_unreadable_and_future_publishers_fail_closed(tmp_path: Path) ->
     assert result["state"] == "invalid"
     assert result["diagnostics"] == ["publisher_schema_unsupported"]
 
+    stale_path = tmp_path / "stale-catalog.json"
+    stale_path.write_text(json.dumps(owner_payload()), encoding="utf-8")
+    stale = observe_goal_catalog(
+        {"goal_catalog_source": {"path": str(stale_path), "expected_sha256": "0" * 64}}
+    )
+    assert stale["state"] == "stale"
+    assert stale["diagnostics"] == ["publisher_stale"]
+
 
 def test_catalog_rejects_duplicate_refs_and_technical_human_titles(tmp_path: Path) -> None:
     duplicate = owner_payload()

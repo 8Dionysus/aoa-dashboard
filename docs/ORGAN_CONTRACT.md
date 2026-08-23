@@ -28,7 +28,8 @@ repository:
 6. the P-infinity Pressure Inbox projection;
 7. task-local actor-activity projection;
 8. the bounded read-only Codex Goal/Thread observation envelope;
-9. the independently degraded participant-context envelope.
+9. the independently degraded participant-context envelope;
+10. the bounded Master-context join and master-owned planning-topology projection.
 
 It may read named owner surfaces, preserve source refs/digests, render
 missingness and freshness, and persist its own annotations. It cannot amend a

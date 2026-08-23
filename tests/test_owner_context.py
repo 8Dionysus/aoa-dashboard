@@ -165,6 +165,43 @@ class OwnerContextTests(unittest.TestCase):
         self.assertEqual(observed["goal_projection"]["state"], "bound")
         self.assertEqual(observed["goal_projection"]["goal"]["thread_id"], THREAD)
 
+    def test_current_typed_thread_status_and_spawn_source_are_admitted(self) -> None:
+        typed = thread(THREAD)
+        typed.update(
+            {
+                "status": {"type": "active"},
+                "source": {
+                    "subAgent": {
+                        "thread_spawn": {
+                            "parent_thread_id": THREAD,
+                            "depth": 1,
+                            "agent_nickname": "Luna",
+                            "agent_path": "/private/path/is-not-projected",
+                        }
+                    }
+                },
+                "agentNickname": None,
+                "agentRole": None,
+                "name": "Bound Goal thread",
+                "modelProvider": "openai",
+                "historyMode": "paginated",
+            }
+        )
+
+        class TypedRpc(ContextRpc):
+            read = {"thread": typed}
+
+        observed = observe_codex_goal_context(self.config(), rpc_factory=TypedRpc)
+        self.assertEqual(observed["state"], "bound")
+        view = observed["thread"]["thread"]
+        self.assertEqual(view["status"], "active")
+        self.assertEqual(view["status_detail"], {"type": "active"})
+        self.assertEqual(view["source"], "subAgent")
+        self.assertEqual(view["source_detail"]["agent_nickname"], "Luna")
+        self.assertNotIn("agent_path", view["source_detail"])
+        self.assertEqual(view["name"], "Bound Goal thread")
+        self.assertEqual(view["model_provider"], "openai")
+
     def test_goal_identity_mismatch_is_invalid_in_context_and_goal_projection(self) -> None:
         class MismatchGoalRpc(ContextRpc):
             goal = {"goal": {**ContextRpc.goal["goal"], "threadId": "other-thread"}}

@@ -62,6 +62,66 @@ def _boolean(value: Any, field: str) -> bool | None:
     return value
 
 
+def _status(value: Any) -> tuple[str | None, dict[str, str] | None]:
+    """Normalize the app-server's string and typed status shapes."""
+
+    if value is None:
+        return None, None
+    if isinstance(value, str):
+        return _string(value, "status"), None
+    if not isinstance(value, dict):
+        raise CodexGoalUnavailable("owner_thread_status_invalid")
+    status_type = value.get("type", value.get("status"))
+    if not isinstance(status_type, str) or not status_type.strip():
+        raise CodexGoalUnavailable("owner_thread_status_invalid")
+    detail = {"type": status_type.strip()}
+    for key in ("reason", "message"):
+        item = value.get(key)
+        if isinstance(item, str) and item.strip():
+            detail[key] = item.strip()
+    return status_type.strip(), detail
+
+
+def _source(value: Any) -> tuple[str | None, dict[str, Any] | None]:
+    """Normalize string and structured app-server thread source metadata."""
+
+    if value is None:
+        return None, None
+    if isinstance(value, str):
+        return _string(value, "source"), None
+    if not isinstance(value, dict):
+        raise CodexGoalUnavailable("owner_thread_source_invalid")
+    # Current app-server versions describe spawned threads as
+    # subAgent.thread_spawn.  Keep only public relation metadata; notably do
+    # not project the nested agent_path or any transcript/source path.
+    sub_agent = value.get("subAgent")
+    spawn = sub_agent.get("thread_spawn") if isinstance(sub_agent, dict) else None
+    if isinstance(spawn, dict):
+        detail: dict[str, Any] = {"kind": "subAgent"}
+        for key in ("parent_thread_id", "depth", "agent_nickname", "agent_role"):
+            item = spawn.get(key)
+            if isinstance(item, str) and item.strip():
+                detail[key] = item.strip()
+            elif isinstance(item, int) and not isinstance(item, bool) and item >= 0:
+                detail[key] = item
+        return "subAgent", detail
+    # Preserve forward-compatible typed source envelopes without projecting
+    # arbitrary nested content.  A future owner shape is still source
+    # metadata, not an inferred participant or branch assignment.
+    for kind, candidate in value.items():
+        if not isinstance(kind, str) or not isinstance(candidate, dict):
+            continue
+        detail = {"kind": kind}
+        for key in ("parent_thread_id", "depth", "agent_nickname", "agent_role"):
+            item = candidate.get(key)
+            if isinstance(item, str) and item.strip():
+                detail[key] = item.strip()
+            elif isinstance(item, int) and not isinstance(item, bool) and item >= 0:
+                detail[key] = item
+        return kind, detail
+    raise CodexGoalUnavailable("owner_thread_source_invalid")
+
+
 def _evidence(
     *,
     method: str,
@@ -92,16 +152,33 @@ def _thread(value: Any, expected_thread_id: str | None = None) -> dict[str, Any]
     thread_id = _string(value.get("id"), "id", required=True)
     if expected_thread_id is not None and thread_id != expected_thread_id:
         raise CodexGoalUnavailable("owner_thread_identity_mismatch")
+    source, source_detail = _source(value.get("source"))
+    status, status_detail = _status(value.get("status"))
+    name = _string(value.get("name"), "name")
+    model_provider = _string(value.get("modelProvider"), "model_provider")
+    history_mode = _string(value.get("historyMode"), "history_mode")
+    section = _string(value.get("section"), "section")
+    agent_nickname = _string(value.get("agentNickname"), "agent_nickname")
+    agent_role = _string(value.get("agentRole"), "agent_role")
+    if isinstance(source_detail, dict):
+        agent_nickname = agent_nickname or _string(source_detail.get("agent_nickname"), "source_agent_nickname")
+        agent_role = agent_role or _string(source_detail.get("agent_role"), "source_agent_role")
     return {
         "thread_id": thread_id,
         "session_id": _string(value.get("sessionId"), "session_id"),
         "parent_thread_id": _string(value.get("parentThreadId"), "parent_thread_id"),
         "forked_from_id": _string(value.get("forkedFromId"), "forked_from_id"),
-        "source": _string(value.get("source"), "source"),
+        "source": source,
+        "source_detail": source_detail,
         "thread_source": _string(value.get("threadSource"), "thread_source"),
-        "agent_nickname": _string(value.get("agentNickname"), "agent_nickname"),
-        "agent_role": _string(value.get("agentRole"), "agent_role"),
-        "status": _string(value.get("status"), "status"),
+        "agent_nickname": agent_nickname,
+        "agent_role": agent_role,
+        "status": status,
+        "status_detail": status_detail,
+        "name": name,
+        "model_provider": model_provider,
+        "history_mode": history_mode,
+        "section": section,
         "created_at": _integer(value.get("createdAt"), "created_at"),
         "updated_at": _integer(value.get("updatedAt"), "updated_at"),
         "recency_at": _integer(value.get("recencyAt"), "recency_at"),

@@ -175,6 +175,43 @@ class ParticipantContextTests(unittest.TestCase):
         observed = project_participant_context({"state": "bound", "freshness": "current_at_read", "actors": [value]}, owner_context())
         self.assertEqual(observed["participants"][0]["model_realization"]["state"], "present")
 
+    def test_explicit_name_role_task_model_and_relationship_fields_flow_without_inference(self) -> None:
+        value = actor(
+            identity={
+                "name": "Luna",
+                "display_name": "Luna owner label",
+                "role_id": "external_codex_incarnation",
+                "role_name": "Independent read-model holder",
+                "model_id": "gpt-5.6-luna:max",
+            },
+            task={"task_id": "task:one", "task_ref": "aoa-task:read-model", "title": "Project Goal context"},
+            model_realization={
+                "model_identity_ref": "aoa-models:model:gpt",
+                "model_realization_ref": "aoa-models:realization:gpt",
+                "runtime_subject": {"kind": "model", "source": "runtime:subject", "digest": "b" * 64},
+            },
+            relationships={
+                "parent_thread_id": THREAD,
+                "branch_ref": "dag:GS31",
+                "private_transcript": "must be discarded",
+            },
+        )
+        observed = project_participant_context(
+            {"state": "bound", "freshness": "current_at_read", "actors": [value]},
+            owner_context(),
+        )
+        self.assert_schema(observed)
+        participant = observed["participants"][0]
+        self.assertEqual(participant["identity"]["name"], "Luna")
+        self.assertEqual(participant["identity"]["display_name"], "Luna owner label")
+        self.assertEqual(participant["identity"]["role_name"], "Independent read-model holder")
+        self.assertEqual(participant["task_context"]["task_ref"], "aoa-task:read-model")
+        self.assertEqual(participant["task_context"]["title"], "Project Goal context")
+        self.assertEqual(participant["model_realization"]["state"], "present")
+        self.assertEqual(participant["relationships"]["state"], "present")
+        self.assertEqual(participant["relationships"]["task_local"]["branch_ref"], "dag:GS31")
+        self.assertNotIn("private_transcript", participant["relationships"]["task_local"])
+
 
 if __name__ == "__main__":
     unittest.main()

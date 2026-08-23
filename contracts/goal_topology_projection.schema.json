@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/goal-topology-projection-v1",
+  "title": "Master-owned task-local planning topology projection",
+  "type": "object",
+  "required": ["schema_version", "state", "currentness", "nodes", "root_ids", "branches", "trajectories", "diagnostics", "claim_limit"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_goal_topology_projection_v1"},
+    "state": {"enum": ["bound", "missing", "unknown", "stale", "deferred", "invalid"]},
+    "currentness": {"type": "string"},
+    "updated_at": {"type": ["string", "null"]},
+    "nodes": {"type": "array", "items": {"type": "object"}},
+    "root_ids": {"type": "array", "items": {"type": "string"}},
+    "branches": {"type": "array", "items": {"$ref": "#/$defs/branch"}},
+    "trajectories": {"type": "array", "items": {"$ref": "#/$defs/trajectory"}},
+    "source": {"type": ["object", "null"]},
+    "evidence_refs": {"type": "array", "items": {"type": "object"}},
+    "diagnostics": {"type": "array", "items": {"type": "string"}},
+    "claim_limit": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "branch": {
+      "type": "object",
+      "required": ["ref", "kind", "node_id", "title", "state", "source_state", "observation_state", "identity_state", "depends_on", "claim_limit"],
+      "properties": {
+        "ref": {"type": "string"},
+        "kind": {"const": "planning_node"},
+        "node_id": {"type": "string"},
+        "title": {"type": "string"},
+        "state": {"type": "string"},
+        "source_state": {"type": "string"},
+        "observation_state": {"const": "bound"},
+        "identity_state": {"enum": ["unknown", "missing", "invalid"]},
+        "identity_reason": {"type": "string"},
+        "owner": {"type": ["string", "null"]},
+        "scope": {"type": ["string", "null"]},
+        "user_facing": {"type": "boolean"},
+        "depends_on": {"type": "array", "items": {"type": "string"}},
+        "evidence_refs": {"type": "array", "items": {"type": "object"}},
+        "claim_limit": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "trajectory": {
+      "type": "object",
+      "required": ["ref", "kind", "frontier_ref", "node_refs", "state", "complete", "identity_state", "claim_limit"],
+      "properties": {
+        "ref": {"type": "string"},
+        "kind": {"const": "planning_dependency_closure"},
+        "frontier_ref": {"type": "string"},
+        "node_refs": {"type": "array", "items": {"type": "string"}},
+        "state": {"const": "bound"},
+        "complete": {"const": true},
+        "identity_state": {"enum": ["unknown", "missing", "invalid"]},
+        "identity_reason": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"type": "object"}},
+        "claim_limit": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

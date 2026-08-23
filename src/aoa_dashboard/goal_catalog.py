@@ -122,7 +122,12 @@ def observe_goal_catalog(config: dict[str, Any]) -> dict[str, Any]:
     path = binding.get("path")
     if not isinstance(path, str) or not path:
         return _empty("missing", "publisher_path_missing")
-    snapshot = read_file_snapshot(path, parser="json")
+    expected_digest = binding.get("expected_sha256")
+    snapshot = read_file_snapshot(
+        path,
+        expected_digest=expected_digest if isinstance(expected_digest, str) else None,
+        parser="json",
+    )
     base_ref = snapshot_ref(
         snapshot,
         label="Goal catalog",
@@ -135,6 +140,8 @@ def observe_goal_catalog(config: dict[str, Any]) -> dict[str, Any]:
     )
     if snapshot.currentness == "missing":
         return _empty("missing", "publisher_missing", evidence_refs=[base_ref])
+    if snapshot.currentness == "stale":
+        return _empty("stale", "publisher_stale", evidence_refs=[base_ref])
     if snapshot.currentness == "invalid" or not isinstance(snapshot.parsed, dict):
         return _empty("invalid", "publisher_unreadable", evidence_refs=[base_ref])
     payload = snapshot.parsed
