@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 import tempfile
@@ -12,6 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aoa_dashboard.codex_goal import CodexGoalUnavailable  # noqa: E402
+from aoa_dashboard.correlation import observe_current_correlation  # noqa: E402
 from aoa_dashboard.projection import build_projection, load_config  # noqa: E402
 
 
@@ -37,8 +39,25 @@ class RuntimeBindingTests(unittest.TestCase):
         task_root = self.root / label
         topology_dir = task_root / "goal-space-wave"
         topology_dir.mkdir(parents=True)
-        anchor = task_root / "goal-anchor.txt"
-        anchor.write_text(f"selected {goal_id}\n", encoding="utf-8")
+        anchor = task_root / "goal-anchor.json"
+        anchor.write_text(
+            json.dumps(
+                {
+                    "schema_version": "aoa_dashboard_goal_anchor_binding_v1",
+                    "owner": "goal-anchor",
+                    "authority": "source_owner",
+                    "access_scope": "owner_bounded",
+                    "claim_policy": "source_owner_metadata",
+                    "claim_limit": "The structured Goal Anchor is source evidence, not dashboard authority.",
+                    "goal_id": goal_id,
+                    "master_thread_id": thread_id,
+                    "title": f"{label} selected Goal",
+                    "source_ref": f"goal-anchor:{goal_id}",
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
         topology = topology_dir / "goal-space-dag.json"
         topology.write_text(
             json.dumps(
@@ -125,6 +144,7 @@ class RuntimeBindingTests(unittest.TestCase):
                 "goal_anchor": {
                     **self._owner("goal-anchor", "source_owner", "source_owner_metadata"),
                     "path": str(anchor),
+                    "expected_sha256": hashlib.sha256(anchor.read_bytes()).hexdigest(),
                 },
                 "codex_goal": {
                     **self._owner("codex-app-server", "source_owner", "source_owner_metadata"),
@@ -196,12 +216,95 @@ class RuntimeBindingTests(unittest.TestCase):
         self.assertNotEqual(selected_a["goal_catalog_source"]["path"], selected_b["goal_catalog_source"]["path"])
         self.assertNotEqual(selected_a["pressure_source"]["path"], selected_b["pressure_source"]["path"])
 
+    def test_goal_anchor_swap_and_digest_drift_fail_closed(self) -> None:
+        binding_a, payload_a = self._binding("alpha", "goal-alpha", "thread-alpha")
+        binding_b, _ = self._binding("beta", "goal-beta", "thread-beta")
+        beta_anchor = Path(json.loads(binding_b.read_text(encoding="utf-8"))["sources"]["goal_anchor"]["path"])
+
+        swapped = copy.deepcopy(payload_a)
+        swapped["sources"]["goal_anchor"]["path"] = str(beta_anchor)
+        swapped["sources"]["goal_anchor"]["expected_sha256"] = hashlib.sha256(beta_anchor.read_bytes()).hexdigest()
+        swapped_path = self.root / "swapped-anchor.json"
+        swapped_path.write_text(json.dumps(swapped), encoding="utf-8")
+        swapped_result = load_config(swapped_path)
+        self.assertEqual(swapped_result["runtime_binding_state"], "invalid")
+        self.assertIn("runtime_binding_goal_anchor_goal_mismatch", swapped_result["runtime_binding_observation"]["diagnostics"])
+        self.assertIsNone(swapped_result.get("goal_id"))
+
+        drifted = copy.deepcopy(payload_a)
+        drifted["sources"]["goal_anchor"]["path"] = str(beta_anchor)
+        drifted_path = self.root / "drifted-anchor.json"
+        drifted_path.write_text(json.dumps(drifted), encoding="utf-8")
+        drifted_result = load_config(drifted_path)
+        self.assertEqual(drifted_result["runtime_binding_state"], "stale")
+        self.assertIn("runtime_binding_goal_anchor_stale", drifted_result["runtime_binding_observation"]["diagnostics"])
+        self.assertIsNone(drifted_result.get("goal_id"))
+        self.assertTrue(binding_a.is_file())
+
+    def test_schema_unknown_type_duplicate_and_contradictory_inputs_are_distinct(self) -> None:
+        binding_path, valid = self._binding("shape", "goal-shape", "thread-shape")
+
+        unknown = copy.deepcopy(valid)
+        unknown["unexpected_field"] = True
+        unknown_path = self.root / "unknown-field.json"
+        unknown_path.write_text(json.dumps(unknown), encoding="utf-8")
+        unknown_result = load_config(unknown_path)
+        self.assertEqual(unknown_result["runtime_binding_state"], "invalid")
+        self.assertTrue(any("schema_unknown_field" in item for item in unknown_result["runtime_binding_observation"]["diagnostics"]))
+
+        malformed = copy.deepcopy(valid)
+        malformed["selected_goal"]["goal_id"] = 17
+        malformed_path = self.root / "malformed-type.json"
+        malformed_path.write_text(json.dumps(malformed), encoding="utf-8")
+        malformed_result = load_config(malformed_path)
+        self.assertEqual(malformed_result["runtime_binding_state"], "invalid")
+        self.assertTrue(any("schema_type_invalid" in item for item in malformed_result["runtime_binding_observation"]["diagnostics"]))
+
+        contradictory = copy.deepcopy(valid)
+        contradictory["state"] = "current"
+        contradictory["currentness"] = "current_at_read"
+        contradictory_path = self.root / "contradictory-currentness.json"
+        contradictory_path.write_text(json.dumps(contradictory), encoding="utf-8")
+        contradictory_result = load_config(contradictory_path)
+        self.assertEqual(contradictory_result["runtime_binding_state"], "invalid")
+        self.assertIn("runtime_binding_currentness_invalid", contradictory_result["runtime_binding_observation"]["diagnostics"])
+
+        duplicate_path = self.root / "duplicate-name.json"
+        raw = json.dumps(valid).replace(
+            '"state": "current_at_read"',
+            '"state": "stale", "state": "current_at_read"',
+            1,
+        )
+        duplicate_path.write_text(raw, encoding="utf-8")
+        duplicate_result = load_config(duplicate_path)
+        self.assertEqual(duplicate_result["runtime_binding_state"], "invalid")
+        self.assertIn("runtime_binding_duplicate_json_object_name:state", duplicate_result["runtime_binding_observation"]["diagnostics"])
+        self.assertTrue(binding_path.is_file())
+
+    def test_current_route_requires_explicit_globs_and_historical_missing_globs_stays_deferred(self) -> None:
+        binding_path, payload = self._binding("selectors", "goal-selectors", "thread-selectors")
+        payload["sources"]["correlation"].pop("handoff_glob")
+        current_path = self.root / "missing-selectors.json"
+        current_path.write_text(json.dumps(payload), encoding="utf-8")
+        current_result = load_config(current_path)
+        self.assertEqual(current_result["runtime_binding_state"], "invalid")
+        self.assertTrue(any("schema_missing_field" in item for item in current_result["runtime_binding_observation"]["diagnostics"]))
+        self.assertTrue(binding_path.is_file())
+
+        historical = load_config(Path(__file__).resolve().parents[1] / "config" / "demo" / "first-slice.json")
+        historical["current_correlation"].pop("handoff_glob", None)
+        historical["current_correlation"].pop("wake_glob", None)
+        historical_result = observe_current_correlation(historical)
+        self.assertEqual(historical_result["state"], "deferred")
+        self.assertIn("historical_correlation_selectors_missing", historical_result["degradation"])
+
     @patch("aoa_dashboard.owner_context.discover_control_socket", side_effect=CodexGoalUnavailable("owner_socket_missing"))
     def test_bound_projection_uses_selected_goal_and_owner_sources(self, _socket: object) -> None:
         binding_path, _ = self._binding("alpha", "goal-alpha", "thread-alpha")
         projection = build_projection(binding_path)
 
         self.assertEqual(projection["runtime_binding"]["state"], "bound")
+        self.assertEqual(projection["sources"][0]["state"], "bound")
         self.assertEqual(projection["goal"]["goal_id"], "goal-alpha")
         self.assertEqual(projection["goal"]["master_thread_id"], "thread-alpha")
         self.assertEqual(projection["goal_topology"]["state"], "bound")

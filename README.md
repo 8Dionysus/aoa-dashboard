@@ -127,7 +127,10 @@ runtime process may consume one explicit `aoa_dashboard_runtime_binding_v1`
 document only when its source descriptors are owner-qualified, current at read,
 and internally matched. The reusable bootstrap does not contain that instance;
 dashboard configuration cannot create the authority represented by the source
-owners. The owner ABI does not publish
+owners. The current v1 Goal Anchor is a structured owner-qualified source
+whose Goal/thread identity and required exact-byte digest must match the
+selected binding; a path, filename, or free-text match is not sufficient. The
+owner ABI does not publish
 `handoff_message_submitted`, so the dashboard keeps it unknown (`null`) for v1
 instead of reconstructing it from the outcome. `goal_resume_requested` is
 explicitly `null` for v1, unsupported, and missing receipts, and preserves the

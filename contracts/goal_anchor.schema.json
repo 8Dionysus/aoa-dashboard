@@ -1,17 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aoa-dashboard://contracts/goal-anchor-v1",
-  "title": "Dashboard goal anchor binding",
+  "title": "Owner-qualified structured Goal Anchor source",
   "type": "object",
-  "required": ["schema_version", "goal_id", "title", "anchor_path", "anchor_digest", "source_ref"],
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "owner",
+    "authority",
+    "access_scope",
+    "claim_policy",
+    "claim_limit",
+    "goal_id",
+    "master_thread_id",
+    "title",
+    "source_ref"
+  ],
   "properties": {
     "schema_version": {"const": "aoa_dashboard_goal_anchor_binding_v1"},
-    "goal_id": {"type": "string", "minLength": 1},
-    "title": {"type": "string", "minLength": 1},
-    "anchor_path": {"type": "string", "minLength": 1},
-    "anchor_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "source_ref": {"type": "string", "minLength": 1},
-    "claim_limit": {"type": "string", "minLength": 1}
-  },
-  "additionalProperties": false
+    "owner": {"const": "goal-anchor"},
+    "authority": {"const": "source_owner"},
+    "access_scope": {"const": "owner_bounded"},
+    "claim_policy": {"const": "source_owner_metadata"},
+    "claim_limit": {"type": "string", "minLength": 1, "maxLength": 640},
+    "goal_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "master_thread_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "title": {"type": "string", "minLength": 1, "maxLength": 256},
+    "source_ref": {"type": "string", "minLength": 1, "maxLength": 4096}
+  }
 }

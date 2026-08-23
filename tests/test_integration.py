@@ -42,6 +42,10 @@ class IntegrationWiringTests(unittest.TestCase):
             project["tool"]["setuptools"]["data-files"]["share/aoa-dashboard/config"],
             ["config/bootstrap.json"],
         )
+        self.assertEqual(
+            set(project["tool"]["setuptools"]["data-files"]["share/aoa-dashboard/contracts"]),
+            {"contracts/runtime_binding.schema.json", "contracts/goal_anchor.schema.json"},
+        )
         self.assertNotIn("config/demo/first-slice.json", project["tool"]["setuptools"]["data-files"]["share/aoa-dashboard/config"])
 
     def test_static_server_serves_bilingual_and_theme_assets(self) -> None:

@@ -11,12 +11,20 @@ from __future__ import annotations
 
 import copy
 import re
+import sysconfig
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+try:
+    from jsonschema import Draft202012Validator
+except ImportError:  # pragma: no cover - exercised only in an incomplete install
+    Draft202012Validator = None  # type: ignore[assignment,misc]
 
 from .source_binding import (
     FileSnapshot,
     is_sha256,
+    loads_json,
     read_file_snapshot,
     snapshot_ref,
 )
@@ -39,10 +47,100 @@ SELECTION_CLAIM_LIMIT = (
     "The selected Goal and thread are taken from the exact owner-qualified "
     "binding supplied for this projection read."
 )
+_CONTRACT_FILENAMES = {
+    "runtime": "runtime_binding.schema.json",
+    "goal_anchor": "goal_anchor.schema.json",
+}
 
 
 class RuntimeBindingError(ValueError):
     """Raised when a selected runtime binding cannot be admitted."""
+
+
+def _contract_path(kind: str) -> Path:
+    filename = _CONTRACT_FILENAMES[kind]
+    candidates = (
+        Path(__file__).resolve().parents[2] / "contracts" / filename,
+        Path(sysconfig.get_path("data")) / "share" / "aoa-dashboard" / "contracts" / filename,
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise RuntimeBindingError(f"runtime_binding_{kind}_contract_missing")
+
+
+@lru_cache(maxsize=None)
+def _contract_validator(kind: str) -> Any:
+    if Draft202012Validator is None:
+        raise RuntimeBindingError("runtime_binding_contract_validator_unavailable")
+    path = _contract_path(kind)
+    try:
+        schema = loads_json(path.read_text(encoding="utf-8"), reject_duplicate_keys=True)
+        Draft202012Validator.check_schema(schema)
+        return Draft202012Validator(schema)
+    except RuntimeBindingError:
+        raise
+    except (OSError, UnicodeError, TypeError, ValueError) as exc:
+        raise RuntimeBindingError(f"runtime_binding_{kind}_contract_unreadable:{exc}") from exc
+
+
+def _schema_error_label(error: Any) -> str:
+    path = ".".join(str(item) for item in error.path) or "root"
+    if error.validator == "additionalProperties":
+        params = getattr(error, "params", None)
+        params = params if isinstance(params, dict) else {}
+        unexpected = sorted(str(item) for item in params.get("additionalProperties", []))
+        detail = ",".join(unexpected) or error.message
+        return f"schema_unknown_field:{path}:{detail}"
+    if error.validator == "required":
+        return f"schema_missing_field:{path}:{error.validator_value}"
+    if error.validator == "type":
+        return f"schema_type_invalid:{path}:{error.validator_value}"
+    return f"schema_invalid:{path}:{error.validator}:{error.message}"
+
+
+def _validate_contract_payload(payload: Any, *, kind: str, label: str) -> None:
+    validator = _contract_validator(kind)
+    errors = sorted(validator.iter_errors(payload), key=lambda item: (str(list(item.path)), item.message))
+    if errors:
+        diagnostics = [_schema_error_label(error) for error in errors[:8]]
+        raise RuntimeBindingError(f"{label}_{';'.join(diagnostics)}")
+
+
+def _snapshot_failure(prefix: str, snapshot: FileSnapshot) -> RuntimeBindingError:
+    if snapshot.currentness == "missing":
+        return RuntimeBindingError(f"{prefix}_missing")
+    if snapshot.currentness == "stale":
+        return RuntimeBindingError(f"{prefix}_stale")
+    if snapshot.parse_error:
+        if snapshot.parse_error.startswith("duplicate JSON object name:"):
+            name = snapshot.parse_error.split(":", 1)[1].strip()
+            return RuntimeBindingError(f"{prefix}_duplicate_json_object_name:{name}")
+        return RuntimeBindingError(f"{prefix}_parse_invalid:{snapshot.parse_error}")
+    return RuntimeBindingError(f"{prefix}_invalid")
+
+
+def validate_goal_anchor_payload(payload: Any, selected: dict[str, str]) -> dict[str, str]:
+    """Validate one structured Goal Anchor against the selected Goal identity."""
+
+    _validate_contract_payload(payload, kind="goal_anchor", label="goal_anchor")
+    if payload.get("goal_id") != selected["goal_id"]:
+        raise RuntimeBindingError("runtime_binding_goal_anchor_goal_mismatch")
+    if payload.get("master_thread_id") != selected["master_thread_id"]:
+        raise RuntimeBindingError("runtime_binding_goal_anchor_thread_mismatch")
+    selected_title = selected.get("title")
+    if selected_title is not None and payload.get("title") != selected_title:
+        raise RuntimeBindingError("runtime_binding_goal_anchor_title_mismatch")
+    return {
+        "owner": payload["owner"],
+        "authority": payload["authority"],
+        "access_scope": payload["access_scope"],
+        "claim_policy": payload["claim_policy"],
+        "goal_id": payload["goal_id"],
+        "master_thread_id": payload["master_thread_id"],
+        "title": payload["title"],
+        "source_ref": payload["source_ref"],
+    }
 
 
 def _text(value: Any, field: str, *, maximum: int = 256) -> str:
@@ -218,7 +316,22 @@ def _validate_source_map(payload: dict[str, Any], selected: dict[str, str]) -> d
 
     goal_anchor = _owner_descriptor(sources.get("goal_anchor"), "goal_anchor", expected_owner="goal-anchor")
     goal_anchor["path"] = _path(sources["goal_anchor"].get("path"), "goal_anchor_path")
-    goal_anchor["expected_sha256"] = _sha(sources["goal_anchor"].get("expected_sha256"), "goal_anchor_expected_sha256")
+    expected_anchor_digest = _sha(
+        sources["goal_anchor"].get("expected_sha256"),
+        "goal_anchor_expected_sha256",
+    )
+    if expected_anchor_digest is None:
+        raise RuntimeBindingError("runtime_binding_goal_anchor_expected_sha256_missing")
+    anchor_snapshot = read_file_snapshot(
+        goal_anchor["path"],
+        expected_digest=expected_anchor_digest,
+        parser="json",
+        reject_duplicate_keys=True,
+    )
+    if anchor_snapshot.currentness != "current_at_read" or not isinstance(anchor_snapshot.parsed, dict):
+        raise _snapshot_failure("runtime_binding_goal_anchor", anchor_snapshot)
+    goal_anchor["expected_sha256"] = expected_anchor_digest
+    goal_anchor["semantic_identity"] = validate_goal_anchor_payload(anchor_snapshot.parsed, selected)
 
     codex_goal = _owner_descriptor(sources.get("codex_goal"), "codex_goal", expected_owner="codex-app-server")
     if sources["codex_goal"].get("enabled") is not True or sources["codex_goal"].get("method") != "thread/goal/get":
@@ -446,7 +559,8 @@ def _flatten_binding(
             "goal_id": selected["goal_id"],
             "title": selected.get("title"),
             "goal_anchor_path": descriptors["goal_anchor"]["path"],
-            "goal_anchor_expected_sha256": descriptors["goal_anchor"].get("expected_sha256"),
+            "goal_anchor_expected_sha256": descriptors["goal_anchor"]["expected_sha256"],
+            "goal_anchor_identity": descriptors["goal_anchor"]["semantic_identity"],
             "owner_goal_source": descriptors["codex_goal"],
             "owner_thread_source": descriptors["codex_thread"],
             "goal_topology_source": descriptors["topology"],
@@ -488,7 +602,7 @@ def resolve_runtime_binding(base: dict[str, Any], path: str | Path | None) -> di
         config["runtime_binding_observation"] = _empty_observation("missing", "runtime_binding_not_selected")
         return config
     binding_path = Path(path).resolve(strict=False)
-    snapshot = read_file_snapshot(binding_path, parser="json")
+    snapshot = read_file_snapshot(binding_path, parser="json", reject_duplicate_keys=True)
     evidence = snapshot_ref(
         snapshot,
         label="Selected runtime Goal binding",
@@ -505,11 +619,22 @@ def resolve_runtime_binding(base: dict[str, Any], path: str | Path | None) -> di
         return config
     if snapshot.currentness != "current_at_read" or not isinstance(snapshot.parsed, dict):
         state = snapshot.currentness if snapshot.currentness in QUALITY_STATES else "invalid"
+        diagnostic = (
+            _snapshot_failure("runtime_binding", snapshot)
+            if state == "invalid"
+            else RuntimeBindingError("runtime_binding_source_not_current")
+        )
         config["runtime_binding_state"] = state
-        config["runtime_binding_observation"] = _empty_observation(state, "runtime_binding_source_not_current", path=binding_path, evidence=evidence)
+        config["runtime_binding_observation"] = _empty_observation(
+            state,
+            str(diagnostic),
+            path=binding_path,
+            evidence=evidence,
+        )
         return config
     payload = snapshot.parsed
     try:
+        _validate_contract_payload(payload, kind="runtime", label="runtime_binding")
         if payload.get("schema_version") != RUNTIME_BINDING_SCHEMA:
             raise RuntimeBindingError("runtime_binding_schema_unsupported")
         currentness = _validate_currentness(payload)
@@ -542,8 +667,14 @@ def resolve_runtime_binding(base: dict[str, Any], path: str | Path | None) -> di
         )
         return resolved
     except (RuntimeBindingError, TypeError, KeyError) as exc:
-        config["runtime_binding_state"] = "invalid"
-        config["runtime_binding_observation"] = _empty_observation("invalid", str(exc), path=binding_path, evidence=evidence)
+        diagnostic = str(exc)
+        state = "invalid"
+        if diagnostic == "runtime_binding_goal_anchor_missing":
+            state = "missing"
+        elif diagnostic == "runtime_binding_goal_anchor_stale":
+            state = "stale"
+        config["runtime_binding_state"] = state
+        config["runtime_binding_observation"] = _empty_observation(state, diagnostic, path=binding_path, evidence=evidence)
         return config
 
 

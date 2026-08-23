@@ -7,7 +7,8 @@ historical/demo instance.
 
 The slice is complete when a local operator can open the dashboard and see:
 
-- the current Goal Anchor id/title and digest;
+- the current structured Goal Anchor id/title, owner-qualified Goal/thread
+  identity, and exact source digest;
 - the historical bootstrap session binding alongside archive freshness, with
   its current-holder limit visible;
 - `aoa-stats` source coverage with its `not_attested` freshness ceiling;
@@ -55,7 +56,9 @@ compatibility adapter. The shipped `config/bootstrap.json` is reusable and
 contains no current instance. A process may explicitly select an
 owner-qualified `aoa_dashboard_runtime_binding_v1` document; missing,
 ambiguous, stale, deferred, invalid, or mismatched binding/source inputs remain
-fail-closed. The old first-slice material is retained only at
+fail-closed. A current Goal Anchor must be a strict owner-qualified JSON source
+whose Goal/thread identity matches the selected binding and whose required
+digest matches the bytes read. The old first-slice material is retained only at
 `config/demo/first-slice.json` as historical/demo opt-in. Legacy pressure
 strings are shown only as redacted, digest-linked deferred candidates until all
 structured fields are present; raw legacy text is never emitted.

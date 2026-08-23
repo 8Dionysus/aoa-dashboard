@@ -23,6 +23,7 @@ from .model import LIFECYCLE_STATES, STATUS_VOCABULARY, Projection
 from .pressure import build_pressure_inbox, migrate_legacy_pressure_candidates, pressure_read_model_digest
 from .runtime_binding import mark_historical_demo, resolve_runtime_binding
 from .sources import observe_all, observe_owner_surfaces, utc_now
+from .source_binding import DuplicateJsonObjectNameError, loads_json
 from .state_store import action_intent_summary, annotation_summary
 
 
@@ -39,8 +40,7 @@ def _default_config_path() -> Path:
 
 
 def _read_object(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as stream:
-        value = json.load(stream)
+    value = loads_json(path.read_text(encoding="utf-8"), reject_duplicate_keys=True)
     if not isinstance(value, dict):
         raise ValueError("dashboard config must be a JSON object")
     return value
@@ -80,6 +80,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
         value = _read_object(config_path)
     except FileNotFoundError:
         return resolve_runtime_binding(base, config_path)
+    except DuplicateJsonObjectNameError as exc:
+        return _invalid_explicit_config(
+            base,
+            config_path,
+            f"runtime_binding_duplicate_json_object_name:{exc.name}",
+        )
     except (OSError, UnicodeError, ValueError):
         return _invalid_explicit_config(base, config_path, "runtime_binding_explicit_input_unreadable")
     if value.get("schema_version") == "aoa_dashboard_runtime_binding_v1":

@@ -9,6 +9,7 @@ from typing import Any
 
 from .activity import observe_actor_activity
 from .correlation import observe_current_correlation
+from .runtime_binding import RuntimeBindingError, validate_goal_anchor_payload
 from .source_binding import FileSnapshot, read_file_snapshot, snapshot_ref
 
 
@@ -89,11 +90,41 @@ def observe_goal(config: dict[str, Any], snapshot: FileSnapshot | None = None) -
     path = Path(path_value)
     stats = _stat(path)
     claim_limit = "Anchor binding and digest are source evidence; they do not prove execution, review, or acceptance."
+    current_binding = config.get("runtime_binding_state") == "bound"
     snapshot = snapshot or read_file_snapshot(
         path,
         expected_digest=config.get("goal_anchor_expected_sha256"),
-        parser="text",
+        parser="json" if current_binding else "text",
+        reject_duplicate_keys=current_binding,
     )
+    currentness = snapshot.currentness
+    state = {
+        "current_at_read": "bound",
+        "stale": "stale",
+        "deferred": "deferred",
+        "unknown": "unknown",
+        "missing": "missing",
+        "invalid": "invalid",
+    }.get(snapshot.currentness, "unknown")
+    anchor_identity: dict[str, Any] | None = None
+    observation_override: str | None = None
+    if current_binding and state == "bound":
+        selected = {
+            "goal_id": config.get("goal_id"),
+            "master_thread_id": (
+                config.get("current_correlation", {}).get("master_thread_id")
+                if isinstance(config.get("current_correlation"), dict)
+                else None
+            ),
+        }
+        if isinstance(config.get("title"), str) and config["title"]:
+            selected["title"] = config["title"]
+        try:
+            anchor_identity = validate_goal_anchor_payload(snapshot.parsed, selected)  # type: ignore[arg-type]
+        except (RuntimeBindingError, TypeError, KeyError) as exc:
+            state = "invalid"
+            currentness = "invalid"
+            observation_override = f"Configured structured Goal Anchor is not bound to the selected Goal: {exc}."
     anchor_ref = snapshot_ref(
         snapshot,
         label="Goal Anchor",
@@ -103,33 +134,29 @@ def observe_goal(config: dict[str, Any], snapshot: FileSnapshot | None = None) -
         authority="source_owner",
         claim_policy="source_owner_metadata",
         claim_limit="Goal Anchor ref and digest bind this projection; they do not prove execution, review, or acceptance.",
+        currentness_override=currentness,
+        freshness_override=currentness,
+        extra_degradation=["goal_anchor_semantic_identity_invalid"] if currentness == "invalid" and state == "invalid" else None,
     )
-    state = {
-        "current_at_read": "bound",
-        "stale": "stale",
-        "deferred": "deferred",
-        "unknown": "unknown",
-        "missing": "missing",
-        "invalid": "invalid",
-    }.get(snapshot.currentness, "unknown")
-    observation = {
+    observation = observation_override or {
         "current_at_read": "The configured Goal Anchor is readable at projection time.",
         "stale": "The configured Goal Anchor bytes were read, but the configured expected digest does not match.",
         "missing": "Configured Goal Anchor path is absent.",
         "invalid": "Configured Goal Anchor cannot be treated as a valid current source snapshot.",
-    }.get(snapshot.currentness, "Goal Anchor currentness is not attested.")
+    }.get(currentness, "Goal Anchor currentness is not attested.")
     return {
         "id": "goal-anchor",
         "owner": "goal-anchor",
         "state": state,
-        "freshness": snapshot.currentness,
+        "freshness": currentness,
         "observation": observation,
         "metadata": {
             "goal_id": config.get("goal_id"),
             "title": config.get("title"),
             "anchor_digest": snapshot.digest,
             "anchor_expected_sha256": snapshot.expected_digest,
-            "anchor_currentness": snapshot.currentness,
+            "anchor_currentness": currentness,
+            "semantic_identity": anchor_identity,
             "size_bytes": stats.get("size_bytes"),
             "mtime": stats.get("mtime"),
         },
@@ -543,7 +570,8 @@ def observe_all(config: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str,
         read_file_snapshot(
             Path(goal_path),
             expected_digest=config.get("goal_anchor_expected_sha256"),
-            parser="text",
+            parser="json" if config.get("runtime_binding_state") == "bound" else "text",
+            reject_duplicate_keys=config.get("runtime_binding_state") == "bound",
         )
         if isinstance(goal_path, str) and goal_path
         else None

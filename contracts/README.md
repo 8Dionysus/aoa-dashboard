@@ -5,8 +5,11 @@ They do not replace source-owner schemas. External source payloads are read
 through adapters and retained only as bounded metadata plus provenance refs.
 
 - `status-vocabulary.json` is the non-collapsing state vocabulary.
-- `goal_anchor.schema.json` describes the private binding to an anchor path and
-  the public metadata emitted from it.
+- `goal_anchor.schema.json` describes the strict owner-qualified JSON source
+  read from a current Goal Anchor. Its `goal_id` and `master_thread_id` must
+  match the selected binding; the binding carries the required SHA-256 for the
+  exact source bytes. The prose/text first-slice anchor remains historical/demo
+  input only and is never admitted by the current v1 route.
 - `correlation_envelope.schema.json` is the strict dashboard-owned envelope
   for Goal/thread, handoff, versioned wake receipts, accepted turn, master
   filter, and task-local DAG disposition. It keeps
@@ -55,9 +58,11 @@ through adapters and retained only as bounded metadata plus provenance refs.
   attested SHA-256 with one read of the filter bytes, and fails closed on
   missing, stale, ambiguous, conflicting, or unannounced rollback evidence.
 - `runtime_binding.schema.json` defines the explicit
-  `aoa_dashboard_runtime_binding_v1` process input. It binds the selected Goal
-  and every current source through owner, authority, access, currentness, and
-  claim-limit fields; it is consumed as read evidence and does not grant role,
-  runtime, proof, acceptance, or action authority.
+  `aoa_dashboard_runtime_binding_v1` process input. It rejects unknown fields,
+  requires the complete source map (including Goal Anchor bytes and explicit
+  correlation selectors), and binds the selected Goal and every current source
+  through owner, authority, access, currentness, and claim-limit fields; it is
+  consumed as read evidence and does not grant role, runtime, proof,
+  acceptance, or action authority.
 - `dashboard_annotation.schema.json` and `action_intent.schema.json` are
   append-only dashboard-owned records.

@@ -151,8 +151,7 @@
   },
   "handoff": {
     "return_owner": "holder:aoa-dashboard-master-sol",
-    "master_thread_id": "01a00722-0291-72e0-8310-559da802d6e1",
     "next_transition": "master filters this return, updates the Goal DAG, and routes any access contour to its natural owner",
-    "claim_limit": "source and federation bootstrap landed; no private admission, runtime deployment, proof verdict, semantic reentry, or human acceptance is claimed"
+    "claim_limit": "source and federation bootstrap landed; task-instance identity is supplied by the explicit return/handoff packet; no private admission, runtime deployment, proof verdict, semantic reentry, or human acceptance is claimed"
   }
 }

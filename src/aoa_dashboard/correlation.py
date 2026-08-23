@@ -973,6 +973,24 @@ def observe_current_correlation(
             degradation=["current_correlation_config_incomplete"],
             claim_limit=_base_claim_limit(),
         )
+    handoff_glob = current.get("handoff_glob")
+    wake_glob = current.get("wake_glob")
+    if not _non_empty_string(handoff_glob) or not _non_empty_string(wake_glob):
+        historical = config.get("runtime_binding_state") == "historical_demo_opt_in"
+        state = "deferred" if historical else "invalid"
+        return _source(
+            state=state,
+            freshness=state,
+            observation=(
+                "Historical correlation is withheld because its explicit receipt selectors are missing."
+                if historical
+                else "Current correlation requires explicit owner-qualified handoff and wake selectors."
+            ),
+            metadata={"schema_version": CORRELATION_PROJECTION_VERSION, "envelopes": []},
+            refs=[],
+            degradation=["historical_correlation_selectors_missing" if historical else "current_correlation_explicit_selectors_missing"],
+            claim_limit=_base_claim_limit(),
+        )
     task_root = Path(task_root_value).resolve(strict=False)
     filter_path = Path(filter_path_value).resolve(strict=False)
     goal_anchor_path_obj = Path(goal_anchor_path).resolve(strict=False)
@@ -1150,16 +1168,6 @@ def observe_current_correlation(
         dag,
         filter_entries,
         currentness=currentness_observation,
-    )
-    handoff_glob = (
-        current.get("handoff_glob")
-        if isinstance(current.get("handoff_glob"), str)
-        else "*-luna-handoff.json"
-    )
-    wake_glob = (
-        current.get("wake_glob")
-        if isinstance(current.get("wake_glob"), str)
-        else "*.wake-receipt.json"
     )
     owner_contract = current.get("codex_wake_receipt_owner")
     if not isinstance(owner_contract, dict):
