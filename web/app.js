@@ -43,7 +43,6 @@ let lastGoodAt = null;
 let lastAnnouncement = "";
 let workspaceMode = "observe";
 let contextThreadOpen = false;
-let homeCatalogSelection = null;
 let selectionQuality = null;
 let selection = SelectionContext.empty();
 let routeState = "home";
@@ -60,7 +59,13 @@ const plural = (key, count, variables = {}) => i18n.plural(`plural.${key}`, coun
 const catalogInfo = (data) => dashboardUI.qualifiedCatalog(data?.goal_catalog);
 const recordInfo = (data, key) => dashboardUI.optionalRecord(data?.[key]);
 
+function catalogItemForRef(data, ref) {
+  if (!ref) return null;
+  return catalogInfo(data).items.find((item) => item.ref === ref) || null;
+}
+
 function safeDate(value) {
+  if (value === null || value === undefined || value === "") return null;
   const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   return Number.isFinite(date.getTime()) ? date : null;
 }
@@ -612,6 +617,60 @@ function renderHeader(data) {
   setBadge(byId("workspace-quality"), quality);
 }
 
+function catalogTimeFact(labelKey, value) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "catalog-fact";
+  wrapper.append(text("dt", t(labelKey)));
+  const description = document.createElement("dd");
+  const time = text("time", formatAbsoluteMinute(value));
+  if (value) {
+    time.dateTime = value;
+    time.title = formatAbsoluteMinute(value);
+  }
+  description.append(time);
+  wrapper.append(description);
+  return wrapper;
+}
+
+function renderCatalogWorkspace(data, item) {
+  const heading = byId("catalog-workspace-heading");
+  const summary = byId("catalog-workspace-summary");
+  const lifecycle = byId("catalog-workspace-lifecycle");
+  const recency = byId("catalog-workspace-recency");
+  const body = byId("catalog-workspace-body");
+  clear(body);
+  if (!item) {
+    if (heading) heading.textContent = t("workspace.historyUnavailableTitle");
+    if (summary) summary.textContent = t("workspace.historyUnavailable");
+    setBadge(lifecycle, "missing");
+    if (recency) { recency.textContent = ""; recency.removeAttribute?.("datetime"); recency.removeAttribute?.("title"); }
+    body?.append(text("p", t("workspace.historyUnavailable"), "catalog-disclosure state-missing"));
+    return;
+  }
+  if (heading) heading.textContent = item.title || t("goal.unnamed");
+  if (summary) summary.textContent = t("workspace.historySummary");
+  setBadge(lifecycle, item.lifecycle_state);
+  if (recency) {
+    recency.textContent = t("workspace.recency", { value: formatHumanRecency(item.last_observed_at) });
+    if (item.last_observed_at) recency.dateTime = item.last_observed_at;
+    recency.title = formatAbsoluteMinute(item.last_observed_at);
+  }
+  const facts = document.createElement("dl");
+  facts.className = "catalog-facts";
+  facts.append(
+    catalogTimeFact("workspace.historyFirstSeen", item.first_observed_at),
+    catalogTimeFact("workspace.historyLastSeen", item.last_observed_at),
+  );
+  body?.append(facts);
+  const catalog = catalogInfo(data);
+  const notes = document.createElement("div");
+  notes.className = "catalog-disclosures";
+  notes.append(text("p", t("workspace.historyDetailsMissing"), "catalog-disclosure"));
+  if (["stale", "deferred", "unknown"].includes(catalog.state)) notes.append(text("p", t("workspace.historyMayLag"), "catalog-disclosure"));
+  if (item.ambiguity) notes.append(text("p", t("workspace.historyIncomplete"), "catalog-disclosure"));
+  body?.append(notes);
+}
+
 function renderHome(data) {
   const selector = byId("goal-selector");
   const catalogState = byId("catalog-state");
@@ -666,7 +725,7 @@ function renderHome(data) {
       const row = document.createElement("button");
       row.type = "button";
       row.className = "goal-list-item";
-      row.setAttribute("aria-pressed", String(homeCatalogSelection === item.ref));
+      row.setAttribute("aria-label", `${t("home.openWorkspace")}: ${item.title}`);
       const copy = document.createElement("span");
       copy.className = "goal-list-copy";
       copy.append(text("strong", item.title), text("span", statusLabel(item.lifecycle_state), "goal-list-state"));
@@ -674,8 +733,9 @@ function renderHome(data) {
       if (item.last_observed_at) recent.dateTime = item.last_observed_at;
       row.append(copy, recent);
       row.addEventListener("click", () => {
-        homeCatalogSelection = homeCatalogSelection === item.ref ? null : item.ref;
-        renderHome(data);
+        contextThreadOpen = false;
+        setSelection({ goal_ref: item.ref, lens: "trajectory", focus_ref: null, branch_path: [], thread_ref: item.ref });
+        byId("catalog-workspace-view")?.focus?.();
         announce(item.title);
       });
       list.append(row);
@@ -684,14 +744,8 @@ function renderHome(data) {
     selector.append(section);
   }
 
-  const selectedItem = titledItems.find((item) => item.ref === homeCatalogSelection);
   catalogState.className = `catalog-note state-${catalog.state}`;
-  if (selectedItem) {
-    catalogState.append(
-      text("strong", selectedItem.title),
-      text("span", t("home.historyObserved", { value: formatHumanRecency(selectedItem.last_observed_at) })),
-    );
-  } else if (catalog.state === "stale" || catalog.state === "deferred") {
+  if (catalog.state === "stale" || catalog.state === "deferred") {
     catalogState.append(text("span", t("home.historyUpdating")));
   } else if (!titledItems.length) {
     catalogState.append(text("span", t("home.catalogEmpty")));
@@ -1115,26 +1169,29 @@ function knownFocusRefs(data) {
 
 function renderProjection(data) {
   interactionState = captureInteractionState();
-  const retained = selectionQuality === "missing" && lastGoodProjection && goalRef(lastGoodProjection) === selection.goal_ref ? lastGoodProjection : data;
   renderRefreshState();
   renderRouteState();
-  renderHeader(retained);
   renderHome(data);
-  const selectedCurrentGoal = Boolean(goalRef(retained)) && selection.goal_ref === goalRef(retained);
+  const selectedCurrentGoal = Boolean(goalRef(data)) && selection.goal_ref === goalRef(data);
+  const selectedCatalogItem = selectedCurrentGoal ? null : catalogItemForRef(data, selection.goal_ref);
+  const selectedCatalogGoal = Boolean(selection.goal_ref && selectedCatalogItem);
+  const selectedUnavailableGoal = Boolean(selection.goal_ref && !selectedCurrentGoal && !selectedCatalogItem);
   byId("workspace-view")?.classList.toggle("hidden", !selectedCurrentGoal);
-  byId("home-view")?.classList.toggle("hidden", selectedCurrentGoal);
+  byId("catalog-workspace-view")?.classList.toggle("hidden", !(selectedCatalogGoal || selectedUnavailableGoal));
+  byId("home-view")?.classList.toggle("hidden", Boolean(selectedCurrentGoal || selectedCatalogGoal || selectedUnavailableGoal));
   byId("fallback-evidence")?.classList.toggle("hidden", Boolean(data));
   if (selectedCurrentGoal) {
-    renderBreadcrumb(retained);
-    renderGoalSummary(retained);
-    renderAttentionStrip(retained);
+    renderHeader(data);
+    renderBreadcrumb(data);
+    renderGoalSummary(data);
+    renderAttentionStrip(data);
     const rail = byId("rail-quality");
     clear(rail);
-    if (rail) rail.append(badge(qualityForData(retained)), text("p", statusLabel(currentnessForData(retained)), "rail-detail"));
-    renderLens(retained);
-    renderDiagnosticsSurface(retained);
-    renderThread(retained);
-  }
+    if (rail) rail.append(badge(qualityForData(data)), text("p", statusLabel(currentnessForData(data)), "rail-detail"));
+    renderLens(data);
+    renderDiagnosticsSurface(data);
+    renderThread(data);
+  } else if (selectedCatalogGoal || selectedUnavailableGoal) renderCatalogWorkspace(data, selectedCatalogItem);
   updateLensButtons();
   updateModeButtons();
   restoreInteractionState(interactionState);
@@ -1143,6 +1200,7 @@ function renderProjection(data) {
 function renderNoProjection() {
   renderRefreshState();
   byId("workspace-view")?.classList.add("hidden");
+  byId("catalog-workspace-view")?.classList.add("hidden");
   byId("home-view")?.classList.remove("hidden");
   clear(byId("goal-selector"));
   const catalog = byId("catalog-state");
@@ -1158,10 +1216,10 @@ async function refresh() {
     if (!response.ok) throw new Error(data.detail || data.error || t("refresh.failed"));
     const wasDegraded = refreshState !== "current" || !byId("alert")?.classList.contains("hidden");
     currentProjection = data;
-    if (!selection.goal_ref || goalRef(data) === selection.goal_ref || !lastGoodProjection) lastGoodProjection = data;
+    lastGoodProjection = data;
     lastGoodAt = data.generated_at || new Date();
     refreshState = "current";
-    if (selection.goal_ref && selection.goal_ref !== goalRef(data)) selectionQuality = "missing";
+    if (selection.goal_ref && selection.goal_ref !== goalRef(data) && !catalogItemForRef(data, selection.goal_ref)) selectionQuality = "missing";
     else if (selection.focus_ref && !knownFocusRefs(data).has(selection.focus_ref)) selectionQuality = "stale";
     else if (selectionQuality === "missing" || selectionQuality === "stale") selectionQuality = null;
     selection.observation_cursor_or_generation = data.generated_at || null;
@@ -1208,6 +1266,7 @@ for (const button of document.querySelectorAll("[data-language]")) button.addEve
 for (const button of document.querySelectorAll("[data-lens]")) button.addEventListener("click", () => setSelection({ lens: button.dataset.lens }));
 for (const button of document.querySelectorAll("[data-mode]")) button.addEventListener("click", () => { workspaceMode = button.dataset.mode === "operate" ? "operate" : "observe"; updateModeButtons(); if (currentProjection) renderThread(currentProjection); });
 byId("home-button")?.addEventListener("click", () => { contextThreadOpen = false; setSelection({ goal_ref: null, focus_ref: null, branch_path: [], thread_ref: null }); });
+byId("catalog-workspace-back")?.addEventListener("click", () => { contextThreadOpen = false; setSelection({ goal_ref: null, focus_ref: null, branch_path: [], thread_ref: null }); byId("home-heading")?.focus?.(); });
 byId("thread-toggle")?.addEventListener("click", () => { contextThreadOpen = !contextThreadOpen; updateThreadVisibility(); });
 byId("density-mode")?.addEventListener("change", (event) => {
   const value = event.currentTarget.value;
@@ -1243,8 +1302,11 @@ window.AoaDashboardApp = Object.freeze({
   participantItems,
   sourceItems,
   diagnosticEntries,
+  catalogItemForRef,
   renderDiagnosticRoutes,
   renderHome,
+  renderCatalogWorkspace,
+  renderProjection,
   refresh,
   getSelection: () => ({ ...selection, branch_path: [...selection.branch_path], expanded_branch_refs: [...selection.expanded_branch_refs], page_by_list: { ...selection.page_by_list } }),
 });

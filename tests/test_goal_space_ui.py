@@ -399,11 +399,12 @@ const fs = require("fs");
 const vm = require("vm");
 function node(tag) {
   const listeners = {};
-  return { tagName: tag, children: [], firstChild: null, className: "", textContent: "", dataset: {}, classList: { add() {}, remove() {}, toggle() {} }, append(...items) { this.children.push(...items); }, removeChild() {}, setAttribute(name, value) { this[name] = value; }, addEventListener(name, listener) { listeners[name] = listener; }, focus() {} };
+  return { tagName: tag, children: [], firstChild: null, className: "", textContent: "", dataset: {}, classList: { add() {}, remove() {}, toggle() {} }, append(...items) { this.children.push(...items); }, removeChild() {}, setAttribute(name, value) { this[name] = value; }, addEventListener(name, listener) { listeners[name] = listener; }, trigger(name) { listeners[name]?.(); }, focus() {} };
 }
 const nodes = new Map([["goal-selector", node("div")], ["catalog-state", node("div")], ["live-region", node("div")]]);
 const document = { documentElement: { lang: "", dataset: {} }, title: "", querySelectorAll() { return []; }, getElementById(id) { return nodes.get(id) || null; }, createElement: node, addEventListener() {} };
-const context = { document, globalThis: null, localStorage: { getItem() { return null; }, setItem() {} }, location: { hash: "" }, history: { replaceState() {} }, fetch() { return new Promise(() => {}); }, setInterval() {}, addEventListener() {}, navigator: { language: "ru-RU" }, AoaDashboardTheme: { getMode() { return "dark"; }, subscribe() {} } };
+let routed = "";
+const context = { document, globalThis: null, localStorage: { getItem() { return null; }, setItem() {} }, location: { hash: "" }, history: { replaceState(_state, _title, value) { routed = value; } }, fetch() { return new Promise(() => {}); }, setInterval() {}, addEventListener() {}, navigator: { language: "ru-RU" }, AoaDashboardTheme: { getMode() { return "dark"; }, subscribe() {} } };
 context.globalThis = context; context.window = context;
 vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
@@ -428,7 +429,10 @@ context.AoaDashboardApp.renderHome({
 });
 const rendered = JSON.stringify(nodes.get("goal-selector"));
 const note = JSON.stringify(nodes.get("catalog-state"));
-process.stdout.write(JSON.stringify({ rendered, note }));
+const group = nodes.get("goal-selector").children.find((child) => child.className === "goal-group");
+const row = group.children[1].children[0];
+row.trigger("click");
+process.stdout.write(JSON.stringify({ rendered, note, selection: context.AoaDashboardApp.getSelection(), routed }));
 '''
         )
         self.assertIn("Текущая цель", observed["rendered"])
@@ -438,6 +442,51 @@ process.stdout.write(JSON.stringify({ rendered, note }));
         self.assertNotIn("019e967f", observed["rendered"])
         self.assertIn("История целей обновляется", observed["note"])
         self.assertIn("Ещё без отображаемого названия: 1", observed["note"])
+        self.assertEqual(observed["selection"]["goal_ref"], "019f9075-41a3-7933-a81d-f32bc4da12ca")
+        self.assertIn("#goal/019f9075-41a3-7933-a81d-f32bc4da12ca/trajectory", observed["routed"])
+
+    def test_catalog_goal_workspace_is_human_bounded_and_does_not_borrow_current_goal(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function node(tag) {
+  return { tagName: tag, children: [], firstChild: null, className: "", textContent: "", dataset: {}, classList: { add() {}, remove() {}, toggle() {} }, append(...items) { this.children.push(...items); }, removeChild() {}, setAttribute(name, value) { this[name] = value; }, addEventListener() {}, removeAttribute() {} };
+}
+const ids = ["catalog-workspace-heading", "catalog-workspace-summary", "catalog-workspace-lifecycle", "catalog-workspace-recency", "catalog-workspace-body"];
+const nodes = new Map(ids.map((id) => [id, node(id)]));
+const document = { documentElement: { lang: "", dataset: {} }, title: "", querySelectorAll() { return []; }, getElementById(id) { return nodes.get(id) || null; }, createElement: node, addEventListener() {} };
+const context = { document, globalThis: null, localStorage: { getItem() { return null; }, setItem() {} }, location: { hash: "" }, history: { replaceState() {} }, fetch() { return new Promise(() => {}); }, setInterval() {}, addEventListener() {}, navigator: { language: "ru-RU" }, AoaDashboardTheme: { subscribe() {} } };
+context.globalThis = context; context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const data = {
+  goal: { goal_id: "goal:current", title: "CURRENT MACHINE TITLE" },
+  dag: [{ id: "D4", title: "CURRENT TECHNICAL DAG" }],
+  goal_catalog: {
+    schema_version: "aoa_dashboard_goal_catalog_projection_v1", state: "stale", currentness: "stale",
+    source: { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", owner_schema_version: "aoa_session_memory_goal_catalog_v1", currentness: "stale" },
+    items: [{ ref: "019e967f-1747-7ec0-a056-9e626300d531", title: "Развить пространство целей", title_state: "available", lifecycle_state: "complete", group: "completed", first_observed_at: null, last_observed_at: "2026-06-05T09:12:53Z", ambiguity: true }],
+    counts_by_group: { completed: 1 }, claim_limit: "bounded owner projection",
+  },
+};
+const item = context.AoaDashboardApp.catalogItemForRef(data, "019e967f-1747-7ec0-a056-9e626300d531");
+context.AoaDashboardApp.renderCatalogWorkspace(data, item);
+const rendered = JSON.stringify([...nodes.values()]);
+process.stdout.write(JSON.stringify({ rendered, heading: nodes.get("catalog-workspace-heading").textContent, lifecycle: nodes.get("catalog-workspace-lifecycle").textContent }));
+'''
+        )
+        self.assertEqual(observed["heading"], "Развить пространство целей")
+        self.assertEqual(observed["lifecycle"], "Завершено")
+        self.assertIn("Первое наблюдение", observed["rendered"])
+        self.assertIn("Время недоступно", observed["rendered"])
+        self.assertIn("Подробности этой цели пока не опубликованы", observed["rendered"])
+        self.assertIn("Часть ранней активности могла не сохраниться", observed["rendered"])
+        self.assertNotIn("019e967f", observed["rendered"])
+        self.assertNotIn("CURRENT", observed["rendered"])
+        self.assertNotIn("1970", observed["rendered"])
 
     def test_refresh_interaction_snapshot_restores_details_scroll_drafts_and_focus(self) -> None:
         observed = run_node(

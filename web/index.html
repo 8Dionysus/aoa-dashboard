@@ -80,6 +80,24 @@
         <div id="catalog-state" class="empty-state"></div>
       </section>
 
+      <section id="catalog-workspace-view" class="catalog-workspace hidden" aria-labelledby="catalog-workspace-heading" tabindex="-1">
+        <div class="workspace-topline">
+          <button id="catalog-workspace-back" type="button" class="quiet-button catalog-back" data-i18n="workspace.backToGoals">Back to Goals</button>
+        </div>
+        <div class="goal-hero catalog-goal-hero">
+          <div class="goal-hero-copy">
+            <p class="eyebrow" data-i18n="workspace.kicker">Goal</p>
+            <h1 id="catalog-workspace-heading">Goal</h1>
+            <p id="catalog-workspace-summary" class="goal-summary-copy"></p>
+          </div>
+          <div class="goal-hero-meta" aria-label="Goal status" data-i18n-aria-label="workspace.statusLabel">
+            <span id="catalog-workspace-lifecycle" class="badge state-unknown">Unknown</span>
+            <time id="catalog-workspace-recency" class="recency"></time>
+          </div>
+        </div>
+        <section id="catalog-workspace-body" class="catalog-workspace-body" aria-label="Goal overview" data-i18n-aria-label="workspace.summaryLabel"></section>
+      </section>
+
       <section id="workspace-view" class="workspace-view hidden" aria-labelledby="workspace-heading">
         <div class="workspace-topline">
           <nav id="breadcrumb" class="breadcrumb" aria-label="Selected path" data-i18n-aria-label="workspace.breadcrumbLabel"></nav>
