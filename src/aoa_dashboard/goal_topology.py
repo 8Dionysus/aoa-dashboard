@@ -85,6 +85,9 @@ def _node(value: Any) -> dict[str, Any]:
     owner = value.get("owner")
     if owner is not None and (not isinstance(owner, str) or not owner or len(owner) > 160):
         raise ValueError("topology_owner_invalid")
+    user_facing = value.get("user_facing", False)
+    if not isinstance(user_facing, bool):
+        raise ValueError("topology_user_facing_invalid")
     scope = value.get("scope")
     if scope is not None:
         scope = _human(scope, "topology_scope", maximum=480)
@@ -95,6 +98,7 @@ def _node(value: Any) -> dict[str, Any]:
         "depends_on": dependencies,
         "owner": owner,
         "scope": scope,
+        "user_facing": user_facing,
     }
 
 

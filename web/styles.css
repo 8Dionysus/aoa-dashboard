@@ -123,12 +123,12 @@ h1, h2, h3 { font-family: inherit; font-weight: 650; letter-spacing: -.025em; }
 .connection-state.state-ready { color: var(--teal); }
 .connection-state.state-stale, .connection-state.state-loading { color: var(--amber); }
 .connection-state.state-disconnected, .connection-state.state-invalid { color: var(--red); }
-.settings-panel { position: relative; }
-.settings-panel > summary { padding: 8px 10px; border-radius: 9px; color: var(--muted); cursor: pointer; font-size: 13px; list-style: none; }
+.settings-panel { position: relative; z-index: 4; }
+.settings-panel > summary { position: relative; z-index: 3; padding: 8px 10px; border-radius: 9px; color: var(--muted); cursor: pointer; font-size: 13px; list-style: none; }
 .settings-panel > summary::-webkit-details-marker { display: none; }
 .settings-panel > summary::after { content: "⌄"; margin-left: 7px; color: var(--muted); }
 .settings-panel[open] > summary { color: var(--ink); background: var(--surface-tint); }
-.settings-content { position: absolute; top: calc(100% + 12px); right: 0; display: grid; gap: 18px; width: min(320px, calc(100vw - 32px)); padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
+.settings-content { position: absolute; z-index: 2; top: calc(100% + 12px); right: 0; display: grid; gap: 18px; width: min(320px, calc(100vw - 32px)); padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
 .settings-content fieldset, .settings-content label { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; color: var(--muted); font-size: 12px; }
 .settings-content legend { padding: 0; color: var(--muted); font-size: 12px; }
 .segmented-control { display: flex; gap: 4px; }
@@ -368,7 +368,7 @@ button.secondary { color: var(--secondary-ink); background: var(--secondary-bg);
   .shell { width: min(100% - 20px, 1280px); }
   .brand { font-size: 19px; }
   .app-actions { width: 100%; justify-content: space-between; margin-left: 0; }
-  .settings-content { position: fixed; top: 72px; right: 10px; }
+  .settings-content { top: calc(100% + 8px); right: 0; }
   .lens-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lens-button:last-child { grid-column: span 2; }
   .goal-selector-card { display: grid; }

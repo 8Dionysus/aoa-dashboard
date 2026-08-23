@@ -28,6 +28,8 @@ class GoalSpaceUiStateTests(unittest.TestCase):
         self.assertIn("function contextForSelection", source)
         self.assertIn("function contextForRef", source)
         self.assertIn("function directionItems", source)
+        self.assertIn("function primaryDirectionItems", source)
+        self.assertIn("function goalDirectionItem", source)
         self.assertIn("function trajectoryDirectionItems", source)
         self.assertIn("function topologyDirectionItems", source)
         self.assertIn("function renderTopologyBranches", source)
@@ -46,6 +48,13 @@ class GoalSpaceUiStateTests(unittest.TestCase):
         self.assertNotIn("GOAL_LABELS", source)
         self.assertNotRegex(source, r"aoa-dashboard-goal-01a00722-20260815")
         self.assertNotIn('i18n.language === "ru"', source)
+
+    def test_narrow_settings_keeps_summary_targetable_above_disclosure(self) -> None:
+        styles = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn(".settings-panel > summary { position: relative; z-index: 3;", styles)
+        self.assertIn(".settings-content { position: absolute; z-index: 2;", styles)
+        self.assertIn(".settings-content { top: calc(100% + 8px); right: 0; }", styles)
+        self.assertNotIn(".settings-content { position: fixed", styles)
 
     def test_operate_route_requires_admitted_currentness_and_exact_context(self) -> None:
         observed = run_node(
@@ -244,17 +253,19 @@ const goal = { goal: { goal_id: "goal:future-one", title: "Canonical future goal
 const ownerGoal = { goal: { goal_id: "goal:current", title: "Преобразовать aoa-dashboard в Goal Space", title_source: "codex_app_server_thread_goal" }, presentation: { goal: { title: { en: "Stale configured title", ru: "Устаревший заголовок" } } } };
 const recent = app.formatHumanRecency("2026-08-22T16:17:00Z", "2026-08-22T16:29:00Z");
 const old = app.formatHumanRecency("2026-08-01T09:10:45.123Z", "2026-08-22T16:29:00Z");
+const absolute = app.formatAbsoluteMinute("2026-08-01T09:10:45.123Z");
 const enTitle = app.goalTitle(goal);
 const ownerTitle = app.goalTitle(ownerGoal);
 const ownerLifecycle = app.lifecycleForData({ goal: { state: "active", title_source: "codex_app_server_thread_goal" }, lifecycle: [{ step: "planned", state: "planned" }] });
 const legacyLifecycle = app.lifecycleForData({ goal: { state: "active" }, lifecycle: [{ step: "planned", state: "planned" }] });
 context.AoaDashboardI18n.createI18n;
-process.stdout.write(JSON.stringify({ recent, old, enTitle, ownerTitle, ownerLifecycle, legacyLifecycle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasIso: /T|Z/.test(old) }));
+process.stdout.write(JSON.stringify({ recent, old, absolute, enTitle, ownerTitle, ownerLifecycle, legacyLifecycle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasAbsoluteSeconds: /:\d{2}:\d{2}/.test(absolute), hasIso: /T|Z/.test(old) }));
 '''
         )
         self.assertIn("12", observed["recent"])
         self.assertNotRegex(observed["recent"], r"T|Z|\.\d")
         self.assertFalse(observed["hasSeconds"])
+        self.assertFalse(observed["hasAbsoluteSeconds"])
         self.assertFalse(observed["hasIso"])
         self.assertEqual(observed["enTitle"], "Create the first Goal Space slice")
         self.assertEqual(observed["ownerTitle"], "Преобразовать aoa-dashboard в Goal Space")
@@ -315,10 +326,10 @@ const topology = {
     evidence_refs: [{ label: "Current Goal topology", ref: "owner:topology" }],
     nodes: [
       { id: "GS17", title: "Current Goal binding", state: "completed", source_state: "completed", depends_on: [], owner: "master-thread", scope: "Keep the Goal identity current" },
-      { id: "GS18", title: "Full aoa-dashboard Goal readiness", state: "in_progress", source_state: "in_progress", depends_on: ["GS17"], owner: "master-thread", scope: "Hold source, runtime, visual and human evidence together" },
+      { id: "GS18", title: "Full aoa-dashboard Goal readiness", state: "in_progress", source_state: "in_progress", depends_on: ["GS17"], owner: "master-thread", scope: "Hold source, runtime, visual and human evidence together", user_facing: true },
     ],
   },
-  dag: [{ id: "GS18", source_kind: "master_goal_topology", title: "Full aoa-dashboard Goal readiness", state: "active", depends_on: ["GS17"], observation: "Hold source, runtime, visual and human evidence together" }],
+    dag: [{ id: "GS18", source_kind: "master_goal_topology", title: "Full aoa-dashboard Goal readiness", state: "active", depends_on: ["GS17"], observation: "Hold source, runtime, visual and human evidence together", user_facing: true }],
 };
 const enDirection = en.directionItems(one).find((item) => item.ref === "dag:D4");
 const topologyDirection = en.directionItems(topology)[0];
@@ -361,6 +372,64 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(observed["person"]["role"], "Working agent")
         self.assertNotIn("task:", json.dumps(observed["person"]))
         self.assertNotIn("historical source", observed["source"]["focus"])
+
+    def test_goal_bound_primary_trajectory_uses_admitted_mapping_and_hides_internal_topology(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function node(tag) {
+  return { tagName: tag, children: [], className: "", dataset: {}, textContent: "", append(...items) { this.children.push(...items); }, setAttribute() {}, addEventListener() {} };
+}
+const context = {
+  globalThis: null,
+  document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; }, createElement: node },
+  localStorage: { getItem() { return null; }, setItem() {} },
+  navigator: { language: "en-US" },
+  location: { hash: "" },
+  history: { replaceState() {} },
+  fetch() { return new Promise(() => {}); },
+  setInterval() {},
+  addEventListener() {},
+};
+context.globalThis = context;
+context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const data = {
+  goal: { goal_id: "goal:bound", title: "A human Goal", title_source: "codex_app_server_thread_goal", state: "paused", source_refs: [{ ref: "owner:goal" }] },
+  owner_goal: { state: "bound", source: { ref: "owner:goal" } },
+  current_holder: {},
+  lifecycle: [{ step: "paused", state: "paused" }],
+  presentation: { trajectory: { primary: {
+    title: { en: "Move this Goal forward", ru: "Продвигать эту цель" },
+    relationship: { en: "the selected Goal", ru: "выбранной целью" },
+    focus: { en: "Follow the next step published by its owner.", ru: "Следовать следующему шагу, опубликованному владельцем." },
+    next: { en: "Choose the next step to inspect.", ru: "Выбрать следующий шаг для просмотра." },
+  } } },
+  dag: [{ id: "GS18", source_kind: "master_goal_topology", title: "Full Goal completion readiness", state: "active", scope: "Hold source, runtime, visual and human evidence together", user_facing: false }],
+  goal_topology: { state: "bound", root_ids: ["GS18"], nodes: [{ id: "GS18", title: "Full Goal completion readiness", scope: "Hold source, runtime, visual and human evidence together", user_facing: false }], evidence_refs: [{ ref: "owner:topology" }] },
+  pressure_inbox: { items: [] },
+};
+const target = node("section");
+const primary = context.AoaDashboardApp.primaryDirectionItems(data);
+const selected = context.AoaDashboardApp.contextForRef(data, "goal-direction");
+const known = context.AoaDashboardApp.knownFocusRefs(data);
+context.AoaDashboardApp.renderTrajectoryLens(data, target);
+process.stdout.write(JSON.stringify({ primary: primary.map((item) => ({ ref: item.ref, title: item.title, focus: item.focus })), selected: selected && ({ ref: selected.ref, title: selected.title, focus: selected.focus }), known: known.has("goal-direction"), rendered: JSON.stringify(target) }));
+'''
+        )
+        self.assertEqual(observed["primary"][0]["ref"], "goal-direction")
+        self.assertEqual(observed["primary"][0]["title"], "Move this Goal forward")
+        self.assertEqual(observed["selected"]["ref"], "goal-direction")
+        self.assertEqual(observed["selected"]["title"], "Move this Goal forward")
+        self.assertTrue(observed["known"])
+        self.assertIn("Follow the next step published by its owner.", observed["rendered"])
+        self.assertNotIn("Full Goal completion readiness", observed["rendered"])
+        self.assertNotIn("Hold source, runtime, visual and human evidence together", observed["rendered"])
+        self.assertNotIn("GS18", observed["rendered"])
 
     def test_default_human_projection_hides_machine_identity_and_source_keys(self) -> None:
         observed = run_node(

@@ -86,6 +86,14 @@
         "next": {"en": "Send it to the responsible owner", "ru": "Передать ответственному владельцу"}
       }
     },
+    "trajectory": {
+      "primary": {
+        "title": {"en": "Move this Goal forward", "ru": "Продвигать эту цель"},
+        "relationship": {"en": "the selected Goal", "ru": "выбранной целью"},
+        "focus": {"en": "Follow the next step published by its owner.", "ru": "Следовать следующему шагу, опубликованному владельцем."},
+        "next": {"en": "Choose the next step to inspect.", "ru": "Выбрать следующий шаг для просмотра."}
+      }
+    },
     "pressures": {},
     "participants": {
       "roles": {

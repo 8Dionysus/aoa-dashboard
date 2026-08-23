@@ -73,13 +73,20 @@ function safeDate(value) {
 function formatAbsoluteMinute(value) {
   const date = safeDate(value);
   if (!date) return t("time.unknown");
-  return new Intl.DateTimeFormat(i18n.locale, {
+  const options = {
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(date);
+  };
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timeZone) options.timeZone = timeZone;
+  } catch (_error) {
+    // The platform's local timezone remains the fallback.
+  }
+  return new Intl.DateTimeFormat(i18n.locale, options).format(date);
 }
 
 function formatHumanRecency(value, now = new Date()) {
@@ -527,13 +534,54 @@ function topologyDirectionItems(data) {
     relationship: t("trajectory.supportingDirection"),
     focus: boundedHumanText(node.scope, t("trajectory.focusUnavailable")),
     next: "",
+    user_facing: node.user_facing === true,
     evidence_refs: arrayOrEmpty(topology.evidence_refs),
     raw: { ...node, source_kind: "master_goal_topology" },
   }));
 }
 
+function isUserFacingDirection(item) {
+  return item?.raw?.user_facing === true
+    || item?.raw?.presentation?.user_facing === true
+    || item?.user_facing === true;
+}
+
+function goalDirectionItem(data) {
+  const goal = data?.goal || {};
+  const ownerGoalBound = data?.owner_goal?.state === "bound"
+    || goal.title_source === "codex_app_server_thread_goal";
+  if (!ownerGoalBound || !goalRef(data)) return null;
+  const configured = presentationEntry(data, ["trajectory", "goal_direction"], "primary");
+  const sourceRefs = arrayOrEmpty(goal.source_refs);
+  return {
+    ref: "goal-direction",
+    kind: "direction",
+    title: presentationField(configured, "title", t("trajectory.goalDirectionTitle")),
+    state: lifecycleForData(data),
+    owner: humanOwner(data.current_holder?.label || data.current_holder?.holder, t("trajectory.master")),
+    relationship: presentationField(configured, "relationship", t("trajectory.goalDirectionRelationship")),
+    focus: presentationField(configured, "focus", t("trajectory.goalDirectionFocus")),
+    next: presentationField(configured, "next", t("trajectory.goalDirectionNext")),
+    evidence_refs: sourceRefs,
+    raw: {
+      source_kind: "goal_owner_presentation",
+      source: data.owner_goal?.source || null,
+      evidence_refs: sourceRefs,
+      claim_limit: "Localized Goal direction is dashboard presentation over the exact owner Goal read; it does not replace Goal semantics or acceptance.",
+    },
+  };
+}
+
+function primaryDirectionItems(data) {
+  const ownerDirections = directionItems(data)
+    .filter((item) => !item.ref.startsWith("pressure:") && isUserFacingDirection(item));
+  if (ownerDirections.length) return ownerDirections;
+  const goalDirection = goalDirectionItem(data);
+  return goalDirection ? [goalDirection] : [];
+}
+
 function trajectoryDirectionItems(data) {
-  return directionItems(data).filter((item) => !item.ref.startsWith("pressure:"));
+  return primaryDirectionItems(data);
 }
 
 function participantPresentation(data, actor) {
@@ -649,7 +697,8 @@ function sourceItems(data) {
 
 function contextForRef(data, ref) {
   if (!ref) return null;
-  return directionItems(data).find((item) => item.ref === ref)
+  return primaryDirectionItems(data).find((item) => item.ref === ref)
+    || directionItems(data).find((item) => item.ref === ref)
     || topologyDirectionItems(data).find((item) => item.ref === ref)
     || participantItems(data).find((item) => item.ref === ref)
     || sourceItems(data).find((item) => item.ref === ref)
@@ -661,13 +710,9 @@ function contextForSelection(data) {
 }
 
 function nextFocus(data) {
-  const directions = directionItems(data);
-  if (data?.goal_topology?.state === "bound") {
-    const frontier = directions.find((item) => item.raw?.source_kind === "master_goal_topology");
-    if (frontier) return frontier;
-  }
-  const critical = directions.find((item) => item.ref.startsWith("pressure:") && item.raw?.next_route?.critical);
-  return critical || directions[0] || null;
+  const directions = primaryDirectionItems(data);
+  const critical = directionItems(data).find((item) => item.ref.startsWith("pressure:") && item.raw?.next_route?.critical);
+  return directions[0] || critical || null;
 }
 
 function attentionFocus(data) {
@@ -996,7 +1041,11 @@ function renderTopologyBranches(data, item, target, path = [item.ref]) {
   target.append(toggle);
   if (!expanded) return;
 
-  const byId = new Map(topologyDirectionItems(data).map((candidate) => [candidate.raw.id, candidate]));
+  const byId = new Map(
+    topologyDirectionItems(data)
+      .filter((candidate) => isUserFacingDirection(candidate))
+      .map((candidate) => [candidate.raw.id, candidate]),
+  );
   const list = document.createElement("div");
   list.className = "topology-branch-list";
   list.setAttribute("role", "list");
@@ -1187,6 +1236,13 @@ function diagnosticEntries(data, context = contextForSelection(data)) {
       value: safeDiagnosticValue({ owner_goal_context: data.owner_goal_context, participant_context: data.participant_context }),
     });
   }
+  if (data?.goal_topology?.state === "bound") {
+    entries.push({
+      label: t("diagnostics.goalTopology"),
+      refs: arrayOrEmpty(data.goal_topology.evidence_refs).slice(0, MAX_REFS),
+      value: safeDiagnosticValue({ goal_topology: data.goal_topology }),
+    });
+  }
   return entries;
 }
 
@@ -1342,7 +1398,7 @@ function renderDiagnosticsSurface(data) {
 }
 
 function knownFocusRefs(data) {
-  return new Set([...directionItems(data).map((item) => item.ref), ...topologyDirectionItems(data).map((item) => item.ref), ...participantItems(data).map((item) => item.ref), ...arrayOrEmpty(data.sources).map((item) => `source:${item.id || "unknown"}`)]);
+  return new Set([...primaryDirectionItems(data).map((item) => item.ref), ...directionItems(data).map((item) => item.ref), ...topologyDirectionItems(data).map((item) => item.ref), ...participantItems(data).map((item) => item.ref), ...arrayOrEmpty(data.sources).map((item) => `source:${item.id || "unknown"}`)]);
 }
 
 function renderProjection(data) {
@@ -1481,6 +1537,7 @@ window.AoaDashboardApp = Object.freeze({
   attentionFocus,
   directionItems,
   trajectoryDirectionItems,
+  primaryDirectionItems,
   topologyDirectionItems,
   participantItems,
   sourceItems,
@@ -1489,6 +1546,7 @@ window.AoaDashboardApp = Object.freeze({
   diagnosticEntries,
   catalogItemForRef,
   renderDiagnosticRoutes,
+  renderTrajectoryLens,
   renderHome,
   renderCatalogWorkspace,
   renderProjection,

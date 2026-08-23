@@ -45,7 +45,7 @@ class GoalTopologyTests(unittest.TestCase):
             "claim_limit": "Task-local planning only; no proof or acceptance.",
             "nodes": [
                 {"id": "GS1", "title": "Current Goal binding", "state": "completed", "depends_on": []},
-                {"id": "GS2", "title": "Full Goal readiness", "state": "in_progress", "depends_on": ["GS1"], "scope": "Hold the remaining directions together"},
+                {"id": "GS2", "title": "Full Goal readiness", "state": "in_progress", "depends_on": ["GS1"], "scope": "Hold the remaining directions together", "user_facing": True},
             ],
         }
         value.update(changes)
@@ -57,6 +57,8 @@ class GoalTopologyTests(unittest.TestCase):
         self.assertEqual(observed["state"], "bound")
         self.assertEqual(observed["root_ids"], ["GS2"])
         self.assertEqual(observed["nodes"][1]["source_state"], "in_progress")
+        self.assertTrue(observed["nodes"][1]["user_facing"])
+        self.assertFalse(observed["nodes"][0]["user_facing"])
         self.assertEqual(observed["source"]["owner"], "master-thread")
 
     def test_goal_mismatch_and_cycles_fail_closed(self) -> None:
