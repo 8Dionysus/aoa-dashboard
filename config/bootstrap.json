@@ -3,6 +3,103 @@
   "profile": "host-local-first-slice",
   "goal_id": "aoa-dashboard-goal-01a00722-20260815",
   "title": "Create aoa-dashboard first working vertical slice",
+  "presentation": {
+    "schema_version": "aoa_dashboard_human_presentation_v1",
+    "claim_limit": "Localized display fields are a bounded dashboard presentation; canonical Goal, owner, route, source, and actor values remain separate observations.",
+    "goal": {
+      "title": {
+        "en": "Create the first Goal Space slice",
+        "ru": "Собрать первый рабочий срез пространства целей"
+      }
+    },
+    "directions": {
+      "G0": {
+        "title": {"en": "Goal anchor", "ru": "Опора цели"},
+        "relationship": {"en": "Sets the shared goal", "ru": "Задаёт общую цель"},
+        "focus": {"en": "Keep the goal visible", "ru": "Сохранять цель видимой"},
+        "next": {"en": "Continue from the current goal", "ru": "Продолжить от текущей цели"}
+      },
+      "D1": {
+        "title": {"en": "Ownership", "ru": "Граница владения"},
+        "relationship": {"en": "Sets the boundary", "ru": "Задаёт границу"},
+        "focus": {"en": "Keep the view within its owner", "ru": "Сохранять представление в своей зоне"},
+        "next": {"en": "Use the owner boundary", "ru": "Следовать границе владельца"}
+      },
+      "D2": {
+        "title": {"en": "Shared view", "ru": "Общее представление"},
+        "relationship": {"en": "Gives the work a common shape", "ru": "Придаёт работе общий вид"},
+        "focus": {"en": "Keep the view understandable", "ru": "Сохранять ясность представления"},
+        "next": {"en": "Read the shared view", "ru": "Читать общее представление"}
+      },
+      "D3": {
+        "title": {"en": "Source links", "ru": "Связи с источниками"},
+        "relationship": {"en": "Connects the view to its sources", "ru": "Связывает представление с источниками"},
+        "focus": {"en": "Keep each observation traceable", "ru": "Сохранять проверяемость наблюдений"},
+        "next": {"en": "Check the available sources", "ru": "Проверить доступные источники"}
+      },
+      "D4": {
+        "title": {"en": "Observation history", "ru": "История наблюдений"},
+        "relationship": {"en": "Keeps changes together", "ru": "Собирает изменения вместе"},
+        "focus": {"en": "Keep earlier observations from being lost", "ru": "Не терять предыдущие наблюдения"},
+        "next": {"en": "Review the next change", "ru": "Проверить следующее изменение"}
+      },
+      "D5": {
+        "title": {"en": "People and returns", "ru": "Люди и возвраты"},
+        "relationship": {"en": "Shows who is carrying the work", "ru": "Показывает, кто несёт работу"},
+        "focus": {"en": "Keep responsibility and activity distinct", "ru": "Разделять ответственность и активность"},
+        "next": {"en": "Inspect the people view", "ru": "Открыть представление людей"}
+      },
+      "D6": {
+        "title": {"en": "Operator view", "ru": "Представление оператора"},
+        "relationship": {"en": "Brings the work into one view", "ru": "Собирает работу в одном представлении"},
+        "focus": {"en": "Keep the next useful focus visible", "ru": "Сохранять следующий фокус видимым"},
+        "next": {"en": "Choose a view to inspect", "ru": "Выбрать представление для просмотра"}
+      },
+      "D7": {
+        "title": {"en": "Trust and actions", "ru": "Доверие и действия"},
+        "relationship": {"en": "Separates seeing from acting", "ru": "Разделяет наблюдение и действие"},
+        "focus": {"en": "Keep records non-executing", "ru": "Сохранять записи неисполняющими"},
+        "next": {"en": "Record only a bounded request", "ru": "Записать только ограниченный запрос"}
+      },
+      "D8": {
+        "title": {"en": "Current Goal", "ru": "Текущая цель"},
+        "relationship": {"en": "Lets the view observe itself", "ru": "Позволяет представлению наблюдать себя"},
+        "focus": {"en": "Keep the current work connected", "ru": "Сохранять связь с текущей работой"},
+        "next": {"en": "Open the current Goal", "ru": "Открыть текущую цель"}
+      },
+      "D9": {
+        "title": {"en": "Independent review", "ru": "Независимая проверка"},
+        "relationship": {"en": "Keeps review separate from the view", "ru": "Отделяет проверку от представления"},
+        "focus": {"en": "Do not turn a green check into acceptance", "ru": "Не считать зелёную проверку принятием"},
+        "next": {"en": "Wait for the review owner", "ru": "Дождаться владельца проверки"}
+      },
+      "P∞": {
+        "title": {"en": "New requests", "ru": "Новые запросы"},
+        "relationship": {"en": "Keeps new pressure visible", "ru": "Сохраняет новое давление видимым"},
+        "focus": {"en": "Keep a new request bounded", "ru": "Ограничить новый запрос"},
+        "next": {"en": "Send it to the responsible owner", "ru": "Передать ответственному владельцу"}
+      }
+    },
+    "pressures": {
+      "pressure:d4:cursor-conflict-retention": {
+        "title": {"en": "Keep updates clear", "ru": "Сохранять ясность обновлений"},
+        "relationship": {"en": "Needs review", "ru": "Нужна проверка"},
+        "focus": {"en": "Without a stable history, an earlier observation can be lost.", "ru": "Без устойчивой истории можно потерять предыдущее наблюдение."},
+        "next": {"en": "Review the next step with the owner", "ru": "Проверить следующий шаг с владельцем"}
+      },
+      "pressure:p-infinity:structured-inbox": {
+        "title": {"en": "Keep new requests bounded", "ru": "Ограничивать новые запросы"},
+        "relationship": {"en": "Needs an owner decision", "ru": "Нужно решение владельца"},
+        "focus": {"en": "A new request stays visible without becoming an action.", "ru": "Новый запрос остаётся видимым и не становится действием."},
+        "next": {"en": "Send the request to the responsible owner", "ru": "Передать запрос ответственному владельцу"}
+      }
+    },
+    "participants": {
+      "roles": {
+        "external_codex_incarnation": {"en": "Working agent", "ru": "Рабочий агент"}
+      }
+    }
+  },
   "goal_anchor_path": "/home/dionysus/.codex/attachments/11f36fe1-23db-4a4f-bce5-cbbdc77a9033/pasted-text-1.txt",
   "goal_anchor_expected_sha256": "28cc96131c16d023980dc2c6185022258f837cf49d9a5bfc9ad35ee519f48862",
   "historical_bootstrap": {

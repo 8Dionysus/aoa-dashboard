@@ -71,6 +71,7 @@ class SourceObservation(TypedDict, total=False):
 class Projection(TypedDict, total=False):
     schema_version: str
     generated_at: str
+    presentation: dict[str, object]
     goal: dict[str, object]
     correlation: dict[str, object]
     correlation_read_model: dict[str, object]

@@ -32,13 +32,8 @@ const MAX_DIRECTIONS = 12;
 const MAX_PEOPLE = 6;
 const MAX_SOURCES = 12;
 const MAX_REFS = 12;
+const MAX_HUMAN_TEXT = 96;
 const ADMITTED_ROUTE_CURRENTNESS = new Set(["current", "current_at_read"]);
-const GOAL_LABELS = {
-  "aoa-dashboard-goal-01a00722-20260815": {
-    en: "Create the first Goal Space slice",
-    ru: "Собрать первый рабочий срез пространства целей",
-  },
-};
 
 const SelectionContext = dashboardUI.SelectionContext;
 let currentProjection = null;
@@ -98,17 +93,22 @@ function humanize(value, fallback = "") {
   if (value === null || value === undefined || value === "") return fallback;
   const textValue = String(value).replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
   if (!textValue) return fallback;
-  return textValue.length > 120 ? `${textValue.slice(0, 117)}…` : textValue;
+  return textValue.length > MAX_HUMAN_TEXT ? `${textValue.slice(0, MAX_HUMAN_TEXT - 1)}…` : textValue;
 }
 
 function isTechnicalValue(value) {
   const candidate = String(value || "").trim();
   return /^(?:actor|detail|goal|master-thread|owner|source|thread):/i.test(candidate)
     || /^(?:dag|lifecycle|pressure|return|task|thread):/i.test(candidate)
+    || /^D\d+\b/i.test(candidate)
+    || /^(?:one-shot|return|holder|incarnation|external codex|codex|wake|handoff)\b/i.test(candidate)
     || /^\/(?:home|srv|tmp|var)\//i.test(candidate)
     || /\/(?:home|srv|tmp|var)\//i.test(candidate)
     || /sha256:[0-9a-f]{16,}/i.test(candidate)
     || /(?:schema_version|claim_limit|evidence_refs|source_path)/i.test(candidate)
+    || /\bsource\s+(?:dashboard|owner|route|path|surface):/i.test(candidate)
+    || /\b(?:dashboard|correlation[_\s-]*read[_\s-]*model|cursor|checkpoint|task-local|task local|master[_\s-]*filter|current[_\s-]*head|runtime|event drift)\b/i.test(candidate)
+    || /\b(?:filter|route)\s+(?:exact|the exact|a request|this route)\b/i.test(candidate)
     || /^[{\[]/.test(candidate)
     || /^[A-Za-z0-9.-]+(?:_[A-Za-z0-9.-]+)+$/.test(candidate)
     || /^[0-9a-f]{32,}$/i.test(candidate);
@@ -119,15 +119,67 @@ function humanValue(value, fallback = "") {
   return humanize(value, fallback);
 }
 
+function presentationRoot(data) {
+  const value = data?.presentation || data?.human_presentation;
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function presentationEntry(data, groups, key = null) {
+  const root = presentationRoot(data);
+  const names = Array.isArray(groups) ? groups : [groups];
+  for (const name of names) {
+    const collection = root[name];
+    if (!collection || typeof collection !== "object") continue;
+    if (key === null || key === undefined) return collection;
+    if (Array.isArray(collection)) {
+      const match = collection.find((item) => item && typeof item === "object" && [item.id, item.ref, item.key].includes(key));
+      if (match) return match;
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(collection, key)) return collection[key];
+    if (collection.default && typeof collection.default === "object") return collection.default;
+  }
+  return null;
+}
+
+function localizedHumanValue(value, fallback = "") {
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const localized = value[i18n.language] ?? value.en ?? value.ru;
+    return localized === undefined ? fallback : localizedHumanValue(localized, fallback);
+  }
+  return humanValue(value, fallback);
+}
+
+function presentationField(entry, field, fallback = "") {
+  if (entry === null || entry === undefined) return fallback;
+  if (typeof entry !== "object" || Array.isArray(entry)) return localizedHumanValue(entry, fallback);
+  return localizedHumanValue(Object.prototype.hasOwnProperty.call(entry, field) ? entry[field] : entry, fallback);
+}
+
+function mergePresentation(...entries) {
+  return entries.reduce((result, entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return result;
+    return { ...result, ...entry };
+  }, {});
+}
+
+function itemPresentation(data, groups, key, item) {
+  return mergePresentation(presentationEntry(data, groups, key), item?.presentation, item?.human_presentation);
+}
+
 function humanOwner(value, fallback = "") {
   if (value === null || value === undefined || value === "") return fallback;
-  const normalized = String(value).toLowerCase();
+  const source = String(value).trim();
+  const normalized = source.toLowerCase();
   const known = {
-    "aoa-agents": i18n.language === "ru" ? "Ответственность" : "Responsibility",
-    "master-thread": i18n.language === "ru" ? "Мастер цели" : "Goal master",
-    "aoa-dashboard": i18n.language === "ru" ? "Это представление" : "Goal Space",
+    "aoa-agents": t("owner.responsibility"),
+    "master-thread": t("owner.master"),
+    "aoa-dashboard": t("owner.goalSpace"),
     "goal-anchor": t("evidence.goalAnchor"),
     "aoa-session-memory": t("evidence.sessionHistory"),
+    ".aoa/session memory": t("evidence.sessionHistory"),
+    ".aoa/session-memory": t("evidence.sessionHistory"),
     "task-local-correlation": t("evidence.currentCorrelation"),
     "task-local-actor-activity": t("evidence.peopleUpdates"),
     "aoa-stats-source-coverage": t("evidence.measurements"),
@@ -141,12 +193,13 @@ function humanOwner(value, fallback = "") {
     "abyss-stack": t("evidence.runtimeSurface"),
     "aoa-kag": t("evidence.knowledgeProjection"),
     "aoa-stats": t("evidence.measurements"),
-    "operator:local": i18n.language === "ru" ? "Оператор" : "Operator",
+    "operator:local": t("owner.operator"),
   };
   if (normalized.startsWith("master-thread:")) return known["master-thread"];
-  if (normalized.startsWith("owner:")) return humanOwner(normalized.slice("owner:".length), fallback);
+  if (normalized.startsWith("owner:")) return humanOwner(source.slice("owner:".length), fallback);
+  if (source.length > 40 || /\b(?:independent|reviewer|contract|incarnation|return|holder)\b/i.test(source)) return fallback;
   if (isTechnicalValue(value)) return fallback;
-  return known[normalized] || humanize(value, fallback);
+  return known[normalized] || humanValue(source, fallback);
 }
 
 function humanSourceLabel(value) {
@@ -168,9 +221,8 @@ function humanSourceLabel(value) {
 
 function goalTitle(data) {
   const goal = data?.goal || {};
-  const labels = GOAL_LABELS[goal.goal_id];
-  if (labels) return labels[i18n.language] || labels.en;
-  return humanValue(goal.title, i18n.language === "ru" ? "Цель без названия" : "Unnamed Goal");
+  const configured = presentationField(presentationEntry(data, "goal"), "title", "");
+  return configured || humanValue(goal.title, t("goal.unnamed"));
 }
 
 function goalRef(data) {
@@ -231,14 +283,14 @@ function showPageControls(target, listKey, windowed) {
   controls.setAttribute("aria-label", t("trajectory.directions"));
   const previous = text("button", "‹", "pager-button");
   previous.type = "button";
-  previous.setAttribute("aria-label", i18n.language === "ru" ? "Предыдущая страница" : "Previous page");
-  previous.title = i18n.language === "ru" ? "Предыдущая страница" : "Previous page";
+  previous.setAttribute("aria-label", t("pager.previous"));
+  previous.title = t("pager.previous");
   previous.disabled = !windowed.hasPrevious;
   previous.addEventListener("click", () => setPage(listKey, windowed.page - 1));
   const next = text("button", "›", "pager-button");
   next.type = "button";
-  next.setAttribute("aria-label", i18n.language === "ru" ? "Следующая страница" : "Next page");
-  next.title = i18n.language === "ru" ? "Следующая страница" : "Next page";
+  next.setAttribute("aria-label", t("pager.next"));
+  next.title = t("pager.next");
   next.disabled = !windowed.hasNext;
   next.addEventListener("click", () => setPage(listKey, windowed.page + 1));
   controls.append(previous, text("span", `${windowed.page + 1} / ${windowed.pageCount}`, "pager-status"), next);
@@ -391,15 +443,16 @@ function cleanDirectionTitle(value, fallback) {
 function directionItems(data) {
   const items = [];
   for (const item of arrayOrEmpty(data?.dag)) {
+    const configured = itemPresentation(data, ["directions", "dag"], item.id || item.ref, item);
     items.push({
       ref: `dag:${item.id || items.length}`,
       kind: "direction",
-      title: cleanDirectionTitle(item.title, t("trajectory.direction")),
+      title: presentationField(configured, "title", "") || cleanDirectionTitle(item.title, t("trajectory.direction")),
       state: item.state || "unknown",
       owner: humanOwner(item.owner, t("trajectory.master")),
-      relationship: humanValue(item.pressure, t("trajectory.master")),
-      focus: humanValue(item.observation, t("trajectory.nextFocusEmpty")),
-      next: humanValue(item.next, t("trajectory.nextFocusEmpty")),
+      relationship: presentationField(configured, "relationship", "") || humanValue(item.pressure, t("trajectory.related")),
+      focus: presentationField(configured, "focus", "") || humanValue(item.observation, t("trajectory.focusUnavailable")),
+      next: presentationField(configured, "next", "") || humanValue(item.next, t("trajectory.nextUnavailable")),
       evidence_refs: arrayOrEmpty(item.evidence_refs),
       raw: item,
     });
@@ -408,25 +461,45 @@ function directionItems(data) {
     const pressure = item.pressure_ref || {};
     const ref = `pressure:${pressure.id || pressure.ref || items.length}`;
     if (items.some((candidate) => candidate.ref === ref)) continue;
+    const configured = itemPresentation(data, ["pressures", "pressure"], pressure.id || pressure.ref || ref, item);
     items.push({
       ref,
       kind: "direction",
-      title: cleanDirectionTitle(item.affected_goal_criterion, t("trajectory.direction")),
+      title: presentationField(configured, "title", "") || cleanDirectionTitle(item.affected_goal_criterion, t("trajectory.direction")),
       state: item.outcome?.state || data?.pressure_inbox?.status || "unknown",
       owner: humanOwner(item.natural_owner?.owner || item.next_route?.owner, t("trajectory.master")),
-      relationship: humanValue(item.next_route?.route, t("trajectory.master")),
-      focus: humanValue(item.consequence_of_omission, t("trajectory.nextFocusEmpty")),
-      next: humanValue(item.next_route?.route, t("trajectory.nextFocusEmpty")),
+      relationship: presentationField(configured, "relationship", "") || humanValue(item.next_route?.route, t("trajectory.related")),
+      focus: presentationField(configured, "focus", "") || humanValue(item.consequence_of_omission, t("attention.consequenceUnavailable")),
+      next: presentationField(configured, "next", "") || humanValue(item.next_route?.route, t("attention.nextUnavailable")),
       evidence_refs: arrayOrEmpty(item.evidence),
       raw: item,
     });
   }
   if (!items.length) {
     for (const item of arrayOrEmpty(data?.lifecycle).filter((candidate) => ["running", "paused", "returned", "deferred"].includes(candidate.state))) {
-      items.push({ ref: `lifecycle:${item.step}`, kind: "direction", title: humanValue(item.step, t("trajectory.direction")), state: item.state, owner: t("trajectory.master"), relationship: t("trajectory.master"), focus: humanValue(item.observation, t("trajectory.nextFocusEmpty")), next: t("trajectory.nextFocusEmpty"), evidence_refs: arrayOrEmpty(item.evidence_refs), raw: item });
+      const configured = itemPresentation(data, ["directions", "lifecycle"], `lifecycle:${item.step}`, item);
+      items.push({ ref: `lifecycle:${item.step}`, kind: "direction", title: presentationField(configured, "title", "") || humanValue(item.step, t("trajectory.direction")), state: item.state, owner: t("trajectory.master"), relationship: presentationField(configured, "relationship", t("trajectory.related")), focus: presentationField(configured, "focus", "") || humanValue(item.observation, t("trajectory.focusUnavailable")), next: presentationField(configured, "next", t("trajectory.nextUnavailable")), evidence_refs: arrayOrEmpty(item.evidence_refs), raw: item });
     }
   }
   return items;
+}
+
+function participantPresentation(data, actor) {
+  const configured = presentationEntry(data, "participants") || {};
+  const identity = actor?.identity || {};
+  const keys = [actor?.actor_key, actor?.actor_id, identity.actor_id, identity.identity_key].filter(Boolean);
+  const items = configured.items || configured.people;
+  const named = Array.isArray(items)
+    ? items.find((item) => item && typeof item === "object" && keys.some((key) => [item.id, item.ref, item.key].includes(key)))
+    : null;
+  const role = configured.roles?.[identity.role_id];
+  return mergePresentation(named, role ? { role } : null);
+}
+
+function humanParticipantName(value, fallback = "") {
+  const candidate = humanValue(value, fallback);
+  if (!candidate || candidate.length > 40 || !/^\p{L}[\p{L}.'-]*(?:\s+\p{L}[\p{L}.'-]*){0,2}$/u.test(candidate) || /\b(?:one-shot|return|holder|incarnation|external codex|codex|wake|handoff|independent|owner|reviewer|contract|task|role)\b/i.test(candidate)) return fallback;
+  return candidate;
 }
 
 function participantItems(data) {
@@ -434,21 +507,16 @@ function participantItems(data) {
     const identity = actor.identity || {};
     const task = actor.task || {};
     const responsibility = actor.responsibility || {};
+    const configured = participantPresentation(data, actor);
     const rawRole = String(identity.role_id || "");
-    const roleValue = humanValue(identity.role_id, "");
-    const role = /external[_\s-]+codex|agent/i.test(rawRole) && !roleValue
-      ? (i18n.language === "ru" ? "Рабочий агент" : "Working agent")
-      : /external\s+codex|agent/i.test(roleValue)
-      ? (i18n.language === "ru" ? "Рабочий агент" : "Working agent")
-      : roleValue || (i18n.language === "ru" ? "Роль не указана" : "Role not published");
-    const publishedLabel = humanValue(identity.label, "");
-    const publishedHolder = humanOwner(responsibility.holder, "");
-    const title = publishedLabel && !/^return[:\s]/i.test(publishedLabel)
-      ? publishedLabel
-      : publishedHolder && !/^return[:\s]/i.test(publishedHolder)
-        ? publishedHolder
-        : `${i18n.language === "ru" ? "Участник" : "Participant"} ${index + 1}`;
-    const model = humanValue(identity.model_id || actor.model, "");
+    const role = presentationField(configured, "role", "")
+      || (/external[_\s-]+codex|agent/i.test(rawRole) ? t("participants.workingAgent") : t("participants.roleUnknown"));
+    const publishedLabel = presentationField(configured, "name", "") || presentationField(configured, "label", "") || humanParticipantName(identity.label, "");
+    const publishedHolder = humanParticipantName(responsibility.holder, "");
+    const title = publishedLabel || publishedHolder || t("participants.personNumber", { count: index + 1 });
+    const model = presentationField(configured, "model", "");
+    const taskValue = presentationField(configured, "task", "") || t("participants.workUnavailable");
+    const relationship = presentationField(configured, "relationship", "") || humanValue(responsibility.responsibility_state, t("participants.relationshipUnavailable"));
     return {
       ref: `actor:${actor.actor_key || actor.actor_id || index}`,
       kind: "person",
@@ -457,8 +525,8 @@ function participantItems(data) {
       owner: humanOwner(responsibility.holder, t("trajectory.master")),
       role,
       model: model || null,
-      task: humanValue(task.task_id, t("participants.unknown")),
-      relationship: humanValue(responsibility.responsibility_state, t("trajectory.master")),
+      task: taskValue,
+      relationship,
       focus: statusLabel(task.state || "unknown"),
       evidence_refs: arrayOrEmpty(actor.evidence_refs),
       raw: actor,
@@ -467,17 +535,21 @@ function participantItems(data) {
 }
 
 function sourceItems(data) {
-  return arrayOrEmpty(data?.sources).map((item) => ({
-    ref: `source:${item.id || "unknown"}`,
-    kind: "source",
-    title: humanSourceLabel(item.id),
-    state: item.state || "unknown",
-    owner: humanOwner(item.owner, t("trajectory.master")),
-    relationship: humanValue(item.publisher_status || item.freshness, t("evidence.connectedSource")),
-    focus: humanValue(item.observation, t("evidence.sourceMissing")),
-    evidence_refs: arrayOrEmpty(item.evidence_refs),
-    raw: item,
-  }));
+  return arrayOrEmpty(data?.sources).map((item) => {
+    const configured = itemPresentation(data, ["sources", "evidence"], item.id || item.ref, item);
+    const state = item.state || "unknown";
+    return {
+      ref: `source:${item.id || "unknown"}`,
+      kind: "source",
+      title: presentationField(configured, "title", "") || humanSourceLabel(item.id),
+      state,
+      owner: humanOwner(item.owner, t("trajectory.master")),
+      relationship: presentationField(configured, "relationship", "") || (state === "missing" ? t("evidence.sourceUnavailable") : t("evidence.connectedSource")),
+      focus: presentationField(configured, "focus", "") || (state === "missing" ? t("evidence.sourceMissing") : t("evidence.sourceObserved")),
+      evidence_refs: arrayOrEmpty(item.evidence_refs),
+      raw: item,
+    };
+  });
 }
 
 function contextForSelection(data) {
@@ -759,19 +831,17 @@ function renderAttentionLens(data, target) {
   const surface = createSurface("attention.heading", "attention.intro");
   const list = document.createElement("div");
   list.className = "attention-list";
-  const items = pressureItems(data);
+  const items = directionItems(data).filter((item) => item.ref.startsWith("pressure:"));
   const windowed = dashboardUI.pageWindow(items, pageFor("attention"), MAX_DIRECTIONS, selection.focus_ref);
   for (const item of windowed.items) {
     const card = document.createElement("article");
     card.className = `attention-card${selection.focus_ref === item.ref ? " selected" : ""}`;
-    const title = cleanDirectionTitle(item.affected_goal_criterion, t("trajectory.direction"));
-    const select = text("button", title, "direction-select");
+    const select = text("button", item.title, "direction-select");
     select.type = "button";
     select.setAttribute("data-focus-key", item.ref);
     select.setAttribute("aria-label", t("attention.inspect"));
     select.addEventListener("click", () => selectDetail(item.ref, "attention", pageFor("attention")));
-    const owner = humanOwner(item.natural_owner?.owner || item.next_route?.owner, t("trajectory.master"));
-    card.append(select, badge(item.outcome?.state || data.pressure_inbox?.status || "unknown"), text("p", t("attention.owner", { value: owner }), "direction-meta"), text("p", t("attention.consequence", { value: humanValue(item.consequence_of_omission, t("trajectory.nextFocusEmpty")) }), "direction-focus"), text("p", t("attention.route", { value: humanValue(item.next_route?.route, t("trajectory.nextFocusEmpty")) }), "direction-next"));
+    card.append(select, badge(item.state), text("p", t("attention.owner", { value: item.owner }), "direction-meta"), text("p", t("attention.consequence", { value: item.focus }), "direction-focus"), text("p", t("attention.route", { value: item.next }), "direction-next"));
     list.append(card);
   }
   if (!items.length) list.append(text("p", t("attention.noPressure"), "empty-copy"));
@@ -844,8 +914,8 @@ function renderRecordsLens(data, target) {
     card.append(text("p", label, "card-label"), text("strong", count, "summary-value"), badge(record.state || "unknown"), text("p", record.latest?.length ? t("records.inspect") : t("records.empty"), "summary-detail"));
     grid.append(card);
   };
-  add(i18n.language === "ru" ? "Заметки" : "Notes", annotations, "annotations");
-  add(i18n.language === "ru" ? "Запросы" : "Requests", intents, "intents");
+  add(t("records.annotations"), annotations, "annotations");
+  add(t("records.requests"), intents, "intents");
   surface.body.append(grid);
   target.append(surface.panel);
 }
@@ -886,14 +956,14 @@ function renderDiagnosticRoutes(data, target) {
   for (const entry of entries) {
     const item = document.createElement("section");
     item.className = "diagnostic-entry";
-    item.append(text("h3", entry.label), evidenceList(entry.refs));
+    item.append(text("h3", entry.label));
     const developer = document.createElement("details");
     developer.className = "developer-details";
     developer.append(text("summary", t("diagnostics.developer")));
     developer.addEventListener("toggle", () => {
       if (!developer.open || developer.dataset.loaded === "true") return;
       developer.dataset.loaded = "true";
-      developer.append(text("p", t("diagnostics.raw"), "panel-intro"), text("pre", JSON.stringify(entry.value, null, 2)));
+      developer.append(evidenceList(entry.refs), text("p", t("diagnostics.raw"), "panel-intro"), text("pre", JSON.stringify(entry.value, null, 2)));
     });
     item.append(developer);
     body.append(item);
@@ -961,7 +1031,7 @@ function renderOperateRoute(data, target, context) {
   const item = candidate?.item;
   target.className = `operate-route-card ${candidate?.readiness?.ready ? "route-ready" : "route-missing"}`;
   target.append(text("strong", candidate?.readiness?.ready ? t("operate.routeReady") : t("operate.routeMissing")), text("span", t("operate.owner", { value: humanOwner(route.owner, context?.owner || t("trajectory.master")) }), "context-detail"), text("span", t("operate.effect"), "context-detail"));
-  if (item) target.append(text("span", t("operate.stop", { value: humanize(item.stop_line, t("trajectory.nextFocusEmpty")) }), "context-detail"), text("span", t("operate.return", { value: humanize(item.wake_condition, t("trajectory.nextFocusEmpty")) }), "context-detail"));
+  if (item) target.append(text("span", t("operate.stopRecorded"), "context-detail"), text("span", t("operate.returnRecorded"), "context-detail"));
 }
 
 function setFormTargets(targetRef) {

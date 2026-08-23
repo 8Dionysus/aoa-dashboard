@@ -35,6 +35,9 @@ class GoalSpaceUiStateTests(unittest.TestCase):
         self.assertIn("renderDiagnosticRoutes", source)
         self.assertIn("function formatHumanRecency", source)
         self.assertIn("contextThreadOpen = false", source)
+        self.assertNotIn("GOAL_LABELS", source)
+        self.assertNotRegex(source, r"aoa-dashboard-goal-01a00722-20260815")
+        self.assertNotIn('i18n.language === "ru"', source)
 
     def test_operate_route_requires_admitted_currentness_and_exact_context(self) -> None:
         observed = run_node(
@@ -212,7 +215,7 @@ vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
 const app = context.AoaDashboardApp;
-const goal = { goal: { goal_id: "aoa-dashboard-goal-01a00722-20260815", title: "Create aoa-dashboard first working vertical slice" } };
+const goal = { goal: { goal_id: "goal:future-one", title: "Canonical future goal" }, presentation: { goal: { title: { en: "Create the first Goal Space slice", ru: "Собрать первый рабочий срез пространства целей" } } } };
 const recent = app.formatHumanRecency("2026-08-22T16:17:00Z", "2026-08-22T16:29:00Z");
 const old = app.formatHumanRecency("2026-08-01T09:10:45.123Z", "2026-08-22T16:29:00Z");
 const enTitle = app.goalTitle(goal);
@@ -225,6 +228,77 @@ process.stdout.write(JSON.stringify({ recent, old, enTitle, hasSeconds: /:\d{2}(
         self.assertFalse(observed["hasSeconds"])
         self.assertFalse(observed["hasIso"])
         self.assertEqual(observed["enTitle"], "Create the first Goal Space slice")
+
+    def test_generic_localized_presentation_handles_future_goals_and_hides_technical_cards(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function load(language) {
+  const storage = new Map([["aoa-dashboard.language", language]]);
+  const context = {
+    globalThis: null,
+    document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; } },
+    localStorage: { getItem(key) { return storage.get(key) || null; }, setItem(key, value) { storage.set(key, String(value)); } },
+    navigator: { language: "en-US" },
+    location: { hash: "" },
+    history: { replaceState() {} },
+    fetch() { return new Promise(() => {}); },
+    setInterval() {},
+    addEventListener() {},
+  };
+  context.globalThis = context;
+  context.window = context;
+  vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+  return context.AoaDashboardApp;
+}
+const presentation = {
+  goal: { title: { en: "First future goal", ru: "Первая будущая цель" } },
+  directions: { D4: { title: { en: "Observation history", ru: "История наблюдений" }, relationship: { en: "Keeps changes together", ru: "Собирает изменения вместе" }, focus: { en: "Keep history clear", ru: "Сохранять историю ясной" }, next: { en: "Review the next change", ru: "Проверить следующее изменение" } } },
+  pressures: { "pressure:test": { title: { en: "Review the update", ru: "Проверить обновление" }, relationship: { en: "Needs review", ru: "Нужна проверка" }, focus: { en: "A short pressure summary", ru: "Короткое резюме запроса" }, next: { en: "Ask the owner", ru: "Спросить владельца" } } },
+  participants: { roles: { external_codex_incarnation: { en: "Working agent", ru: "Рабочий агент" } } },
+};
+function projection(goalId, title, goalPresentation) {
+  return {
+    goal: { goal_id: goalId, title },
+    presentation: { ...presentation, goal: { title: goalPresentation } },
+    dag: [{ id: "D4", title: "D4 versioned cursor/checkpoint correlation projection is degraded; source dashboard:correlation_read_model.", pressure: "runtime event drift", observation: "versioned cursor/checkpoint correlation projection is degraded; source dashboard:correlation_read_model.", next: "filter exact pressure-cursor-ui handoff" }],
+    pressure_inbox: { items: [{ pressure_ref: { id: "pressure:test" }, affected_goal_criterion: "D4 requires a deterministic rebuild", consequence_of_omission: "source dashboard:correlation_read_model", next_route: { owner: "master-thread", route: "filter exact pressure-cursor-ui handoff" }, outcome: { state: "deferred" } }] },
+    actor_activity: { actors: [{ actor_key: "actor:one", identity: { label: "one-shot return holder description that belongs in diagnostics", role_id: "external_codex_incarnation", model_id: "gpt-5" }, task: { task_id: "task:private", state: "returned" }, responsibility: { holder: "actor:one", responsibility_state: "not_independent" } }] },
+    sources: [{ id: "aoa-session-memory", owner: "aoa-session-memory", state: "missing", observation: "The historical source dashboard path is unavailable.", evidence_refs: [] }],
+  };
+}
+const en = load("en");
+const ru = load("ru");
+const one = projection("goal:one", "Canonical one", { en: "First future goal", ru: "Первая будущая цель" });
+const two = projection("goal:two", "Canonical two", { en: "Second future goal", ru: "Вторая будущая цель" });
+const enDirection = en.directionItems(one).find((item) => item.ref === "dag:D4");
+const ruPressure = ru.directionItems(one).find((item) => item.ref === "pressure:pressure:test");
+const person = en.participantItems(one)[0];
+const source = en.sourceItems(one)[0];
+process.stdout.write(JSON.stringify({
+  goals: [en.goalTitle(one), en.goalTitle(two), ru.goalTitle(one)],
+  direction: { title: enDirection.title, relationship: enDirection.relationship, focus: enDirection.focus, next: enDirection.next, raw: enDirection.raw.observation },
+  pressure: { title: ruPressure.title, focus: ruPressure.focus, next: ruPressure.next, raw: ruPressure.raw.next_route.route },
+  person: { title: person.title, role: person.role, task: person.task },
+  source: { title: source.title, focus: source.focus },
+}));
+'''
+        )
+        self.assertEqual(observed["goals"], ["First future goal", "Second future goal", "Первая будущая цель"])
+        self.assertEqual(observed["direction"]["title"], "Observation history")
+        self.assertNotIn("correlation_read_model", json.dumps({key: value for key, value in observed["direction"].items() if key != "raw"}))
+        self.assertIn("correlation_read_model", observed["direction"]["raw"])
+        self.assertEqual(observed["pressure"]["title"], "Проверить обновление")
+        self.assertNotIn("pressure-cursor-ui", json.dumps({key: value for key, value in observed["pressure"].items() if key != "raw"}))
+        self.assertIn("pressure-cursor-ui", observed["pressure"]["raw"])
+        self.assertEqual(observed["person"]["title"], "Participant 1")
+        self.assertEqual(observed["person"]["role"], "Working agent")
+        self.assertNotIn("task:", json.dumps(observed["person"]))
+        self.assertNotIn("historical source", observed["source"]["focus"])
 
     def test_default_human_projection_hides_machine_identity_and_source_keys(self) -> None:
         observed = run_node(
@@ -249,16 +323,17 @@ vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
 const projection = {
-  actor_activity: { actors: [{ actor_key: "actor:abc", identity: { label: "actor:abc", role_id: "external_codex_incarnation", model_id: "gpt-5" }, task: { task_id: "task:private" }, responsibility: { holder: "actor:abc", responsibility_state: "not_independent" } }] },
-  sources: [{ id: "aoa-session-memory", owner: "aoa-session-memory", state: "missing", evidence_refs: [] }],
+  actor_activity: { actors: [{ actor_key: "actor:abc", identity: { label: "actor:abc", role_id: "external_codex_incarnation", model_id: "gpt-5" }, task: { task_id: "task:private" }, responsibility: { holder: "independent Luna Max D1/D2 owner contracts reviewer", responsibility_state: "not_independent" } }] },
+  sources: [{ id: "aoa-session-memory", owner: ".aoa/session-memory", state: "missing", evidence_refs: [] }],
 };
 const person = context.AoaDashboardApp.participantItems(projection)[0];
 const source = context.AoaDashboardApp.sourceItems(projection)[0];
-process.stdout.write(JSON.stringify({ person: { title: person.title, role: person.role, task: person.task }, source: { title: source.title, owner: source.owner } }));
+process.stdout.write(JSON.stringify({ person: { title: person.title, role: person.role, task: person.task, owner: person.owner }, source: { title: source.title, owner: source.owner } }));
 '''
         )
         self.assertEqual(observed["person"]["title"], "Participant 1")
         self.assertEqual(observed["person"]["role"], "Working agent")
+        self.assertEqual(observed["person"]["owner"], "Master")
         self.assertNotIn("actor:", json.dumps(observed["person"]))
         self.assertNotIn("task:", json.dumps(observed["person"]))
         self.assertEqual(observed["source"]["title"], "Session history")
@@ -283,16 +358,20 @@ vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
 const target = node("section");
 context.AoaDashboardApp.renderDiagnosticRoutes({ goal: { goal_id: "goal:test", title: "Goal", source_refs: [{ ref: "source:goal", sha256: "abc" }] }, correlation: { evidence_refs: [] } }, target);
 const inspector = target.children[0];
-const developer = inspector.children[1].children[1].children[2];
+const developer = inspector.children[1].children[1].children[1];
 const before = JSON.stringify(target).includes('"tagName":"pre"');
+const beforeRefs = JSON.stringify(target).includes("source:goal");
 developer.open = true;
 developer.trigger("toggle");
 const after = developer.children.some((child) => child.tagName === "pre");
-process.stdout.write(JSON.stringify({ before, after, inspectorClass: inspector.className, developerClass: developer.className }));
+const afterRefs = JSON.stringify(developer).includes("source:goal");
+process.stdout.write(JSON.stringify({ before, beforeRefs, after, afterRefs, inspectorClass: inspector.className, developerClass: developer.className }));
 '''
         )
         self.assertFalse(observed["before"])
+        self.assertFalse(observed["beforeRefs"])
         self.assertTrue(observed["after"])
+        self.assertTrue(observed["afterRefs"])
         self.assertEqual(observed["inspectorClass"], "diagnostics-inspector")
         self.assertEqual(observed["developerClass"], "developer-details")
 

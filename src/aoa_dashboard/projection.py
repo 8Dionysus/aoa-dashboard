@@ -326,9 +326,11 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     )
     safe_sources = redact_legacy_metadata(sources)
     actor_activity = source_index["task-local-actor-activity"].get("metadata", {})
+    presentation = config.get("presentation") if isinstance(config.get("presentation"), dict) else {}
     return {
         "schema_version": "aoa_dashboard_projection_v1",
         "generated_at": utc_now(),
+        "presentation": presentation,
         "goal": {
             "goal_id": config["goal_id"],
             "title": config["title"],
