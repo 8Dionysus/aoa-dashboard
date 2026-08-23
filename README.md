@@ -153,9 +153,14 @@ the surface never treats them as zero or as runtime health.
 The home surface is catalog-first: it groups every admitted catalog item by
 active, attention, paused, or completed/history state and keeps the runtime
 selected Goal as a separate convenience card. Catalog publication is bound by
-explicit runtime path or command capability; currentness, opaque pagination,
-localized title availability, and negative states remain visible. Selecting a
-catalog item reads only that item's exact owner-qualified public-safe projection.
+an explicit runtime path or command capability. The command adapter admits the
+owner's strict `aoa_session_memory_goal_catalog_public_v1` contract, preserves
+source generation/watermark/snapshot/item evidence, and follows only the
+configured opaque cursor route inside a bounded page limit. Currentness,
+localized title availability, omissions, privacy, and negative states remain
+visible. Selecting a catalog item reads only that item's exact owner-qualified
+public-safe projection; a catalog multiplicity observed from a test corpus is
+not a live-current owner claim.
 
 The mutable master disposition is admitted through the owner-authored
 `master_filter_currentness` binding: a content-addressed current-head attestation

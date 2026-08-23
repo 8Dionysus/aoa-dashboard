@@ -28,8 +28,13 @@ The dashboard owns ten local derived/operator surfaces:
    with their source refs. It is an observation surface, not a lifecycle or
    runtime-health owner.
 8. a normalized Goal catalog view over the exact owner-published
-   `aoa_session_memory_goal_catalog_v1` snapshot. Grouping and presentation are
-   dashboard-owned; lifecycle history and Goal identity remain owner data.
+   `aoa_session_memory_goal_catalog_public_v1` snapshot. The adapter accepts
+   the owner envelope `aoa_session_memory_goal_catalog_v1`, verifies the
+   immutable snapshot, source watermark, generation, page/item digests, and
+   explicit opaque cursor chain, then retains only the public-safe fields.
+   Grouping and presentation are dashboard-owned; lifecycle history and Goal
+   identity remain owner data. A command route is followed only when its
+   cursor argument and bounded page limit are explicitly configured.
 9. a read-only Codex Goal/Thread observation envelope for one exact current
    thread, including bounded direct-child and descendant relation pages. Goal,
    Thread, and branch meaning remain with the Codex app-server owner.

@@ -7,7 +7,7 @@
   const MAX_CONTEXT_STRING = 512;
   const CATALOG_SCHEMA = "aoa_dashboard_goal_catalog_projection_v1";
   const CATALOG_GROUPS = ["active", "attention", "paused", "completed"];
-  const CATALOG_CURRENTNESS = ["current", "stale", "deferred", "unknown", "invalid"];
+  const CATALOG_CURRENTNESS = ["current", "stale", "deferred", "unknown", "invalid", "missing"];
 
   function textOrNull(value, limit = MAX_CONTEXT_STRING) {
     if (value === null || value === undefined || value === "") return null;
@@ -175,7 +175,8 @@
       && source.owner === "aoa-session-memory"
       && source.ref === "aoa-session-memory:goal-lifecycles"
       && source.owner_schema_version === "aoa_session_memory_goal_catalog_v1"
-      && source.currentness === candidate.currentness
+      && ["current", "current_at_read", "stale", "deferred", "unknown", "invalid", "missing"].includes(source.currentness)
+      && (!candidate.publication_schema_version || candidate.publication_schema_version === "aoa_session_memory_goal_catalog_public_v1")
       && Array.isArray(candidate.items)
       && candidate.items.length <= 500
       && typeof candidate.claim_limit === "string" && candidate.claim_limit.length > 0;
@@ -215,11 +216,12 @@
       items.push(normalizedItem);
     }
     const pagination = candidate.pagination === undefined ? { mode: "snapshot", cursor: null, next_cursor: null, complete: true } : candidate.pagination;
-    if (!pagination || typeof pagination !== "object" || Array.isArray(pagination) || !["snapshot", "opaque_cursor"].includes(pagination.mode)
+    if (!pagination || typeof pagination !== "object" || Array.isArray(pagination) || !["snapshot", "opaque_cursor", "immutable_snapshot"].includes(pagination.mode)
       || (pagination.cursor !== null && typeof pagination.cursor !== "string")
       || (pagination.next_cursor !== null && typeof pagination.next_cursor !== "string")
       || typeof pagination.complete !== "boolean"
-      || (pagination.mode === "snapshot" && (pagination.cursor !== null || pagination.next_cursor !== null))) {
+      || (pagination.mode === "snapshot" && (pagination.cursor !== null || pagination.next_cursor !== null))
+      || (pagination.mode === "immutable_snapshot" && pagination.supports_immutable_snapshot !== true)) {
       return { state: "invalid", items: [], source, currentness: "invalid", claim_limit: candidate.claim_limit, reason: "pagination_invalid" };
     }
     return {
@@ -234,6 +236,9 @@
         cursor: textOrNull(pagination.cursor, 512),
         next_cursor: textOrNull(pagination.next_cursor, 512),
         complete: pagination.complete,
+        complete_for_query: pagination.complete_for_query === undefined ? pagination.complete : pagination.complete_for_query,
+        page_size: Number.isInteger(pagination.page_size) && pagination.page_size > 0 ? pagination.page_size : null,
+        supports_immutable_snapshot: pagination.supports_immutable_snapshot === true,
       },
       omissions: candidate.omissions && typeof candidate.omissions === "object" ? candidate.omissions : {},
       reason: null,

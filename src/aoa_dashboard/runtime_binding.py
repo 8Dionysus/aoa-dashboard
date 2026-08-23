@@ -254,6 +254,16 @@ def _publication_binding(raw: dict[str, Any], field: str) -> dict[str, Any]:
         normalized["path"] = _path(path, f"{field}_path")
     else:
         normalized["command"] = _text_list(publication.get("command"), f"{field}_command", maximum=64)
+        cursor_arg = publication.get("cursor_arg", raw.get("cursor_arg"))
+        if cursor_arg is not None:
+            cursor_arg = _text(cursor_arg, f"{field}_cursor_arg", maximum=128)
+            if any(character.isspace() for character in cursor_arg):
+                raise RuntimeBindingError(f"runtime_binding_{field}_cursor_arg_invalid")
+            normalized["cursor_arg"] = cursor_arg
+        max_pages = publication.get("max_pages", raw.get("max_pages", 64 if cursor_arg is not None else 1))
+        if not isinstance(max_pages, int) or isinstance(max_pages, bool) or not 1 <= max_pages <= 128:
+            raise RuntimeBindingError(f"runtime_binding_{field}_max_pages_invalid")
+        normalized["max_pages"] = max_pages
     goal_ref_arg = publication.get("goal_ref_arg", raw.get("goal_ref_arg"))
     if goal_ref_arg is not None:
         normalized["goal_ref_arg"] = _text(goal_ref_arg, f"{field}_goal_ref_arg", maximum=128)

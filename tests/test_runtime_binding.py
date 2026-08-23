@@ -249,6 +249,8 @@ class RuntimeBindingTests(unittest.TestCase):
         payload["sources"]["catalog"]["publication"] = {
             "capability": "aoa-session-memory.goal-catalog.read",
             "command": catalog_command,
+            "cursor_arg": "--cursor",
+            "max_pages": 4,
         }
         payload["sources"]["goal_projection"] = {
             **self._owner("aoa-session-memory", "source_owner", "source_owner_metadata"),
@@ -264,6 +266,8 @@ class RuntimeBindingTests(unittest.TestCase):
         selected = load_config(binding_path)
         self.assertEqual(selected["runtime_binding_state"], "bound")
         self.assertEqual(selected["goal_catalog_source"]["publication"]["transport"], "command")
+        self.assertEqual(selected["goal_catalog_source"]["publication"]["cursor_arg"], "--cursor")
+        self.assertEqual(selected["goal_catalog_source"]["publication"]["max_pages"], 4)
         self.assertEqual(selected["goal_projection_source"]["publication"]["goal_ref_arg"], "--goal-ref")
         projection = build_projection(binding_path, selected_goal_ref="goal-command")
         self.assertEqual(projection["goal_catalog"]["state"], "current")
