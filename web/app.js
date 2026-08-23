@@ -906,7 +906,7 @@ function renderHome(data) {
   open.addEventListener("click", () => {
     contextThreadOpen = false;
     setSelection({ goal_ref: goalRef(data), lens: "trajectory", focus_ref: null, branch_path: [], thread_ref: goal.master_thread_id || goal.goal_id });
-    byId("center-surface")?.focus?.();
+    byId("center-surface")?.focus?.({ preventScroll: true });
   });
   card.append(main, open);
   selector.append(card);
@@ -946,7 +946,7 @@ function renderHome(data) {
       row.addEventListener("click", () => {
         contextThreadOpen = false;
         setSelection({ goal_ref: item.ref, lens: "trajectory", focus_ref: null, branch_path: [], thread_ref: item.ref });
-        byId("catalog-workspace-view")?.focus?.();
+        byId("catalog-workspace-view")?.focus?.({ preventScroll: true });
         announce(item.title);
       });
       list.append(row);
