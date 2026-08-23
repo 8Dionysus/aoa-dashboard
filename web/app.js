@@ -317,6 +317,20 @@ function selectDetail(ref, listKey, page) {
   setSelection({ focus_ref: ref, thread_ref: ref, branch_path: [ref], page_by_list: pages });
 }
 
+function toggleTopologyBranch(ref) {
+  const expanded = new Set(arrayOrEmpty(selection.expanded_branch_refs));
+  if (expanded.has(ref)) expanded.delete(ref); else expanded.add(ref);
+  setSelection({ expanded_branch_refs: [...expanded] });
+}
+
+function selectTopologyDetail(path) {
+  const refs = arrayOrEmpty(path);
+  const ref = refs[refs.length - 1];
+  if (!ref) return;
+  contextThreadOpen = true;
+  setSelection({ focus_ref: ref, thread_ref: ref, branch_path: refs });
+}
+
 function announce(message) {
   if (!message || message === lastAnnouncement) return;
   lastAnnouncement = message;
@@ -466,9 +480,9 @@ function directionItems(data) {
       title: presentationField(configured, "title", "") || (ownerTopology ? boundedHumanText(item.title, t("trajectory.direction")) : cleanDirectionTitle(item.title, t("trajectory.direction"))),
       state: item.state || "unknown",
       owner: humanOwner(item.owner, t("trajectory.master")),
-      relationship: presentationField(configured, "relationship", "") || humanValue(item.pressure, t("trajectory.related")),
+      relationship: presentationField(configured, "relationship", "") || (ownerTopology && arrayOrEmpty(item.depends_on).length ? plural("direction", item.depends_on.length) : humanValue(item.pressure, t("trajectory.related"))),
       focus: presentationField(configured, "focus", "") || (ownerTopology ? boundedHumanText(item.observation, t("trajectory.focusUnavailable")) : humanValue(item.observation, t("trajectory.focusUnavailable"))),
-      next: presentationField(configured, "next", "") || humanValue(item.next, t("trajectory.nextUnavailable")),
+      next: presentationField(configured, "next", "") || (ownerTopology ? "" : humanValue(item.next, t("trajectory.nextUnavailable"))),
       evidence_refs: arrayOrEmpty(item.evidence_refs),
       raw: item,
     });
@@ -498,6 +512,28 @@ function directionItems(data) {
     }
   }
   return items;
+}
+
+function topologyDirectionItems(data) {
+  const topology = data?.goal_topology;
+  if (topology?.state !== "bound") return [];
+  const rootIds = new Set(arrayOrEmpty(topology.root_ids));
+  return arrayOrEmpty(topology.nodes).map((node) => ({
+    ref: `dag:${node.id}`,
+    kind: "direction",
+    title: boundedHumanText(node.title, t("trajectory.direction")),
+    state: rootIds.has(node.id) ? lifecycleForData(data) : "unknown",
+    owner: humanOwner(node.owner, ""),
+    relationship: t("trajectory.supportingDirection"),
+    focus: boundedHumanText(node.scope, t("trajectory.focusUnavailable")),
+    next: "",
+    evidence_refs: arrayOrEmpty(topology.evidence_refs),
+    raw: { ...node, source_kind: "master_goal_topology" },
+  }));
+}
+
+function trajectoryDirectionItems(data) {
+  return directionItems(data).filter((item) => !item.ref.startsWith("pressure:"));
 }
 
 function participantPresentation(data, actor) {
@@ -575,12 +611,17 @@ function sourceItems(data) {
   });
 }
 
-function contextForSelection(data) {
-  if (!selection.focus_ref) return null;
-  return directionItems(data).find((item) => item.ref === selection.focus_ref)
-    || participantItems(data).find((item) => item.ref === selection.focus_ref)
-    || sourceItems(data).find((item) => item.ref === selection.focus_ref)
+function contextForRef(data, ref) {
+  if (!ref) return null;
+  return directionItems(data).find((item) => item.ref === ref)
+    || topologyDirectionItems(data).find((item) => item.ref === ref)
+    || participantItems(data).find((item) => item.ref === ref)
+    || sourceItems(data).find((item) => item.ref === ref)
     || null;
+}
+
+function contextForSelection(data) {
+  return contextForRef(data, selection.focus_ref);
 }
 
 function nextFocus(data) {
@@ -785,8 +826,20 @@ function renderBreadcrumb(data) {
   clear(target);
   const refs = arrayOrEmpty(selection.branch_path);
   if (!refs.length) return;
-  const context = contextForSelection(data);
-  target.append(text("span", context?.title || t("thread.heading"), "breadcrumb-current"));
+  const path = refs.map((ref) => ({ ref, context: contextForRef(data, ref) })).filter((item) => item.context);
+  for (const [index, item] of path.entries()) {
+    if (index) target.append(text("span", "›", "breadcrumb-separator"));
+    if (index === path.length - 1) {
+      const current = text("span", item.context.title, "breadcrumb-current");
+      current.setAttribute("aria-current", "page");
+      target.append(current);
+      continue;
+    }
+    const link = text("button", item.context.title, "breadcrumb-link");
+    link.type = "button";
+    link.addEventListener("click", () => selectTopologyDetail(path.slice(0, index + 1).map((entry) => entry.ref)));
+    target.append(link);
+  }
 }
 
 function summaryCard(label, value, detail, state) {
@@ -804,11 +857,16 @@ function renderGoalSummary(data) {
   const holder = data.current_holder || {};
   const people = participantItems(data);
   const focus = nextFocus(data);
+  const focusDetail = focus?.raw?.source_kind === "master_goal_topology"
+    ? focus.focus
+    : focus
+      ? t("trajectory.next", { value: focus.next || t("trajectory.nextFocusEmpty") })
+      : t("trajectory.nextFocusHelp");
   const count = data.actor_activity?.summary?.actor_count;
   target.append(
     summaryCard(t("trajectory.master"), humanOwner(holder.label || holder.holder, t("trajectory.masterUnknown")), t("trajectory.masterSummary"), lifecycleForData(data)),
     summaryCard(t("trajectory.people"), count == null ? plural("person", null) : plural("person", count), t("participants.intro"), data.actor_activity?.state || "unknown"),
-    summaryCard(t("trajectory.nextFocus"), focus?.title || t("trajectory.nextFocusEmpty"), focus ? t("trajectory.next", { value: focus.next || t("trajectory.nextFocusEmpty") }) : t("trajectory.nextFocusHelp"), focus?.state || "unknown"),
+    summaryCard(t("trajectory.nextFocus"), focus?.title || t("trajectory.nextFocusEmpty"), focusDetail, focus?.state || "unknown"),
   );
   if (people.length && people.length < (count || people.length)) {
     target.lastElementChild.append(text("p", t("trajectory.peopleMore", { count: Math.max(0, (count || people.length) - people.length) }), "summary-detail"));
@@ -819,9 +877,11 @@ function renderAttentionStrip(data) {
   const target = byId("attention-strip");
   clear(target);
   const focus = attentionFocus(data);
-  target.append(text("p", t("attention.next"), "card-label"));
+  target.append(text("p", t("attention.heading"), "card-label"));
   if (focus && focus.ref.startsWith("pressure:")) {
-    target.append(text("strong", focus.title, "attention-title"), badge(focus.state), text("span", t("attention.owner", { value: focus.owner }), "attention-meta"));
+    target.append(text("strong", focus.title, "attention-title"));
+    if (statusLabel(focus.state) !== statusLabel("unknown")) target.append(badge(focus.state));
+    target.append(text("span", t("attention.owner", { value: focus.owner }), "attention-meta"));
   } else target.append(text("strong", t("attention.noPressure"), "attention-title"));
 }
 
@@ -886,7 +946,44 @@ function renderMasterNode(data, target) {
   target.append(card);
 }
 
-function renderDirectionCard(item, target, listKey = "directions") {
+function renderTopologyBranches(data, item, target, path = [item.ref]) {
+  const dependencies = arrayOrEmpty(item.raw?.depends_on);
+  if (!dependencies.length) return;
+  const expanded = arrayOrEmpty(selection.expanded_branch_refs).includes(item.ref);
+  const toggle = text("button", expanded ? t("trajectory.hideSupporting") : t("trajectory.showSupporting", { count: dependencies.length }), "topology-toggle");
+  toggle.type = "button";
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.setAttribute("data-focus-key", `toggle:${item.ref}`);
+  toggle.addEventListener("click", () => toggleTopologyBranch(item.ref));
+  target.append(toggle);
+  if (!expanded) return;
+
+  const byId = new Map(topologyDirectionItems(data).map((candidate) => [candidate.raw.id, candidate]));
+  const list = document.createElement("div");
+  list.className = "topology-branch-list";
+  list.setAttribute("role", "list");
+  for (const dependencyId of dependencies) {
+    const dependency = byId.get(dependencyId);
+    if (!dependency) continue;
+    const branch = document.createElement("article");
+    branch.className = `topology-branch${selection.focus_ref === dependency.ref ? " selected" : ""}`;
+    branch.setAttribute("role", "listitem");
+    const select = text("button", dependency.title, "topology-branch-select");
+    select.type = "button";
+    select.setAttribute("data-focus-key", dependency.ref);
+    select.setAttribute("aria-label", t("trajectory.choose", { value: dependency.title }));
+    const dependencyPath = [...path, dependency.ref];
+    select.addEventListener("click", () => selectTopologyDetail(dependencyPath));
+    branch.append(select);
+    if (dependency.owner) branch.append(text("p", t("trajectory.owner", { value: dependency.owner }), "topology-branch-meta"));
+    if (dependency.focus !== t("trajectory.focusUnavailable")) branch.append(text("p", dependency.focus, "topology-branch-focus"));
+    renderTopologyBranches(data, dependency, branch, dependencyPath);
+    list.append(branch);
+  }
+  target.append(list);
+}
+
+function renderDirectionCard(item, target, listKey = "directions", data = null) {
   const card = document.createElement("article");
   card.className = `direction-card${selection.focus_ref === item.ref ? " selected" : ""}`;
   const button = text("button", item.title, "direction-select");
@@ -900,31 +997,8 @@ function renderDirectionCard(item, target, listKey = "directions") {
   head.append(button, badge(item.state));
   card.append(head, text("p", t("trajectory.owner", { value: item.owner }), "direction-meta"), text("p", t("trajectory.relationship", { value: item.relationship }), "direction-meta"), text("p", t("trajectory.focus", { value: item.focus }), "direction-focus"));
   if (item.next && item.next !== t("trajectory.nextFocusEmpty")) card.append(text("p", t("trajectory.next", { value: item.next }), "direction-next"));
+  if (data && item.raw?.source_kind === "master_goal_topology") renderTopologyBranches(data, item, card);
   target.append(card);
-}
-
-function renderPeoplePreview(data, target) {
-  const people = participantItems(data);
-  const section = document.createElement("section");
-  section.className = "people-preview";
-  section.append(text("p", t("trajectory.people"), "panel-label"));
-  const list = document.createElement("div");
-  list.className = "people-list";
-  for (const person of people.slice(0, MAX_PEOPLE)) {
-    const card = document.createElement("article");
-    card.className = `person-card${selection.focus_ref === person.ref ? " selected" : ""}`;
-    const select = text("button", person.title, "person-select");
-    select.type = "button";
-    select.setAttribute("data-focus-key", person.ref);
-    select.setAttribute("aria-label", t("participants.inspect", { value: person.title }));
-    select.addEventListener("click", () => selectDetail(person.ref, "people", pageFor("people")));
-    card.append(select, badge(person.state), text("p", t("participants.role", { value: person.role }), "person-detail"), text("p", t("participants.task", { value: person.task }), "person-detail"));
-    list.append(card);
-  }
-  if (!people.length) list.append(text("p", t("trajectory.peopleEmpty"), "empty-copy"));
-  section.append(list);
-  if (people.length > MAX_PEOPLE) section.append(text("p", t("trajectory.peopleMore", { count: people.length - MAX_PEOPLE }), "panel-intro"));
-  target.append(section);
 }
 
 function renderTrajectoryLens(data, target) {
@@ -939,16 +1013,13 @@ function renderTrajectoryLens(data, target) {
   directions.append(text("p", t("trajectory.directions"), "panel-label"));
   const list = document.createElement("div");
   list.className = "direction-list";
-  const windowed = dashboardUI.pageWindow(directionItems(data), pageFor("directions"), MAX_DIRECTIONS, selection.focus_ref);
-  for (const item of windowed.items) renderDirectionCard(item, list);
+  const windowed = dashboardUI.pageWindow(trajectoryDirectionItems(data), pageFor("directions"), MAX_DIRECTIONS, selection.focus_ref);
+  for (const item of windowed.items) renderDirectionCard(item, list, "directions", data);
   if (!windowed.items.length) list.append(text("p", t("trajectory.empty"), "empty-copy"));
   directions.append(list);
   showPageControls(directions, "directions", windowed);
   board.append(master, directions);
   surface.body.append(board);
-  renderPeoplePreview(data, surface.body);
-  const focus = nextFocus(data);
-  surface.body.append(summaryCard(t("trajectory.nextFocus"), focus?.title || t("trajectory.nextFocusEmpty"), t("trajectory.nextFocusHelp"), focus?.state || "unknown"));
   target.append(surface.panel);
 }
 
@@ -1110,14 +1181,17 @@ function renderThread(data) {
   clear(target);
   const context = contextForSelection(data);
   const quality = byId("thread-quality");
-  setBadge(quality, context ? context.state : "missing");
+  setBadge(quality, context ? (context.evidence_refs?.length ? "present" : context.state) : "missing");
   const selectionLabel = byId("thread-selection");
   if (selectionLabel) selectionLabel.textContent = context ? context.title : t("thread.noSelection");
   if (!context) target.append(text("p", t("thread.noSelection"), "empty-state"));
   else {
     const card = document.createElement("article");
     card.className = "context-card";
-    card.append(text("p", context.kind === "person" ? t("thread.person") : context.kind === "source" ? t("evidence.heading") : t("thread.direction"), "card-label"), text("h3", context.title), badge(context.state), text("p", t("thread.owner", { value: context.owner }), "context-detail"), text("p", t("thread.relationship", { value: context.relationship }), "context-detail"), text("p", t("thread.focus", { value: context.focus }), "context-focus"));
+    card.append(text("p", context.kind === "person" ? t("thread.person") : context.kind === "source" ? t("evidence.heading") : t("thread.direction"), "card-label"), text("h3", context.title));
+    if (statusLabel(context.state) !== statusLabel("unknown")) card.append(badge(context.state));
+    if (context.owner) card.append(text("p", t("thread.owner", { value: context.owner }), "context-detail"));
+    card.append(text("p", t("thread.relationship", { value: context.relationship }), "context-detail"), text("p", t("thread.focus", { value: context.focus }), "context-focus"));
     if (context.kind === "person") {
       card.append(text("p", t("thread.role", { value: context.role }), "context-detail"));
       if (context.model) card.append(text("p", t("thread.model", { value: context.model }), "context-detail"));
@@ -1190,7 +1264,7 @@ function renderDiagnosticsSurface(data) {
 }
 
 function knownFocusRefs(data) {
-  return new Set([...directionItems(data).map((item) => item.ref), ...participantItems(data).map((item) => item.ref), ...arrayOrEmpty(data.sources).map((item) => `source:${item.id || "unknown"}`)]);
+  return new Set([...directionItems(data).map((item) => item.ref), ...topologyDirectionItems(data).map((item) => item.ref), ...participantItems(data).map((item) => item.ref), ...arrayOrEmpty(data.sources).map((item) => `source:${item.id || "unknown"}`)]);
 }
 
 function renderProjection(data) {
@@ -1328,8 +1402,12 @@ window.AoaDashboardApp = Object.freeze({
   nextFocus,
   attentionFocus,
   directionItems,
+  trajectoryDirectionItems,
+  topologyDirectionItems,
   participantItems,
   sourceItems,
+  contextForRef,
+  knownFocusRefs,
   diagnosticEntries,
   catalogItemForRef,
   renderDiagnosticRoutes,

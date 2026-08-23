@@ -26,7 +26,12 @@ class GoalSpaceUiStateTests(unittest.TestCase):
         self.assertNotIn("|| envelopes[0]", source)
         self.assertNotIn("|| arrayOrEmpty(data.pressure_inbox?.items)[0]", source)
         self.assertIn("function contextForSelection", source)
+        self.assertIn("function contextForRef", source)
         self.assertIn("function directionItems", source)
+        self.assertIn("function trajectoryDirectionItems", source)
+        self.assertIn("function topologyDirectionItems", source)
+        self.assertIn("function renderTopologyBranches", source)
+        self.assertIn("expanded_branch_refs", source)
         self.assertIn("function participantItems", source)
         self.assertIn("function routeReadiness", source)
         self.assertIn("selectionQuality === \"missing\"", source)
@@ -301,18 +306,30 @@ const one = projection("goal:one", "Canonical one", { en: "First future goal", r
 const two = projection("goal:two", "Canonical two", { en: "Second future goal", ru: "Вторая будущая цель" });
 const topology = {
   ...one,
-  goal_topology: { state: "bound" },
-  dag: [{ id: "GS18", source_kind: "master_goal_topology", title: "Full aoa-dashboard Goal readiness", state: "active", observation: "Hold source, runtime, visual and human evidence together" }],
+  goal_topology: {
+    state: "bound",
+    root_ids: ["GS18"],
+    evidence_refs: [{ label: "Current Goal topology", ref: "owner:topology" }],
+    nodes: [
+      { id: "GS17", title: "Current Goal binding", state: "completed", source_state: "completed", depends_on: [], owner: "master-thread", scope: "Keep the Goal identity current" },
+      { id: "GS18", title: "Full aoa-dashboard Goal readiness", state: "in_progress", source_state: "in_progress", depends_on: ["GS17"], owner: "master-thread", scope: "Hold source, runtime, visual and human evidence together" },
+    ],
+  },
+  dag: [{ id: "GS18", source_kind: "master_goal_topology", title: "Full aoa-dashboard Goal readiness", state: "active", depends_on: ["GS17"], observation: "Hold source, runtime, visual and human evidence together" }],
 };
 const enDirection = en.directionItems(one).find((item) => item.ref === "dag:D4");
 const topologyDirection = en.directionItems(topology)[0];
+const topologyBranches = en.topologyDirectionItems(topology);
 const ruPressure = ru.directionItems(one).find((item) => item.ref === "pressure:pressure:test");
 const person = en.participantItems(one)[0];
 const source = en.sourceItems(one)[0];
 process.stdout.write(JSON.stringify({
   goals: [en.goalTitle(one), en.goalTitle(two), ru.goalTitle(one)],
   direction: { title: enDirection.title, relationship: enDirection.relationship, focus: enDirection.focus, next: enDirection.next, raw: enDirection.raw.observation },
-  topology: { title: topologyDirection.title, focus: topologyDirection.focus, nextFocus: en.nextFocus(topology).title, attentionFocus: en.attentionFocus(topology).title },
+  topology: { title: topologyDirection.title, focus: topologyDirection.focus, relationship: topologyDirection.relationship, next: topologyDirection.next, nextFocus: en.nextFocus(topology).title, attentionFocus: en.attentionFocus(topology).title, branches: topologyBranches.map((item) => ({ ref: item.ref, title: item.title, state: item.state, owner: item.owner, focus: item.focus })) },
+  trajectoryRefs: en.trajectoryDirectionItems(topology).map((item) => item.ref),
+  knownTopologyRef: en.knownFocusRefs(topology).has("dag:GS17"),
+  selectedTopologyTitle: en.contextForRef(topology, "dag:GS17").title,
   pressure: { title: ruPressure.title, focus: ruPressure.focus, next: ruPressure.next, raw: ruPressure.raw.next_route.route },
   person: { title: person.title, role: person.role, task: person.task },
   source: { title: source.title, focus: source.focus },
@@ -323,7 +340,17 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(observed["direction"]["title"], "Observation history")
         self.assertNotIn("correlation_read_model", json.dumps({key: value for key, value in observed["direction"].items() if key != "raw"}))
         self.assertIn("correlation_read_model", observed["direction"]["raw"])
-        self.assertEqual(observed["topology"], {"title": "Full aoa-dashboard Goal readiness", "focus": "Hold source, runtime, visual and human evidence together", "nextFocus": "Full aoa-dashboard Goal readiness", "attentionFocus": "Review the update"})
+        self.assertEqual(observed["topology"]["title"], "Full aoa-dashboard Goal readiness")
+        self.assertEqual(observed["topology"]["focus"], "Hold source, runtime, visual and human evidence together")
+        self.assertEqual(observed["topology"]["relationship"], "1 direction")
+        self.assertEqual(observed["topology"]["next"], "")
+        self.assertEqual(observed["topology"]["nextFocus"], "Full aoa-dashboard Goal readiness")
+        self.assertEqual(observed["topology"]["attentionFocus"], "Review the update")
+        self.assertEqual(observed["topology"]["branches"][0], {"ref": "dag:GS17", "title": "Current Goal binding", "state": "unknown", "owner": "Goal master", "focus": "Keep the Goal identity current"})
+        self.assertEqual(observed["topology"]["branches"][1]["state"], "unknown")
+        self.assertEqual(observed["trajectoryRefs"], ["dag:GS18"])
+        self.assertTrue(observed["knownTopologyRef"])
+        self.assertEqual(observed["selectedTopologyTitle"], "Current Goal binding")
         self.assertEqual(observed["pressure"]["title"], "Проверить обновление")
         self.assertNotIn("pressure-cursor-ui", json.dumps({key: value for key, value in observed["pressure"].items() if key != "raw"}))
         self.assertIn("pressure-cursor-ui", observed["pressure"]["raw"])
