@@ -165,6 +165,16 @@ class OwnerContextTests(unittest.TestCase):
         self.assertEqual(observed["goal_projection"]["state"], "bound")
         self.assertEqual(observed["goal_projection"]["goal"]["thread_id"], THREAD)
 
+    def test_goal_identity_mismatch_is_invalid_in_context_and_goal_projection(self) -> None:
+        class MismatchGoalRpc(ContextRpc):
+            goal = {"goal": {**ContextRpc.goal["goal"], "threadId": "other-thread"}}
+
+        observed = observe_codex_goal_context(self.config(), rpc_factory=MismatchGoalRpc)
+        self.assert_schema(observed)
+        self.assertEqual(observed["state"], "invalid")
+        self.assertEqual(observed["goal_projection"]["state"], "invalid")
+        self.assertIn("owner_goal_identity_mismatch", observed["diagnostics"])
+
     def test_goal_transport_missing_and_thread_binding_disabled_preserve_independent_states(self) -> None:
         disabled = observe_codex_goal_context(self.config(thread_enabled=False), rpc_factory=ContextRpc)
         self.assertEqual(disabled["goal_projection"]["state"], "bound")

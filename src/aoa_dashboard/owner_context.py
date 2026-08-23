@@ -18,6 +18,7 @@ from .codex_goal import (
     _validate_goal,
     discover_control_socket,
 )
+from .quality import state_for_owner_error
 
 
 SCHEMA_VERSION = "aoa_dashboard_codex_goal_thread_observation_v1"
@@ -355,7 +356,7 @@ def observe_codex_goal_context(
 
     except (OSError, TimeoutError, CodexGoalUnavailable) as exc:
         reason = str(exc) if str(exc).startswith("owner_") else "owner_transport_unavailable"
-        return _context_empty("unknown", reason, thread_id=thread_id)
+        return _context_empty(state_for_owner_error(reason), reason, thread_id=thread_id)
 
     relation_states = {relation["state"] for relation in relations.values()}
     if thread_view["state"] == "invalid" or "invalid" in relation_states:

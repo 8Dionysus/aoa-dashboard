@@ -120,6 +120,49 @@ class ParticipantContextTests(unittest.TestCase):
         self.assertIn("participant_goal_thread_correlation_mismatch", observed["diagnostics"])
         self.assertEqual(observed["state"], "invalid")
 
+    def test_invalid_owner_thread_remains_invalid_through_join_quality_and_top_level(self) -> None:
+        invalid_owner = owner_context()
+        invalid_owner.update(
+            {
+                "state": "invalid",
+                "diagnostics": ["owner_thread_identity_mismatch"],
+                "thread": {
+                    "state": "invalid",
+                    "thread": None,
+                    "diagnostics": ["owner_thread_identity_mismatch"],
+                },
+            }
+        )
+        observed = project_participant_context(
+            {"state": "bound", "freshness": "current_at_read", "actors": [actor()]},
+            invalid_owner,
+        )
+        participant = observed["participants"][0]
+        self.assertEqual(participant["task_context"]["state"], "invalid")
+        self.assertEqual(participant["task_context"]["goal_thread"]["state"], "invalid")
+        self.assertEqual(participant["quality"], "invalid")
+        self.assertEqual(observed["state"], "invalid")
+        self.assertIn("owner_thread_identity_mismatch", observed["diagnostics"])
+
+    def test_invalid_activity_correlation_is_not_hidden_by_valid_shaped_actor(self) -> None:
+        invalid_activity = {
+            "state": "invalid",
+            "freshness": "invalid",
+            "degradation": ["actor_correlation_invalid"],
+            "actors": [
+                actor(
+                    correlation={"master_thread_id": THREAD, "state": "returned"},
+                    freshness="current_at_read",
+                )
+            ],
+        }
+        observed = project_participant_context(invalid_activity, owner_context())
+        participant = observed["participants"][0]
+        self.assertEqual(participant["task_context"]["state"], "invalid")
+        self.assertEqual(participant["quality"], "invalid")
+        self.assertEqual(observed["state"], "invalid")
+        self.assertIn("participant_activity_invalid", observed["diagnostics"])
+
     def test_explicit_model_owner_shape_requires_exact_runtime_subject(self) -> None:
         value = actor(
             model_realization={

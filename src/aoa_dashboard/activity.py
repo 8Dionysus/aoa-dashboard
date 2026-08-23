@@ -6,6 +6,12 @@ import math
 from pathlib import Path
 from typing import Any, Iterable
 
+from .quality import (
+    combine_freshness,
+    normalize_quality_state,
+    strongest_degradation,
+)
+
 
 ACTIVITY_SCHEMA_VERSION = "aoa_dashboard_actor_activity_v1"
 MAX_SAFE_TEXT = 256
@@ -170,10 +176,33 @@ def _group_state(payloads: list[dict[str, Any]], errors: list[str], observed: bo
     return "observed" if observed else "unknown"
 
 
+def _envelope_freshness(envelope: dict[str, Any], inherited_freshness: str) -> str:
+    values: list[Any] = [inherited_freshness, envelope.get("freshness"), envelope.get("state")]
+    for key in ("return_observation", "wake_observation"):
+        observation = envelope.get(key)
+        if not isinstance(observation, dict):
+            continue
+        ref = observation.get("ref")
+        if isinstance(ref, dict):
+            values.extend((ref.get("freshness"), ref.get("currentness")))
+        values.append(observation.get("freshness"))
+    master_filter = envelope.get("master_filter")
+    if isinstance(master_filter, dict):
+        currentness = master_filter.get("currentness")
+        if isinstance(currentness, dict):
+            values.append(currentness.get("state"))
+        else:
+            values.append(currentness)
+    return combine_freshness(*values, fallback=inherited_freshness)
+
+
 def _build_actor(
     envelope: dict[str, Any],
     payloads: list[dict[str, Any]],
     payload_errors: list[str],
+    *,
+    activity_state: str,
+    activity_freshness: str,
 ) -> dict[str, Any]:
     return_observation = envelope.get("return_observation") if isinstance(envelope.get("return_observation"), dict) else {}
     wake_observation = envelope.get("wake_observation") if isinstance(envelope.get("wake_observation"), dict) else {}
@@ -306,10 +335,23 @@ def _build_actor(
         if actor_state == "invalid" or any(error != "handoff payload missing" and error != "wake payload missing" for error in payload_errors)
         else ("observed" if payloads else "missing")
     )
+    freshness = _envelope_freshness(envelope, activity_freshness)
+    payload_quality = "invalid" if payload_state == "invalid" else None
+    quality_state = strongest_degradation(activity_state, actor_state, freshness, payload_quality)
+    if quality_state is None:
+        quality_state = normalize_quality_state(actor_state)
+    quality_diagnostics = []
+    if quality_state == "invalid":
+        quality_diagnostics.append("actor_activity_quality_invalid")
+    elif quality_state == "stale":
+        quality_diagnostics.append("actor_activity_freshness_stale")
 
     return {
         "actor_key": actor_key,
         "state": actor_state,
+        "quality_state": quality_state,
+        "freshness": freshness,
+        "quality_diagnostics": quality_diagnostics,
         "correlation": {
             "goal_id": _first_identifier(
                 [envelope.get("goal", {})] if isinstance(envelope.get("goal"), dict) else [],
@@ -460,6 +502,12 @@ def observe_actor_activity(config: dict[str, Any], correlation: dict[str, Any]) 
     task_root = Path(current["task_local_dir"]).resolve(strict=False)
     actors: list[dict[str, Any]] = []
     degradation: list[str] = []
+    activity_state = normalize_quality_state(correlation_state)
+    inherited_freshness = combine_freshness(
+        correlation_state,
+        correlation.get("freshness"),
+        fallback="current_at_read" if activity_state == "present" else activity_state,
+    )
     for envelope in envelopes:
         if not isinstance(envelope, dict):
             degradation.append("actor_envelope_not_object")
@@ -478,7 +526,15 @@ def observe_actor_activity(config: dict[str, Any], correlation: dict[str, Any]) 
             payload_errors.append("wake payload missing")
         if payload_errors:
             degradation.append("actor_payload_evidence_degraded")
-        actors.append(_build_actor(envelope, payloads, payload_errors))
+        actors.append(
+            _build_actor(
+                envelope,
+                payloads,
+                payload_errors,
+                activity_state=activity_state,
+                activity_freshness=inherited_freshness,
+            )
+        )
 
     if not actors:
         activity = _empty_activity(
@@ -491,7 +547,10 @@ def observe_actor_activity(config: dict[str, Any], correlation: dict[str, Any]) 
 
     group_names = ("identity", "task", "responsibility", "process", "session", "terminal", "usage")
     has_invalid = correlation_state == "invalid" or any(
-        actor["state"] == "invalid" or any(actor[name]["state"] == "invalid" for name in group_names) for actor in actors
+        actor["quality_state"] == "invalid"
+        or actor["state"] == "invalid"
+        or any(actor[name]["state"] == "invalid" for name in group_names)
+        for actor in actors
     )
     has_degraded = correlation_state in {"deferred", "missing"} or any(
         actor[name]["state"] in {"missing", "unknown"} for actor in actors for name in group_names
@@ -507,13 +566,20 @@ def observe_actor_activity(config: dict[str, Any], correlation: dict[str, Any]) 
         "with_terminal": sum(actor["terminal"]["state"] == "observed" for actor in actors),
         "with_usage": sum(actor["usage"]["state"] == "observed" for actor in actors),
     }
+    freshness = combine_freshness(
+        correlation_state,
+        correlation.get("freshness"),
+        *(actor.get("freshness") for actor in actors),
+        "invalid" if has_invalid else None,
+        fallback="current_at_read" if state == "bound" else state,
+    )
     activity = {
         "schema_version": ACTIVITY_SCHEMA_VERSION,
         "state": state,
         "actors": actors,
         "summary": summary,
         "observed_at": metadata.get("observed_at"),
-        "freshness": "current_at_read" if state == "bound" else state,
+        "freshness": freshness,
         "degradation": sorted(set(degradation)),
         "observation": (
             f"Observed {len(actors)} task-local actor envelope(s); process, session, terminal, wake/return, usage, and unknown fields remain separate."

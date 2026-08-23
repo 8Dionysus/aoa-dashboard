@@ -18,6 +18,8 @@ import struct
 from pathlib import Path
 from typing import Any, Callable
 
+from .quality import state_for_owner_error
+
 
 DASHBOARD_SCHEMA = "aoa_dashboard_codex_goal_projection_v1"
 MAX_FRAME_BYTES = 1024 * 1024
@@ -259,6 +261,8 @@ def _human_title(objective: str) -> str:
 
 
 def _validate_goal(result: dict[str, Any], thread_id: str) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        raise CodexGoalUnavailable("owner_goal_schema_invalid")
     goal = result.get("goal")
     if not isinstance(goal, dict) or goal.get("threadId") != thread_id:
         raise CodexGoalUnavailable("owner_goal_identity_mismatch")
@@ -322,7 +326,7 @@ def observe_codex_goal(
             )
     except (OSError, TimeoutError, CodexGoalUnavailable) as exc:
         reason = str(exc) if str(exc).startswith("owner_") else "owner_transport_unavailable"
-        return _empty("unknown", reason, thread_id=thread_id)
+        return _empty(state_for_owner_error(reason), reason, thread_id=thread_id)
     source_ref = f"codex-app-server:thread/goal/get:{thread_id}"
     evidence = {
         "label": "Codex Goal",

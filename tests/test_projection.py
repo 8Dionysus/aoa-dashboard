@@ -16,6 +16,7 @@ from aoa_dashboard.projection import _lifecycle, build_projection, load_config  
 from aoa_dashboard.correlation import observe_current_correlation  # noqa: E402
 from aoa_dashboard.cursor import observations_from_correlation, rebuild_goal_local_projection  # noqa: E402
 from aoa_dashboard.activity import observe_actor_activity  # noqa: E402
+from aoa_dashboard.participant_context import project_participant_context  # noqa: E402
 from aoa_dashboard.sources import observe_session  # noqa: E402
 from aoa_dashboard.wake_receipts import (  # noqa: E402
     CODEX_WAKE_CANDIDATE_ONLY_AUTHORITY,
@@ -436,6 +437,14 @@ class CorrelationAdapterTests(unittest.TestCase):
         messages = [f"{list(error.path)}: {error.message}" for error in errors]
         self.assertEqual([], messages, "\n".join(messages))
 
+    def _owner_context(self) -> dict:
+        return {
+            "state": "bound",
+            "goal_ref": {"thread_id": self.fixture.thread, "owner": "codex-app-server"},
+            "goal_projection": {"state": "bound"},
+            "thread": {"state": "bound", "thread": {"thread_id": self.fixture.thread}},
+        }
+
     def test_positive_real_task_local_shape_is_reentered_only_by_turn_and_filter(self) -> None:
         result = observe_current_correlation(self.fixture.config())
         self.assertIn(result["state"], {"bound", "deferred"})
@@ -723,6 +732,62 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(malformed_view["state"], "invalid")
         self.assertEqual(malformed_view["payload_state"], "invalid")
         self.assertNotEqual(malformed_view["usage"]["state"], "observed")
+
+    def test_real_invalid_activity_output_remains_invalid_in_participant_projection(self) -> None:
+        self.fixture._write_valid(handoff_thread="other-thread")
+        correlation = observe_current_correlation(self.fixture.config())
+        self.assertEqual(correlation["state"], "invalid")
+        activity = observe_actor_activity(self.fixture.config(), correlation)
+        self.assertEqual(activity["metadata"]["state"], "invalid")
+        projected = project_participant_context(activity["metadata"], self._owner_context())
+        self.assertEqual(projected["state"], "invalid")
+        self.assertEqual(projected["participants"][0]["quality"], "invalid")
+        self.assertIn("participant_actor_correlation_invalid", projected["diagnostics"])
+
+    def test_real_activity_stale_freshness_reaches_all_participant_dimensions(self) -> None:
+        primary = {
+            "schema_version": "test_handoff_v1",
+            "master_thread_id": self.fixture.thread,
+            "responsibility_state": {
+                "state": "returned_pending_review",
+                "holder": "independent Luna Max implementation holder",
+            },
+            "actor": {
+                "name": "Luna",
+                "kind": "external_codex_incarnation",
+                "session_id": "session-alpha",
+                "model": "gpt-5.6-luna:max",
+                "responsibility": "Repair owner/activity/participant quality propagation",
+            },
+            "runtime": {
+                "incarnation": "incarnation:alpha",
+                "process_pid": 731,
+                "terminal_wake_state_before_command": "pending",
+            },
+            "return_summary": {"usage_observation": {"status": "complete"}},
+        }
+        self.fixture._write_json(self.fixture.handoff, primary)
+        handoff_digest = hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest()
+        wake = json.loads(self.fixture.wake.read_text(encoding="utf-8"))
+        wake["handoff_sha256"] = handoff_digest
+        self.fixture._write_json(self.fixture.wake, wake)
+        self.fixture._write_filter(handoff_digest)
+
+        correlation = observe_current_correlation(self.fixture.config())
+        correlation["freshness"] = "stale"
+        activity = observe_actor_activity(self.fixture.config(), correlation)
+        activity_metadata = activity["metadata"]
+        self.assertEqual(activity_metadata["freshness"], "stale")
+        projected = project_participant_context(activity_metadata, self._owner_context())
+        participant = projected["participants"][0]
+        self.assertEqual(participant["dimension_states"], {
+            "identity": "stale",
+            "task_context": "stale",
+            "model_realization": "stale",
+            "runtime_evidence": "stale",
+        })
+        self.assertEqual(participant["quality"], "stale")
+        self.assertEqual(projected["state"], "stale")
 
     def _assert_v1_candidate_only(self, owner_binding: dict | None = None) -> dict:
         self.fixture._write_codex_v1()

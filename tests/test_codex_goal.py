@@ -80,9 +80,45 @@ class CodexGoalTests(unittest.TestCase):
             return_value=Path("/tmp/app-server.sock"),
         ):
             observed = observe_codex_goal(self.config(), rpc_factory=MismatchRpc)
-        self.assertEqual(observed["state"], "unknown")
+        self.assertEqual(observed["state"], "invalid")
         self.assertIsNone(observed["goal"])
         self.assertIn("owner_goal_identity_mismatch", observed["diagnostics"])
+
+    def test_invalid_goal_status_is_invalid_not_unknown(self) -> None:
+        class InvalidStatusRpc(FakeRpc):
+            response = {"goal": {**FakeRpc.response["goal"], "status": "not-a-goal-status"}}
+
+        with patch(
+            "aoa_dashboard.codex_goal.discover_control_socket",
+            return_value=Path("/tmp/app-server.sock"),
+        ):
+            observed = observe_codex_goal(self.config(), rpc_factory=InvalidStatusRpc)
+        self.assertEqual(observed["state"], "invalid")
+        self.assertIn("owner_goal_status_invalid", observed["diagnostics"])
+
+    def test_invalid_goal_objective_shape_is_invalid_not_unknown(self) -> None:
+        class InvalidObjectiveRpc(FakeRpc):
+            response = {"goal": {**FakeRpc.response["goal"], "objective": None}}
+
+        with patch(
+            "aoa_dashboard.codex_goal.discover_control_socket",
+            return_value=Path("/tmp/app-server.sock"),
+        ):
+            observed = observe_codex_goal(self.config(), rpc_factory=InvalidObjectiveRpc)
+        self.assertEqual(observed["state"], "invalid")
+        self.assertIn("owner_goal_objective_invalid", observed["diagnostics"])
+
+    def test_invalid_goal_response_schema_is_invalid_not_unknown(self) -> None:
+        class InvalidSchemaRpc(FakeRpc):
+            response = []
+
+        with patch(
+            "aoa_dashboard.codex_goal.discover_control_socket",
+            return_value=Path("/tmp/app-server.sock"),
+        ):
+            observed = observe_codex_goal(self.config(), rpc_factory=InvalidSchemaRpc)
+        self.assertEqual(observed["state"], "invalid")
+        self.assertIn("owner_goal_schema_invalid", observed["diagnostics"])
 
     def test_budget_limited_owner_status_is_admitted(self) -> None:
         class BudgetRpc(FakeRpc):
