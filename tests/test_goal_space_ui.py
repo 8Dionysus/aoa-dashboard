@@ -673,9 +673,18 @@ context.AoaDashboardApp.renderHome({
   lifecycle: [],
   goal_catalog: {
     schema_version: "aoa_dashboard_goal_catalog_projection_v1",
-    state: "stale",
-    currentness: "stale",
-    source: { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", owner_schema_version: "aoa_session_memory_goal_catalog_v1", currentness: "stale" },
+    state: "current",
+    currentness: "current",
+    source: {
+      owner: "aoa-dashboard",
+      ref: "aoa-dashboard:goal-catalog-federation",
+      kind: "derived_federation",
+      currentness: "current",
+      inputs: [
+        { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", currentness: "stale" },
+        { owner: "codex-app-server", ref: "codex-app-server:goal-catalog", currentness: "current_at_read" },
+      ],
+    },
     items: [
       { ref: "019f9075-41a3-7933-a81d-f32bc4da12ca", title: "Развить пространство целей", title_locale: "ru", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: "2026-08-22T21:00:00Z", ambiguity: false },
       { ref: "019e967f-1747-7ec0-a056-9e626300d531", title: null, title_state: "withheld", lifecycle_state: "complete", group: "completed", first_observed_at: null, last_observed_at: null, ambiguity: true },

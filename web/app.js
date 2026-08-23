@@ -1065,6 +1065,10 @@ function renderHome(data) {
     catalogState.append(badge(catalog.state), text("span", catalog.state === "missing" ? t("home.catalogMissing") : t("home.catalogUnavailable")));
   } else if (catalog.state === "stale" || catalog.state === "deferred" || catalog.state === "unknown") {
     catalogState.append(text("span", t("home.historyUpdating")));
+  } else if (arrayOrEmpty(catalog.sources).some((source) =>
+    source?.owner === "aoa-session-memory" && !["current", "current_at_read"].includes(source?.currentness)
+  )) {
+    catalogState.append(text("span", t("home.historyUpdating")));
   } else if (!catalog.items.length) {
     catalogState.append(text("span", t("home.catalogEmpty")));
   }

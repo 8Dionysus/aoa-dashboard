@@ -3,9 +3,9 @@
 `src/aoa_dashboard/goal_context.py` consumes two explicit, read-only owner
 publications for the selected Goal and exact master thread:
 
-- `aoa-session-memory:goal-thread-board` at candidate
-  `a74da252d5d15aa6b5b6a34f5bf4a9d179a13fac`;
-- `aoa-agents:goal-participant-graph` at candidate
+- `aoa-session-memory:goal-thread-board` at the exact merged owner result
+  `f19b598368d9422152c6ca41d09ffe5de22637dd`;
+- `aoa-agents:goal-participant-graph` at the exact owner contract
   `db7b7f7ac7465406b3a90ca26d3cf31ac81706fe`.
 
 Bindings are supplied under `goal_context_sources.thread_board` and
