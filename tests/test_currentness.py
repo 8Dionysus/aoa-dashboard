@@ -224,6 +224,20 @@ class CurrentnessTests(unittest.TestCase):
         self.assertEqual(currentness["legacy_snapshot_binding"]["snapshot_role"], "historical_bootstrap_only")
         self.assertTrue(any(ref["ref"] == str(self.fixture.current_head.resolve()) for ref in currentness["evidence_refs"]))
 
+    def test_duplicate_current_head_member_is_invalid_without_source_content(self) -> None:
+        raw = self.fixture.current_head.read_text(encoding="utf-8").replace(
+            '"sequence":0',
+            '"sequence":0,"sequence":"secret-current-head-value"',
+            1,
+        )
+        self.fixture.current_head.write_text(raw, encoding="utf-8")
+
+        result = self.observe()
+
+        self.assertEqual(result["state"], "invalid")
+        self.assertEqual(self.currentness(result)["state"], "invalid")
+        self.assertNotIn("secret-current-head-value", json.dumps(result))
+
     def test_content_derived_helper_advances_idempotently_and_preserves_history(self) -> None:
         history_before = self.fixture.history.read_bytes()
         self.fixture._write_filter("2026-08-20T20:06:00Z")

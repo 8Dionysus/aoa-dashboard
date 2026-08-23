@@ -80,11 +80,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
         value = _read_object(config_path)
     except FileNotFoundError:
         return resolve_runtime_binding(base, config_path)
-    except DuplicateJsonObjectNameError as exc:
+    except DuplicateJsonObjectNameError:
         return _invalid_explicit_config(
             base,
             config_path,
-            f"runtime_binding_duplicate_json_object_name:{exc.name}",
+            "runtime_binding_duplicate_json_object_name",
         )
     except (OSError, UnicodeError, ValueError):
         return _invalid_explicit_config(base, config_path, "runtime_binding_explicit_input_unreadable")

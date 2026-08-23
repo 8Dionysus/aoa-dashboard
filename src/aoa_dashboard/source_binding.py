@@ -167,6 +167,18 @@ def loads_json(value: str, *, reject_duplicate_keys: bool = False) -> Any:
     return json.loads(value, object_pairs_hook=object_pairs_hook)
 
 
+def _normalized_parse_error(exc: Exception) -> str:
+    """Return a bounded parse diagnostic without retaining source content."""
+
+    if isinstance(exc, DuplicateJsonObjectNameError):
+        return "duplicate JSON object name"
+    if isinstance(exc, UnicodeError):
+        return "source is not valid UTF-8"
+    if isinstance(exc, json.JSONDecodeError):
+        return f"invalid JSON document at line {exc.lineno}, column {exc.colno}"
+    return "structured source parse failed"
+
+
 def is_sha256(value: Any) -> bool:
     if not isinstance(value, str) or len(value) != 64:
         return False
@@ -296,9 +308,9 @@ def read_file_snapshot(
     *,
     expected_digest: str | None = None,
     parser: ClaimParser = "json",
-    reject_duplicate_keys: bool = False,
+    reject_duplicate_keys: bool = True,
 ) -> FileSnapshot:
-    """Read bytes once, hash those bytes, parse those bytes, then decide currentness."""
+    """Read, hash, and parse one source with fail-closed JSON admission."""
 
     source = Path(path).resolve(strict=False)
     observed_at = utc_now()
@@ -322,8 +334,8 @@ def read_file_snapshot(
         if parser == "json" and not isinstance(parsed, dict):
             parse_error = "top-level JSON value is not an object"
             parsed = None
-    except (UnicodeError, json.JSONDecodeError) as exc:
-        parse_error = str(exc)
+    except (UnicodeError, ValueError) as exc:
+        parse_error = _normalized_parse_error(exc)
 
     if expected_error or parse_error:
         currentness = "invalid"

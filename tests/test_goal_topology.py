@@ -79,6 +79,22 @@ class GoalTopologyTests(unittest.TestCase):
         escaped["goal_topology_source"]["relative_path"] = "../outside.json"
         self.assertEqual(observe_goal_topology(escaped)["state"], "invalid")
 
+    def test_duplicate_json_member_is_invalid_at_shared_source_boundary(self) -> None:
+        self.write()
+        path = self.wave / "goal-space-dag.json"
+        raw = path.read_text(encoding="utf-8").replace(
+            f'"goal_ref": "{THREAD}"',
+            f'"goal_ref": "{THREAD}", "goal_ref": "secret-topology-value"',
+            1,
+        )
+        path.write_text(raw, encoding="utf-8")
+
+        observed = observe_goal_topology(self.config())
+
+        assert observed["state"] == "invalid"
+        assert observed["diagnostics"] == ["topology_source_invalid"]
+        assert "secret-topology-value" not in json.dumps(observed)
+
 
 if __name__ == "__main__":
     unittest.main()

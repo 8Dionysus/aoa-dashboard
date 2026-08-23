@@ -113,9 +113,8 @@ def _snapshot_failure(prefix: str, snapshot: FileSnapshot) -> RuntimeBindingErro
     if snapshot.currentness == "stale":
         return RuntimeBindingError(f"{prefix}_stale")
     if snapshot.parse_error:
-        if snapshot.parse_error.startswith("duplicate JSON object name:"):
-            name = snapshot.parse_error.split(":", 1)[1].strip()
-            return RuntimeBindingError(f"{prefix}_duplicate_json_object_name:{name}")
+        if snapshot.parse_error == "duplicate JSON object name":
+            return RuntimeBindingError(f"{prefix}_duplicate_json_object_name")
         return RuntimeBindingError(f"{prefix}_parse_invalid:{snapshot.parse_error}")
     return RuntimeBindingError(f"{prefix}_invalid")
 

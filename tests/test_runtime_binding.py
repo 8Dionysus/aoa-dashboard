@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from aoa_dashboard.codex_goal import CodexGoalUnavailable  # noqa: E402
 from aoa_dashboard.correlation import observe_current_correlation  # noqa: E402
 from aoa_dashboard.projection import build_projection, load_config  # noqa: E402
+from aoa_dashboard.source_binding import read_file_snapshot  # noqa: E402
 
 
 class RuntimeBindingTests(unittest.TestCase):
@@ -278,8 +279,63 @@ class RuntimeBindingTests(unittest.TestCase):
         duplicate_path.write_text(raw, encoding="utf-8")
         duplicate_result = load_config(duplicate_path)
         self.assertEqual(duplicate_result["runtime_binding_state"], "invalid")
-        self.assertIn("runtime_binding_duplicate_json_object_name:state", duplicate_result["runtime_binding_observation"]["diagnostics"])
+        self.assertIn("runtime_binding_duplicate_json_object_name", duplicate_result["runtime_binding_observation"]["diagnostics"])
         self.assertTrue(binding_path.is_file())
+
+    def test_goal_anchor_duplicate_key_fails_closed_without_source_content(self) -> None:
+        binding_path, payload = self._binding("anchor-duplicate", "goal-anchor-duplicate", "thread-anchor-duplicate")
+        anchor = Path(payload["sources"]["goal_anchor"]["path"])
+        raw = anchor.read_text(encoding="utf-8").replace(
+            '"goal_id": "goal-anchor-duplicate"',
+            '"goal_id": "goal-anchor-duplicate", "goal_id": "secret-anchor-value"',
+            1,
+        )
+        anchor.write_text(raw, encoding="utf-8")
+        payload["sources"]["goal_anchor"]["expected_sha256"] = hashlib.sha256(anchor.read_bytes()).hexdigest()
+        binding_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = load_config(binding_path)
+
+        self.assertEqual(result["runtime_binding_state"], "invalid")
+        self.assertIsNone(result.get("goal_id"))
+        observation = result["runtime_binding_observation"]
+        self.assertIsNone(observation["selected_goal"])
+        self.assertIn("runtime_binding_goal_anchor_duplicate_json_object_name", observation["diagnostics"])
+        self.assertNotIn("secret-anchor-value", json.dumps(observation))
+
+    def test_shared_reader_normalizes_structured_decoding_and_parsing_failures(self) -> None:
+        cases = {
+            "malformed": b'{"secret-field":',
+            "non-utf8": b'{"secret-field":"\xff"}',
+            "non-object": b'[]',
+            "duplicate": b'{"secret-field":1,"secret-field":2}',
+        }
+        for label, raw in cases.items():
+            with self.subTest(label=label):
+                path = self.root / f"reader-{label}.json"
+                path.write_bytes(raw)
+                snapshot = read_file_snapshot(path, parser="json")
+                self.assertEqual(snapshot.currentness, "invalid")
+                self.assertIsNone(snapshot.parsed)
+                self.assertIsNotNone(snapshot.parse_error)
+                self.assertNotIn("secret-field", snapshot.parse_error or "")
+
+    def test_duplicate_pressure_context_is_invalid_without_escaping_binding_resolver(self) -> None:
+        binding_path, payload = self._binding("pressure-duplicate", "goal-pressure-duplicate", "thread-pressure-duplicate")
+        pressure = Path(payload["sources"]["pressure"]["path"])
+        raw = pressure.read_text(encoding="utf-8").replace(
+            '"goal_id": "goal-pressure-duplicate"',
+            '"goal_id": "goal-pressure-duplicate", "goal_id": "secret-pressure-value"',
+            1,
+        )
+        pressure.write_text(raw, encoding="utf-8")
+
+        result = load_config(binding_path)
+
+        self.assertEqual(result["runtime_binding_state"], "bound")
+        self.assertEqual(result["pressure_source_state"], "invalid")
+        self.assertEqual(result["pressure_inbox"], [])
+        self.assertNotIn("secret-pressure-value", json.dumps(result["pressure_source_evidence"]))
 
     def test_current_route_requires_explicit_globs_and_historical_missing_globs_stays_deferred(self) -> None:
         binding_path, payload = self._binding("selectors", "goal-selectors", "thread-selectors")

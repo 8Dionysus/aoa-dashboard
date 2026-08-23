@@ -44,6 +44,39 @@ admission, signature, SBOM, provenance, runtime, and proof evidence. If the
 host has the GTK4/Libadwaita/WebKitGTK stack, a bounded native canary may be
 run and recorded separately; it does not become a deployment or health claim.
 
+## Deterministic exact-tree artifacts
+
+For independently repeatable package evidence, build from two fresh extracts
+of the same exact Git commit. Derive `SOURCE_DATE_EPOCH` from that commit's
+author-independent Git commit timestamp, and compare both output files byte by
+byte. The recipe below keeps generated build state outside the source tree:
+
+```text
+COMMIT="$(git rev-parse HEAD)"
+SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$COMMIT")"
+BUILD_ROOT="$(mktemp -d)"
+mkdir "$BUILD_ROOT/one" "$BUILD_ROOT/two" "$BUILD_ROOT/dist-one" "$BUILD_ROOT/dist-two"
+
+git archive --format=tar "$COMMIT" | tar -x -C "$BUILD_ROOT/one"
+git archive --format=tar "$COMMIT" | tar -x -C "$BUILD_ROOT/two"
+
+(cd "$BUILD_ROOT/one" && SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+  python3 -m build --no-isolation --sdist --wheel --outdir "$BUILD_ROOT/dist-one")
+(cd "$BUILD_ROOT/two" && SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+  python3 -m build --no-isolation --sdist --wheel --outdir "$BUILD_ROOT/dist-two")
+
+sha256sum "$BUILD_ROOT/dist-one"/* "$BUILD_ROOT/dist-two"/*
+cmp "$BUILD_ROOT/dist-one/aoa_dashboard-0.1.0-py3-none-any.whl" \
+    "$BUILD_ROOT/dist-two/aoa_dashboard-0.1.0-py3-none-any.whl"
+cmp "$BUILD_ROOT/dist-one/aoa_dashboard-0.1.0.tar.gz" \
+    "$BUILD_ROOT/dist-two/aoa_dashboard-0.1.0.tar.gz"
+```
+
+The commit, derived epoch, both SHA-256 pairs, and successful `cmp` results
+are the package evidence. The artifacts remain local producer outputs; these
+checks do not establish registry admission, signatures, deployment, health,
+proof, or acceptance.
+
 ## Landing and publication
 
 1. Commit the release-prep surface on a branch based on current `origin/main`.

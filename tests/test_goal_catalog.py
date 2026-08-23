@@ -120,3 +120,19 @@ def test_catalog_rejects_duplicate_refs_and_technical_human_titles(tmp_path: Pat
     result = observe_goal_catalog(write_source(tmp_path, technical))
     assert result["state"] == "invalid"
     assert result["diagnostics"] == ["human_title_invalid"]
+
+
+def test_catalog_duplicate_json_member_is_invalid_at_shared_source_boundary(tmp_path: Path) -> None:
+    path = tmp_path / "goal-catalog.json"
+    raw = json.dumps(owner_payload()).replace(
+        '"schema_version": "aoa_session_memory_goal_catalog_v1"',
+        '"schema_version": "aoa_session_memory_goal_catalog_v1", "schema_version": "secret-catalog-value"',
+        1,
+    )
+    path.write_text(raw, encoding="utf-8")
+
+    result = observe_goal_catalog({"goal_catalog_source": {"path": str(path)}})
+
+    assert result["state"] == "invalid"
+    assert result["diagnostics"] == ["publisher_unreadable"]
+    assert "secret-catalog-value" not in json.dumps(result)

@@ -914,6 +914,20 @@ class CorrelationAdapterTests(unittest.TestCase):
         self._assert_schema_valid(envelope)
         self.assertTrue(any("master_thread_id mismatch" in item for item in envelope["return_observation"]["errors"]))
 
+    def test_duplicate_json_member_in_correlation_filter_is_invalid_without_source_content(self) -> None:
+        raw = self.fixture.filter.read_text(encoding="utf-8").replace(
+            f'"master_thread_id":"{self.fixture.thread}"',
+            f'"master_thread_id":"{self.fixture.thread}","master_thread_id":"secret-correlation-value"',
+            1,
+        )
+        self.fixture.filter.write_text(raw, encoding="utf-8")
+
+        result = observe_current_correlation(self.fixture.config())
+
+        self.assertEqual(result["state"], "invalid")
+        self.assertNotIn("secret-correlation-value", json.dumps(result))
+        self.assertEqual(result["metadata"]["envelopes"], [])
+
     def test_v1_digest_mismatch_is_invalid(self) -> None:
         payload = self.fixture._write_codex_v1()
         payload["handoff_sha256"] = "sha256:" + ("0" * 64)
