@@ -508,6 +508,12 @@ function humanParticipantName(value, fallback = "") {
   return candidate;
 }
 
+function humanModelName(value, fallback = "") {
+  const candidate = String(value || "").trim();
+  if (!candidate || candidate.length > 64 || !/^[A-Za-z0-9][A-Za-z0-9._:/+-]*$/.test(candidate)) return fallback;
+  return candidate;
+}
+
 function participantItems(data) {
   return arrayOrEmpty(data?.actor_activity?.actors).map((actor, index) => {
     const identity = actor.identity || {};
@@ -520,8 +526,9 @@ function participantItems(data) {
     const publishedLabel = presentationField(configured, "name", "") || presentationField(configured, "label", "") || humanParticipantName(identity.label, "");
     const publishedHolder = humanParticipantName(responsibility.holder, "");
     const title = publishedLabel || publishedHolder || t("participants.personNumber", { count: index + 1 });
-    const model = presentationField(configured, "model", "");
-    const taskValue = presentationField(configured, "task", "") || t("participants.workUnavailable");
+    const model = presentationField(configured, "model", "") || humanModelName(identity.model_id, "");
+    const taskValue = presentationField(configured, "task", "")
+      || humanValue(task.summary || task.title, t("participants.workUnavailable"));
     const relationship = presentationField(configured, "relationship", "") || humanValue(responsibility.responsibility_state, t("participants.relationshipUnavailable"));
     return {
       ref: `actor:${actor.actor_key || actor.actor_id || index}`,

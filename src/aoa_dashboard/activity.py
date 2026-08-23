@@ -205,8 +205,33 @@ def _build_actor(
             "reviewer.role",
         ),
     )
+    model_id = _first_identifier(
+        payloads,
+        (
+            "model_id",
+            "model.id",
+            "model.name",
+            "identity.model_id",
+            "actor.model_id",
+            "actor.model",
+        ),
+    )
     mandate_id = _first_identifier(payloads, ("mandate_id", "mandate.id", "identity.mandate_id"))
     obligation_id = _first_identifier(payloads, ("obligation_id", "obligation.id", "identity.obligation_id"))
+    task_id = _first_identifier(
+        payloads,
+        ("task_id", "task.id", "task.task_id", "obligation_id", "obligation.id"),
+    )
+    task_summary = _first_text(
+        payloads,
+        (
+            "task.title",
+            "task.summary",
+            "task.description",
+            "actor.responsibility",
+            "responsibility_state.scope",
+        ),
+    )
     actor_key = actor_id or incarnation_id or (f"return:{return_id}" if return_id else "actor:unknown")
 
     process_id = _first_identifier(payloads, ("process_id", "process.id", "process_pid", "pid"))
@@ -286,12 +311,19 @@ def _build_actor(
         "actor_key": actor_key,
         "state": actor_state,
         "identity": {
-            "state": "observed" if any((actor_id, actor_label, incarnation_id, role_id)) else ("missing" if not payloads else "unknown"),
+            "state": "observed" if any((actor_id, actor_label, incarnation_id, role_id, model_id)) else ("missing" if not payloads else "unknown"),
             "actor_id": actor_id,
             "incarnation_id": incarnation_id,
             "role_id": role_id,
+            "model_id": model_id,
             "label": actor_label or actor_id or incarnation_id or (f"return {return_id}" if return_id else "actor identity unknown"),
             "claim_limit": FIELD_CLAIM_LIMIT,
+        },
+        "task": {
+            "state": "observed" if task_id or task_summary else ("missing" if not payloads else "unknown"),
+            "task_id": task_id,
+            "summary": task_summary,
+            "claim_limit": "Task values are bounded task-local return observations; they do not establish assignment, completion, or acceptance.",
         },
         "responsibility": {
             "state": "observed" if responsibility_state or responsibility_holder else ("missing" if not payloads else "unknown"),
@@ -366,6 +398,7 @@ def _empty_activity(
             "actor_count": None,
             "envelopes": None,
             "with_identity": None,
+            "with_task": None,
             "with_process": None,
             "with_session": None,
             "with_terminal": None,
@@ -444,7 +477,7 @@ def observe_actor_activity(config: dict[str, Any], correlation: dict[str, Any]) 
         )
         return _as_source(activity)
 
-    group_names = ("identity", "responsibility", "process", "session", "terminal", "usage")
+    group_names = ("identity", "task", "responsibility", "process", "session", "terminal", "usage")
     has_invalid = correlation_state == "invalid" or any(
         actor["state"] == "invalid" or any(actor[name]["state"] == "invalid" for name in group_names) for actor in actors
     )
@@ -456,6 +489,7 @@ def observe_actor_activity(config: dict[str, Any], correlation: dict[str, Any]) 
         "actor_count": len(actors),
         "envelopes": len(envelopes),
         "with_identity": sum(actor["identity"]["state"] == "observed" for actor in actors),
+        "with_task": sum(actor["task"]["state"] == "observed" for actor in actors),
         "with_process": sum(actor["process"]["state"] == "observed" for actor in actors),
         "with_session": sum(actor["session"]["state"] == "observed" for actor in actors),
         "with_terminal": sum(actor["terminal"]["state"] == "observed" for actor in actors),

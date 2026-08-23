@@ -340,16 +340,18 @@ vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
 const projection = {
-  actor_activity: { actors: [{ actor_key: "actor:abc", identity: { label: "actor:abc", role_id: "external_codex_incarnation", model_id: "gpt-5" }, task: { task_id: "task:private" }, responsibility: { holder: "independent Luna Max D1/D2 owner contracts reviewer", responsibility_state: "not_independent" } }] },
+  actor_activity: { actors: [{ actor_key: "actor:abc", identity: { label: "actor:abc", role_id: "external_codex_incarnation", model_id: "gpt-5.6-luna:max" }, task: { task_id: "task:private", summary: "Review the Goal catalog integration" }, responsibility: { holder: "independent Luna Max D1/D2 owner contracts reviewer", responsibility_state: "not_independent" } }] },
   sources: [{ id: "aoa-session-memory", owner: ".aoa/session-memory", state: "missing", evidence_refs: [] }],
 };
 const person = context.AoaDashboardApp.participantItems(projection)[0];
 const source = context.AoaDashboardApp.sourceItems(projection)[0];
-process.stdout.write(JSON.stringify({ person: { title: person.title, role: person.role, task: person.task, owner: person.owner }, source: { title: source.title, owner: source.owner } }));
+process.stdout.write(JSON.stringify({ person: { title: person.title, role: person.role, model: person.model, task: person.task, owner: person.owner }, source: { title: source.title, owner: source.owner } }));
 '''
         )
         self.assertEqual(observed["person"]["title"], "Participant 1")
         self.assertEqual(observed["person"]["role"], "Working agent")
+        self.assertEqual(observed["person"]["model"], "gpt-5.6-luna:max")
+        self.assertEqual(observed["person"]["task"], "Review the Goal catalog integration")
         self.assertEqual(observed["person"]["owner"], "Master")
         self.assertNotIn("actor:", json.dumps(observed["person"]))
         self.assertNotIn("task:", json.dumps(observed["person"]))

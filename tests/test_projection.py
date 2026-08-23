@@ -635,6 +635,8 @@ class CorrelationAdapterTests(unittest.TestCase):
                 "name": "Luna",
                 "kind": "external_codex_incarnation",
                 "session_id": "session-alpha",
+                "model": "gpt-5.6-luna:max",
+                "responsibility": "Review the Goal catalog integration",
             },
             "runtime": {
                 "incarnation": "incarnation:alpha",
@@ -678,10 +680,13 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(activity["state"], "deferred")
         self.assertEqual(activity["summary"]["actor_count"], 2)
         self.assertEqual(activity["summary"]["with_usage"], 1)
+        self.assertEqual(activity["summary"]["with_task"], 1)
         alpha = next(item for item in activity["actors"] if item["identity"]["incarnation_id"] == "incarnation:alpha")
         secondary_view = next(item for item in activity["actors"] if item["actor_key"] == "return:secondary")
         self.assertEqual(alpha["identity"]["label"], "Luna")
         self.assertEqual(alpha["identity"]["role_id"], "external_codex_incarnation")
+        self.assertEqual(alpha["identity"]["model_id"], "gpt-5.6-luna:max")
+        self.assertEqual(alpha["task"]["summary"], "Review the Goal catalog integration")
         self.assertEqual(alpha["responsibility"]["holder"], "independent Luna Max implementation holder")
         self.assertEqual(alpha["process"]["process_id"], "731")
         self.assertEqual(alpha["session"]["session_id"], "session-alpha")
