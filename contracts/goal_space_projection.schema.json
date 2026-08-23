@@ -7,6 +7,7 @@
   "properties": {
     "schema_version": {"const": "aoa_dashboard_projection_v1"},
     "generated_at": {"type": "string", "format": "date-time"},
+    "presentation": {"type": "object"},
     "goal": {"type": "object"},
     "correlation": {"$ref": "aoa-dashboard://contracts/correlation-envelope-v1#/$defs/projection"},
     "correlation_read_model": {"$ref": "aoa-dashboard://contracts/goal-local-correlation-projection-v1"},

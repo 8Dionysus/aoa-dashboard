@@ -1,0 +1,422 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def run_node(source: str) -> object:
+    result = subprocess.run(
+        ["node", "-e", source],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
+class GoalSpaceUiStateTests(unittest.TestCase):
+    def test_app_keeps_selection_evidence_and_operate_routes_exactly_bound(self) -> None:
+        source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertNotIn("|| envelopes[0]", source)
+        self.assertNotIn("|| arrayOrEmpty(data.pressure_inbox?.items)[0]", source)
+        self.assertIn("function contextForSelection", source)
+        self.assertIn("function directionItems", source)
+        self.assertIn("function participantItems", source)
+        self.assertIn("function routeReadiness", source)
+        self.assertIn("selectionQuality === \"missing\"", source)
+        self.assertIn("clearAlert()", source)
+        self.assertIn("setProjectionBusy(true)", source)
+        self.assertIn("renderDiagnosticRoutes", source)
+        self.assertIn("function formatHumanRecency", source)
+        self.assertIn("contextThreadOpen = false", source)
+        self.assertNotIn("GOAL_LABELS", source)
+        self.assertNotRegex(source, r"aoa-dashboard-goal-01a00722-20260815")
+        self.assertNotIn('i18n.language === "ru"', source)
+
+    def test_operate_route_requires_admitted_currentness_and_exact_context(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; }, createElement() { return {}; } },
+  globalThis: null,
+  console,
+  fetch() { return new Promise(() => {}); },
+  setInterval() {},
+  location: { hash: "" },
+  history: { replaceState() {} },
+  AoaDashboardI18n: { createI18n() { return { language: "en", t(key) { return key; }, status(value) { return value; }, plural(key, count) { return `${key}:${count}`; }, subscribe() {} }; } },
+};
+context.globalThis = context;
+context.window = context;
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const selection = { goal_ref: "goal:test", thread_ref: "thread:test", focus_ref: "pressure:p2" };
+const base = {
+  goal_id: "goal:test",
+  master_thread_id: "thread:test",
+  pressure_ref: { id: "p2" },
+  next_route: { owner: "aoa-agents", route: "review", effect: "none", authority: "master_decision" },
+  stop_line: "stop",
+  wake_condition: "wake",
+  evidence: [{ ref: "evidence:p2" }],
+};
+const check = (currentness) => context.AoaDashboardApp.routeReadiness({ ...base, pressure_ref: { ...base.pressure_ref, currentness } }, selection);
+const missingThread = { ...base };
+delete missingThread.master_thread_id;
+const conflictingThread = context.AoaDashboardApp.routeReadiness({ ...base, pressure_ref: { id: "p2", currentness: "current" } }, { ...selection, thread_ref: "thread:other" });
+const wrongFocus = context.AoaDashboardApp.routeReadiness({ ...base, pressure_ref: { id: "p3", currentness: "current" } }, selection);
+process.stdout.write(JSON.stringify({
+  matchingThread: check("current").ready,
+  missingThread: context.AoaDashboardApp.routeReadiness(missingThread, selection).ready,
+  conflictingThread: conflictingThread.ready,
+  current: check("current").ready,
+  currentAtRead: check("current_at_read").ready,
+  unknown: check("unknown").ready,
+  stale: check("stale").ready,
+  invented: check("invented").ready,
+  absent: check(null).ready,
+  wrongFocus: wrongFocus.ready,
+}));
+'''
+        )
+        self.assertEqual(
+            observed,
+            {"matchingThread": True, "missingThread": False, "conflictingThread": False, "current": True, "currentAtRead": True, "unknown": False, "stale": False, "invented": False, "absent": False, "wrongFocus": False},
+        )
+
+    def test_selection_route_round_trip_is_complete_and_malformed_routes_fail_closed(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = { globalThis: null, URLSearchParams };
+context.globalThis = context;
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+const selection = {
+  goal_ref: "goal:test/one",
+  lens: "evidence",
+  focus_ref: "actor:7",
+  branch_path: ["dag:D1", "actor:7"],
+  thread_ref: "thread:test",
+  expanded_branch_refs: ["detail:correlation:7"],
+  page_by_list: { actors: 3, pressure: 1 },
+  observation_cursor_or_generation: "2026-08-22T00:00:00Z",
+};
+const encoded = context.AoaDashboardUiState.encodeRoute(selection);
+const decoded = context.AoaDashboardUiState.decodeRoute(encoded);
+const cleared = context.AoaDashboardUiState.decodeRoute(context.AoaDashboardUiState.encodeRoute({}));
+const malformed = context.AoaDashboardUiState.decodeRoute("#goal/%E0%A4%A/evidence?context=%7Bbad");
+process.stdout.write(JSON.stringify({ encoded, decoded, cleared, malformed }));
+'''
+        )
+        self.assertEqual(observed["decoded"]["status"], "valid")
+        self.assertEqual(observed["decoded"]["selection"]["branch_path"], ["dag:D1", "actor:7"])
+        self.assertEqual(observed["decoded"]["selection"]["expanded_branch_refs"], ["detail:correlation:7"])
+        self.assertEqual(observed["decoded"]["selection"]["page_by_list"], {"actors": 3, "pressure": 1})
+        self.assertEqual(observed["decoded"]["selection"]["observation_cursor_or_generation"], "2026-08-22T00:00:00Z")
+        self.assertEqual(observed["cleared"]["status"], "home")
+        self.assertEqual(observed["malformed"]["status"], "invalid")
+        self.assertIsNone(observed["malformed"]["selection"]["goal_ref"])
+
+    def test_catalog_optional_record_and_page_semantics_keep_missing_distinct_from_zero(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = { globalThis: null };
+context.globalThis = context;
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+const ui = context.AoaDashboardUiState;
+const fabricated = { items: [{ goal_ref: "goal:1" }], source: { ref: "fixture://not-owner", owner: "fabricated-owner", currentness: "invented" }, claim_limit: "fabricated claim" };
+const page = ui.pageWindow([{ ref: "a" }, { ref: "b" }, { ref: "c" }, { ref: "d" }], 0, 2, "d");
+process.stdout.write(JSON.stringify({
+  arrayCatalog: ui.qualifiedCatalog([]),
+  unqualifiedCatalog: ui.qualifiedCatalog({ items: [], claim_limit: "missing source" }),
+  fabricatedCatalog: ui.qualifiedCatalog(fabricated),
+  missingRecord: ui.optionalRecord(null),
+  zeroRecord: ui.optionalRecord({ count: 0, latest: [] }),
+  unknownRecord: ui.optionalRecord({ latest: [] }),
+  page,
+}));
+'''
+        )
+        self.assertEqual(observed["arrayCatalog"]["state"], "missing")
+        self.assertEqual(observed["unqualifiedCatalog"]["state"], "missing")
+        self.assertEqual(observed["fabricatedCatalog"]["state"], "missing")
+        self.assertEqual(observed["fabricatedCatalog"]["reason"], "publisher_unqualified")
+        self.assertEqual(observed["missingRecord"], {"state": "missing", "count": None, "latest": [], "evidence_refs": [], "claim_limit": None})
+        self.assertEqual(observed["zeroRecord"]["state"], "bound")
+        self.assertEqual(observed["zeroRecord"]["count"], 0)
+        self.assertEqual(observed["unknownRecord"]["state"], "unknown")
+        self.assertEqual(observed["unknownRecord"]["count"], None)
+        self.assertEqual([item["ref"] for item in observed["page"]["items"]], ["c", "d"])
+        self.assertEqual(observed["page"]["page"], 1)
+
+    def test_versioned_preferences_share_invalid_future_fallback_and_plural_categories(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = { globalThis: null };
+context.globalThis = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+const storageMap = new Map([["aoa-dashboard-theme-mode", "dark"], ["aoa-dashboard.language", "ru"]]);
+const storage = { getItem(key) { return storageMap.has(key) ? storageMap.get(key) : null; }, setItem(key, value) { storageMap.set(key, String(value)); } };
+const legacy = context.AoaDashboardPreferences.read(storage);
+storageMap.set("aoa-dashboard.preferences.v1", JSON.stringify({ version: 2, theme: "dark", language: "en", density: "compact" }));
+const future = context.AoaDashboardPreferences.read(storage);
+storageMap.set("aoa-dashboard.preferences.v1", "{bad");
+const malformed = context.AoaDashboardPreferences.read(storage);
+const en = context.AoaDashboardI18n.createI18n({ locale: "en", storage: { getItem() { return null; }, setItem() {} } });
+const ru = context.AoaDashboardI18n.createI18n({ locale: "ru", storage: { getItem() { return null; }, setItem() {} } });
+process.stdout.write(JSON.stringify({ legacy, future, malformed, unknownCategories: [null, undefined, "not-a-number", "2"].map((count) => context.AoaDashboardI18n.pluralCategory("en", count)), categories: {
+  en: [0, 1, 2].map((count) => en.plural("plural.person", count)),
+  ru: [0, 1, 2, 5, 1.2].map((count) => ({ category: context.AoaDashboardI18n.pluralCategory("ru", count), text: ru.plural("plural.person", count) })),
+} }));
+'''
+        )
+        self.assertEqual(observed["legacy"]["theme"], "dark")
+        self.assertEqual(observed["future"]["theme"], "system")
+        self.assertEqual(observed["malformed"]["theme"], "system")
+        self.assertEqual(observed["unknownCategories"], ["unknown", "unknown", "unknown", "unknown"])
+        self.assertIn("No people", observed["categories"]["en"][0])
+        self.assertIn("1 person", observed["categories"]["en"][1])
+        self.assertIn("2 people", observed["categories"]["en"][2])
+        self.assertEqual([item["category"] for item in observed["categories"]["ru"]], ["zero", "one", "few", "many", "other"])
+
+    def test_local_recency_and_goal_title_are_human_and_minute_bounded(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  globalThis: null,
+  document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; } },
+  localStorage: { getItem() { return null; }, setItem() {} },
+  navigator: { language: "en-US" },
+  location: { hash: "" },
+  history: { replaceState() {} },
+  fetch() { return new Promise(() => {}); },
+  setInterval() {},
+  addEventListener() {},
+};
+context.globalThis = context;
+context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const app = context.AoaDashboardApp;
+const goal = { goal: { goal_id: "goal:future-one", title: "Canonical future goal" }, presentation: { goal: { title: { en: "Create the first Goal Space slice", ru: "Собрать первый рабочий срез пространства целей" } } } };
+const recent = app.formatHumanRecency("2026-08-22T16:17:00Z", "2026-08-22T16:29:00Z");
+const old = app.formatHumanRecency("2026-08-01T09:10:45.123Z", "2026-08-22T16:29:00Z");
+const enTitle = app.goalTitle(goal);
+context.AoaDashboardI18n.createI18n;
+process.stdout.write(JSON.stringify({ recent, old, enTitle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasIso: /T|Z/.test(old) }));
+'''
+        )
+        self.assertIn("12", observed["recent"])
+        self.assertNotRegex(observed["recent"], r"T|Z|\.\d")
+        self.assertFalse(observed["hasSeconds"])
+        self.assertFalse(observed["hasIso"])
+        self.assertEqual(observed["enTitle"], "Create the first Goal Space slice")
+
+    def test_generic_localized_presentation_handles_future_goals_and_hides_technical_cards(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function load(language) {
+  const storage = new Map([["aoa-dashboard.language", language]]);
+  const context = {
+    globalThis: null,
+    document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; } },
+    localStorage: { getItem(key) { return storage.get(key) || null; }, setItem(key, value) { storage.set(key, String(value)); } },
+    navigator: { language: "en-US" },
+    location: { hash: "" },
+    history: { replaceState() {} },
+    fetch() { return new Promise(() => {}); },
+    setInterval() {},
+    addEventListener() {},
+  };
+  context.globalThis = context;
+  context.window = context;
+  vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+  return context.AoaDashboardApp;
+}
+const presentation = {
+  goal: { title: { en: "First future goal", ru: "Первая будущая цель" } },
+  directions: { D4: { title: { en: "Observation history", ru: "История наблюдений" }, relationship: { en: "Keeps changes together", ru: "Собирает изменения вместе" }, focus: { en: "Keep history clear", ru: "Сохранять историю ясной" }, next: { en: "Review the next change", ru: "Проверить следующее изменение" } } },
+  pressures: { "pressure:test": { title: { en: "Review the update", ru: "Проверить обновление" }, relationship: { en: "Needs review", ru: "Нужна проверка" }, focus: { en: "A short pressure summary", ru: "Короткое резюме запроса" }, next: { en: "Ask the owner", ru: "Спросить владельца" } } },
+  participants: { roles: { external_codex_incarnation: { en: "Working agent", ru: "Рабочий агент" } } },
+};
+function projection(goalId, title, goalPresentation) {
+  return {
+    goal: { goal_id: goalId, title },
+    presentation: { ...presentation, goal: { title: goalPresentation } },
+    dag: [{ id: "D4", title: "D4 versioned cursor/checkpoint correlation projection is degraded; source dashboard:correlation_read_model.", pressure: "runtime event drift", observation: "versioned cursor/checkpoint correlation projection is degraded; source dashboard:correlation_read_model.", next: "filter exact pressure-cursor-ui handoff" }],
+    pressure_inbox: { items: [{ pressure_ref: { id: "pressure:test" }, affected_goal_criterion: "D4 requires a deterministic rebuild", consequence_of_omission: "source dashboard:correlation_read_model", next_route: { owner: "master-thread", route: "filter exact pressure-cursor-ui handoff" }, outcome: { state: "deferred" } }] },
+    actor_activity: { actors: [{ actor_key: "actor:one", identity: { label: "one-shot return holder description that belongs in diagnostics", role_id: "external_codex_incarnation", model_id: "gpt-5" }, task: { task_id: "task:private", state: "returned" }, responsibility: { holder: "actor:one", responsibility_state: "not_independent" } }] },
+    sources: [{ id: "aoa-session-memory", owner: "aoa-session-memory", state: "missing", observation: "The historical source dashboard path is unavailable.", evidence_refs: [] }],
+  };
+}
+const en = load("en");
+const ru = load("ru");
+const one = projection("goal:one", "Canonical one", { en: "First future goal", ru: "Первая будущая цель" });
+const two = projection("goal:two", "Canonical two", { en: "Second future goal", ru: "Вторая будущая цель" });
+const enDirection = en.directionItems(one).find((item) => item.ref === "dag:D4");
+const ruPressure = ru.directionItems(one).find((item) => item.ref === "pressure:pressure:test");
+const person = en.participantItems(one)[0];
+const source = en.sourceItems(one)[0];
+process.stdout.write(JSON.stringify({
+  goals: [en.goalTitle(one), en.goalTitle(two), ru.goalTitle(one)],
+  direction: { title: enDirection.title, relationship: enDirection.relationship, focus: enDirection.focus, next: enDirection.next, raw: enDirection.raw.observation },
+  pressure: { title: ruPressure.title, focus: ruPressure.focus, next: ruPressure.next, raw: ruPressure.raw.next_route.route },
+  person: { title: person.title, role: person.role, task: person.task },
+  source: { title: source.title, focus: source.focus },
+}));
+'''
+        )
+        self.assertEqual(observed["goals"], ["First future goal", "Second future goal", "Первая будущая цель"])
+        self.assertEqual(observed["direction"]["title"], "Observation history")
+        self.assertNotIn("correlation_read_model", json.dumps({key: value for key, value in observed["direction"].items() if key != "raw"}))
+        self.assertIn("correlation_read_model", observed["direction"]["raw"])
+        self.assertEqual(observed["pressure"]["title"], "Проверить обновление")
+        self.assertNotIn("pressure-cursor-ui", json.dumps({key: value for key, value in observed["pressure"].items() if key != "raw"}))
+        self.assertIn("pressure-cursor-ui", observed["pressure"]["raw"])
+        self.assertEqual(observed["person"]["title"], "Participant 1")
+        self.assertEqual(observed["person"]["role"], "Working agent")
+        self.assertNotIn("task:", json.dumps(observed["person"]))
+        self.assertNotIn("historical source", observed["source"]["focus"])
+
+    def test_default_human_projection_hides_machine_identity_and_source_keys(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  globalThis: null,
+  document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; } },
+  localStorage: { getItem() { return null; }, setItem() {} },
+  navigator: { language: "en-US" },
+  location: { hash: "" },
+  history: { replaceState() {} },
+  fetch() { return new Promise(() => {}); },
+  setInterval() {},
+  addEventListener() {},
+};
+context.globalThis = context;
+context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const projection = {
+  actor_activity: { actors: [{ actor_key: "actor:abc", identity: { label: "actor:abc", role_id: "external_codex_incarnation", model_id: "gpt-5" }, task: { task_id: "task:private" }, responsibility: { holder: "independent Luna Max D1/D2 owner contracts reviewer", responsibility_state: "not_independent" } }] },
+  sources: [{ id: "aoa-session-memory", owner: ".aoa/session-memory", state: "missing", evidence_refs: [] }],
+};
+const person = context.AoaDashboardApp.participantItems(projection)[0];
+const source = context.AoaDashboardApp.sourceItems(projection)[0];
+process.stdout.write(JSON.stringify({ person: { title: person.title, role: person.role, task: person.task, owner: person.owner }, source: { title: source.title, owner: source.owner } }));
+'''
+        )
+        self.assertEqual(observed["person"]["title"], "Participant 1")
+        self.assertEqual(observed["person"]["role"], "Working agent")
+        self.assertEqual(observed["person"]["owner"], "Master")
+        self.assertNotIn("actor:", json.dumps(observed["person"]))
+        self.assertNotIn("task:", json.dumps(observed["person"]))
+        self.assertEqual(observed["source"]["title"], "Session history")
+        self.assertEqual(observed["source"]["owner"], "Session history")
+        self.assertNotIn("aoa-session-memory", json.dumps(observed["source"]))
+
+    def test_diagnostics_materializes_raw_detail_only_after_developer_disclosure(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function node(tag) {
+  const listeners = {};
+  return { tagName: tag, children: [], dataset: {}, className: "", open: false, textContent: "", append(...items) { this.children.push(...items); }, addEventListener(name, listener) { listeners[name] = listener; }, setAttribute() {}, trigger(name) { if (listeners[name]) listeners[name](); } };
+}
+const context = { globalThis: null, document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; }, createElement: node }, localStorage: { getItem() { return null; }, setItem() {} }, location: { hash: "" }, history: { replaceState() {} }, fetch() { return new Promise(() => {}); }, setInterval() {}, addEventListener() {}, navigator: { language: "en-US" } };
+context.globalThis = context; context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const target = node("section");
+context.AoaDashboardApp.renderDiagnosticRoutes({ goal: { goal_id: "goal:test", title: "Goal", source_refs: [{ ref: "source:goal", sha256: "abc" }] }, correlation: { evidence_refs: [] } }, target);
+const inspector = target.children[0];
+const developer = inspector.children[1].children[1].children[1];
+const before = JSON.stringify(target).includes('"tagName":"pre"');
+const beforeRefs = JSON.stringify(target).includes("source:goal");
+developer.open = true;
+developer.trigger("toggle");
+const after = developer.children.some((child) => child.tagName === "pre");
+const afterRefs = JSON.stringify(developer).includes("source:goal");
+process.stdout.write(JSON.stringify({ before, beforeRefs, after, afterRefs, inspectorClass: inspector.className, developerClass: developer.className }));
+'''
+        )
+        self.assertFalse(observed["before"])
+        self.assertFalse(observed["beforeRefs"])
+        self.assertTrue(observed["after"])
+        self.assertTrue(observed["afterRefs"])
+        self.assertEqual(observed["inspectorClass"], "diagnostics-inspector")
+        self.assertEqual(observed["developerClass"], "developer-details")
+
+    def test_refresh_interaction_snapshot_restores_details_scroll_drafts_and_focus(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function node(id) {
+  const listeners = {};
+  return { id, dataset: {}, classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } }, children: [], firstChild: null, scrollTop: 0, scrollLeft: 0, open: false, value: "", type: "text", name: "", append(...items) { this.children.push(...items); }, removeChild() {}, setAttribute() {}, addEventListener(name, listener) { listeners[name] = listener; }, focus() { document.activeElement = this; }, querySelector() { return null; }, elements: [] };
+}
+const nodes = new Map();
+for (const id of ["refresh-status", "center-surface", "workspace-view", "context-thread", "thread-toggle", "live-region", "alert", "route-status", "home-view", "workspace-view", "goal-selector", "catalog-state", "fallback-evidence", "annotation-form", "intent-form", "home-button", "workspace-goal-button"]) nodes.set(id, node(id));
+nodes.get("center-surface").scrollTop = 41;
+nodes.get("center-surface").scrollLeft = 3;
+nodes.get("context-thread").classList = { add() {}, remove() {}, toggle() {} };
+nodes.get("thread-toggle").setAttribute = function () {};
+const detail = node("detail"); detail.dataset.detailKey = "correlation:one"; detail.open = true;
+const focus = node("focus"); focus.dataset.focusKey = "return:one";
+const draftControl = node("body"); draftControl.name = "body"; draftControl.value = "keep this draft";
+nodes.get("annotation-form").elements = [draftControl];
+const document = {
+  title: "",
+  activeElement: focus,
+  documentElement: { lang: "", dataset: {} },
+  getElementById(id) { return nodes.get(id) || null; },
+  createElement(tag) { return node(tag); },
+  querySelectorAll(selector) {
+    if (selector === "details") return [detail];
+    if (selector === "[data-focus-key]") return [focus];
+    return [];
+  },
+  addEventListener() {},
+};
+const context = { document, globalThis: null, console, setInterval() {}, fetch() { return new Promise(() => {}); }, history: { replaceState() {} }, location: { hash: "" }, addEventListener() {}, AoaDashboardI18n: { createI18n() { return { language: "en", t(key) { return key; }, status(value) { return value; }, plural(key, count) { return `${key}:${count}`; }, subscribe() {} }; } }, AoaDashboardTheme: { getMode() { return "system"; }, setLabels() {}, subscribe() {} } };
+context.globalThis = context; context.window = context; vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const snapshot = context.AoaDashboardApp.captureInteractionState();
+detail.open = false; nodes.get("center-surface").scrollTop = 0; draftControl.value = "lost"; document.activeElement = null;
+context.AoaDashboardApp.restoreInteractionState(snapshot);
+process.stdout.write(JSON.stringify({ open: detail.open, scrollTop: nodes.get("center-surface").scrollTop, scrollLeft: nodes.get("center-surface").scrollLeft, draft: draftControl.value, focus: document.activeElement === focus }));
+'''
+        )
+        self.assertEqual(observed, {"open": True, "scrollTop": 41, "scrollLeft": 3, "draft": "keep this draft", "focus": True})
+
+
+if __name__ == "__main__":
+    unittest.main()

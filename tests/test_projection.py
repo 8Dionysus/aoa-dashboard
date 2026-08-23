@@ -250,6 +250,17 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(steps["reviewed"], "missing")
         self.assertEqual(steps["accepted"], "missing")
 
+    def test_human_presentation_is_separate_from_canonical_projection_values(self) -> None:
+        projection = build_projection(self._write_config())
+        presentation = projection["presentation"]
+        self.assertEqual(presentation["schema_version"], "aoa_dashboard_human_presentation_v1")
+        self.assertEqual(projection["goal"]["title"], "Test goal")
+        self.assertIn("D4", presentation["directions"])
+        self.assertIn("en", presentation["directions"]["D4"]["title"])
+        self.assertIn("ru", presentation["directions"]["D4"]["title"])
+        self.assertIn("pressure:d4:cursor-conflict-retention", presentation["pressures"])
+        self.assertEqual(presentation["participants"]["roles"]["external_codex_incarnation"]["en"], "Working agent")
+
     def test_invalid_json_source_is_invalid(self) -> None:
         self.fixture.stats.write_text("{not-json", encoding="utf-8")
         projection = build_projection(self._write_config())
