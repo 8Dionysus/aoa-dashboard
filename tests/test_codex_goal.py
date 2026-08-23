@@ -84,6 +84,18 @@ class CodexGoalTests(unittest.TestCase):
         self.assertIsNone(observed["goal"])
         self.assertIn("owner_goal_identity_mismatch", observed["diagnostics"])
 
+    def test_budget_limited_owner_status_is_admitted(self) -> None:
+        class BudgetRpc(FakeRpc):
+            response = {"goal": {**FakeRpc.response["goal"], "status": "budgetLimited"}}
+
+        with patch(
+            "aoa_dashboard.codex_goal.discover_control_socket",
+            return_value=Path("/tmp/app-server.sock"),
+        ):
+            observed = observe_codex_goal(self.config(), rpc_factory=BudgetRpc)
+        self.assertEqual(observed["state"], "bound")
+        self.assertEqual(observed["goal"]["status"], "budgetLimited")
+
     def test_disabled_binding_does_not_probe_owner_runtime(self) -> None:
         observed = observe_codex_goal(
             {"owner_goal_source": {"enabled": False}, "current_correlation": {}},

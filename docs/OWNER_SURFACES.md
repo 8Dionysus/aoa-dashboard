@@ -34,6 +34,16 @@ owns only the thin translation and presentation layer.
   surface before v1 can be canonical or reenter. It does not take ownership of
   role, runtime, proof, return acceptance, parent resume, or semantic
   continuation.
+- Codex app-server is the semantic owner for the exact Goal and Thread. The
+  dashboard reads `thread/goal/get`, `thread/read`, and the experimental,
+  read-only `thread/list` relation filters for one exact current thread. A
+  relation page is retained as bounded direct-child or descendant context; it
+  is not a complete branch lifecycle or participant graph.
+- The participant envelope projects task-local actor observations into
+  independently degraded identity, task, model-realization, and runtime
+  dimensions. Candidate labels and model slugs remain diagnostics-only unless
+  the required owner shape is present; missing, stale, and mismatched Goal
+  thread joins are not repaired by the dashboard.
 - The master filter's mutable currentness remains owner evidence: the
   `master-thread` publishes a content-addressed current-head attestation and
   append-only history, while `aoa-dashboard` only compares bytes, retains refs,

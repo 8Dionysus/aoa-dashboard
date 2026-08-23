@@ -26,7 +26,9 @@ repository:
 5. the owner-currentness observation for the mutable master filter, including
    bounded current-head/history refs and diagnostics;
 6. the P-infinity Pressure Inbox projection;
-7. task-local actor-activity projection.
+7. task-local actor-activity projection;
+8. the bounded read-only Codex Goal/Thread observation envelope;
+9. the independently degraded participant-context envelope.
 
 It may read named owner surfaces, preserve source refs/digests, render
 missingness and freshness, and persist its own annotations. It cannot amend a
@@ -56,6 +58,7 @@ grant of authority.
 | capability ABI and task-local DAG | `aoa-skills` | show bounded metadata |
 | workspace, RunPlan, incarnation and compatibility | `aoa-sdk` | consume binding refs; never select |
 | runtime and deployment lifecycle | `abyss-stack` | distinguish source/deploy/live evidence |
+| Goal/thread semantics and branch relations | Codex app-server | read exact Goal/Thread observations and bounded relation pages only |
 | raw session and freshness | `.aoa/session-memory` | preserve refs; never make proof |
 | proof, review and eval verdict | `aoa-evals` | display independent evidence or missingness |
 | reviewed durable memory | `aoa-memo` | optional context only |

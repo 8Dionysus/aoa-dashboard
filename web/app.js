@@ -437,7 +437,7 @@ function publishNativePresentationPreference() {
 }
 
 function qualityForData(data) {
-  const observed = [data?.correlation?.state, data?.correlation_read_model?.status, data?.pressure_inbox?.status, data?.actor_activity?.state]
+  const observed = [data?.correlation?.state, data?.correlation_read_model?.status, data?.pressure_inbox?.status, data?.actor_activity?.state, data?.owner_goal_context?.state, data?.participant_context?.state]
     .map((value) => String(value || "").toLowerCase());
   for (const value of ["invalid", "deferred", "stale", "missing", "unknown"]) if (observed.includes(value)) return value;
   return "unknown";
@@ -560,7 +560,43 @@ function humanModelName(value, fallback = "") {
   return candidate;
 }
 
+function participantContextItems(data) {
+  return arrayOrEmpty(data?.participant_context?.participants).map((participant, index) => {
+    const identity = participant.identity || {};
+    const task = participant.task_context || {};
+    const model = participant.model_realization || {};
+    const configured = participantPresentation(data, { actor_key: participant.ref, identity });
+    const rawRole = String(identity.role_id || "");
+    const role = presentationField(configured, "role", "")
+      || (/external[_\s-]+codex|agent/i.test(rawRole) ? t("participants.workingAgent") : t("participants.roleUnknown"));
+    const publishedLabel = presentationField(configured, "name", "") || humanParticipantName(identity.display_name, "");
+    const title = publishedLabel || t("participants.personNumber", { count: index + 1 });
+    const taskValue = presentationField(configured, "task", "")
+      || humanValue(task.summary, t("participants.workUnavailable"));
+    const threadState = task.goal_thread?.state;
+    const relationship = presentationField(configured, "relationship", "")
+      || (threadState === "present" ? t("participants.goalThreadAvailable") : t("participants.relationshipUnavailable"));
+    const quality = participant.quality || "unknown";
+    return {
+      ref: participant.ref || `actor:${index}`,
+      kind: "person",
+      title,
+      state: quality,
+      owner: t("trajectory.master"),
+      role,
+      model: model.state === "present" ? t("participants.modelAvailable") : null,
+      model_state: model.state || "unknown",
+      task: taskValue,
+      relationship,
+      focus: threadState === "present" ? t("participants.goalThreadAvailable") : t("participants.contextDeferred"),
+      evidence_refs: arrayOrEmpty(participant.evidence_refs),
+      raw: participant,
+    };
+  });
+}
+
 function participantItems(data) {
+  if (data?.participant_context && Array.isArray(data.participant_context.participants)) return participantContextItems(data);
   return arrayOrEmpty(data?.actor_activity?.actors).map((actor, index) => {
     const identity = actor.identity || {};
     const task = actor.task || {};
@@ -862,10 +898,12 @@ function renderGoalSummary(data) {
     : focus
       ? t("trajectory.next", { value: focus.next || t("trajectory.nextFocusEmpty") })
       : t("trajectory.nextFocusHelp");
-  const count = data.actor_activity?.summary?.actor_count;
+  const participantSummary = data.participant_context?.summary || {};
+  const count = participantSummary.participant_count ?? data.actor_activity?.summary?.actor_count;
+  const participantState = data.participant_context?.state || data.actor_activity?.state || "unknown";
   target.append(
     summaryCard(t("trajectory.master"), humanOwner(holder.label || holder.holder, t("trajectory.masterUnknown")), t("trajectory.masterSummary"), lifecycleForData(data)),
-    summaryCard(t("trajectory.people"), count == null ? plural("person", null) : plural("person", count), t("participants.intro"), data.actor_activity?.state || "unknown"),
+    summaryCard(t("trajectory.people"), count == null ? plural("person", null) : plural("person", count), t("participants.intro"), participantState),
     summaryCard(t("trajectory.nextFocus"), focus?.title || t("trajectory.nextFocusEmpty"), focusDetail, focus?.state || "unknown"),
   );
   if (people.length && people.length < (count || people.length)) {
@@ -1142,6 +1180,13 @@ function diagnosticEntries(data, context = contextForSelection(data)) {
   entries.push({ label: context?.title || goalTitle(data), refs, value: safeDiagnosticValue(context?.raw || { goal: data?.goal, currentness: currentnessForData(data) }) });
   if (context?.ref?.startsWith("pressure:")) entries.push({ label: t("attention.heading"), refs: arrayOrEmpty(context.raw?.evidence), value: safeDiagnosticValue(context.raw) });
   if (context?.ref?.startsWith("actor:")) entries.push({ label: t("participants.heading"), refs: arrayOrEmpty(context.raw?.evidence_refs), value: safeDiagnosticValue(context.raw) });
+  if (data?.owner_goal_context && typeof data.owner_goal_context === "object") {
+    entries.push({
+      label: t("thread.ownerContext"),
+      refs: arrayOrEmpty(data.owner_goal_context.evidence_refs).slice(0, MAX_REFS),
+      value: safeDiagnosticValue({ owner_goal_context: data.owner_goal_context, participant_context: data.participant_context }),
+    });
+  }
   return entries;
 }
 
@@ -1176,6 +1221,37 @@ function renderDiagnosticRoutes(data, target) {
   target.append(inspector);
 }
 
+function renderOwnerThreadDetails(data, target) {
+  const owner = data?.owner_goal_context;
+  if (!owner || typeof owner !== "object") return;
+  const details = document.createElement("details");
+  details.className = "owner-context-details";
+  details.append(text("summary", t("thread.ownerContext")));
+  const body = document.createElement("div");
+  body.className = "owner-context-body";
+  const thread = owner.thread || {};
+  body.append(text("p", thread.state === "bound" ? t("thread.ownerThreadAvailable") : t("thread.ownerThreadUnavailable"), "context-detail"));
+  const relations = [
+    ["spawn_parent", "thread.spawnParent"],
+    ["history_fork", "thread.historyFork"],
+  ];
+  for (const [kind, labelKey] of relations) {
+    const relation = owner.relations?.[kind] || {};
+    const label = t(labelKey);
+    const items = arrayOrEmpty(relation.items);
+    const summary = relation.state === "bound" && relation.complete_for_query && items.length
+      ? t("thread.relationObserved", { label, count: items.length })
+      : relation.state === "deferred"
+        ? t("thread.relationDeferred", { label })
+        : relation.state === "bound"
+          ? t("thread.relationNone", { label })
+          : t("thread.relationUnavailable", { label });
+    body.append(text("p", summary, "context-detail"));
+  }
+  details.append(body);
+  target.append(details);
+}
+
 function renderThread(data) {
   const target = byId("thread-items");
   clear(target);
@@ -1195,10 +1271,12 @@ function renderThread(data) {
     if (context.kind === "person") {
       card.append(text("p", t("thread.role", { value: context.role }), "context-detail"));
       if (context.model) card.append(text("p", t("thread.model", { value: context.model }), "context-detail"));
+      else if (context.model_state) card.append(text("p", t("thread.modelUnavailable"), "context-detail"));
       card.append(text("p", t("thread.task", { value: context.task }), "context-focus"));
     }
     card.append(text("p", `${t("thread.evidence")}: ${context.evidence_refs?.length ? statusLabel("present") : statusLabel("unknown")}`, "context-detail"));
     target.append(card);
+    renderOwnerThreadDetails(data, target);
   }
   const operate = byId("operate-panel");
   if (operate) operate.classList.toggle("hidden", workspaceMode !== "operate");

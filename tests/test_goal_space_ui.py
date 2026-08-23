@@ -33,6 +33,9 @@ class GoalSpaceUiStateTests(unittest.TestCase):
         self.assertIn("function renderTopologyBranches", source)
         self.assertIn("expanded_branch_refs", source)
         self.assertIn("function participantItems", source)
+        self.assertIn("function participantContextItems", source)
+        self.assertIn("owner_goal_context", source)
+        self.assertIn("owner-context-details", source)
         self.assertIn("function routeReadiness", source)
         self.assertIn("selectionQuality === \"missing\"", source)
         self.assertIn("clearAlert()", source)
@@ -400,6 +403,78 @@ process.stdout.write(JSON.stringify({ person: { title: person.title, role: perso
         self.assertEqual(observed["source"]["title"], "Session history")
         self.assertEqual(observed["source"]["owner"], "Session history")
         self.assertNotIn("aoa-session-memory", json.dumps(observed["source"]))
+
+    def test_owner_participant_context_stays_human_in_en_ru_and_exact_details_are_deferred(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function node(tag) {
+  const listeners = {};
+  return { tagName: tag, children: [], dataset: {}, className: "", open: false, textContent: "", append(...items) { this.children.push(...items); }, addEventListener(name, listener) { listeners[name] = listener; }, setAttribute() {}, trigger(name) { if (listeners[name]) listeners[name](); } };
+}
+function load(language) {
+  const context = { globalThis: null, document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; }, createElement: node }, localStorage: { getItem() { return language; }, setItem() {} }, location: { hash: "" }, history: { replaceState() {} }, fetch() { return new Promise(() => {}); }, setInterval() {}, addEventListener() {}, navigator: { language: language === "ru" ? "ru-RU" : "en-US" } };
+  context.globalThis = context; context.window = context;
+  vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+  return context;
+}
+const data = {
+  goal: { goal_id: "goal:synthetic", title: "Bounded Goal" },
+  participant_context: {
+    state: "deferred",
+    participants: [{
+      ref: "actor:return:synthetic",
+      lifecycle_state: "returned",
+      quality: "deferred",
+      identity: { state: "present", role_id: "external_codex_incarnation", display_name: null, display_name_state: "missing", candidate_label: "actor:secret" },
+      task_context: { state: "present", summary: "Review the Goal context", goal_thread: { state: "present", thread_id: "thread:owner", owner: "codex-app-server" } },
+      model_realization: { state: "unknown", candidate_model_id: "gpt-5.6-luna:max", runtime_subject: null },
+      runtime_evidence: { state: "deferred" },
+      evidence_refs: [{ label: "owner thread", ref: "codex-app-server:thread/read:thread:owner" }],
+    }],
+  },
+  owner_goal_context: {
+    state: "deferred",
+    goal_ref: { thread_id: "thread:owner", owner: "codex-app-server" },
+    thread: { state: "bound", thread_id: "thread:owner", evidence_refs: [{ ref: "thread:owner" }] },
+    relations: {
+      spawn_parent: { state: "bound", complete_for_query: true, items: [{ thread_id: "thread:child" }] },
+      history_fork: { state: "deferred", complete_for_query: false, items: [] },
+    },
+    evidence_refs: [{ label: "owner thread", ref: "codex-app-server:thread/read:thread:owner" }],
+  },
+};
+const enContext = load("en");
+const ruContext = load("ru");
+const enPerson = enContext.AoaDashboardApp.participantItems(data)[0];
+const ruPerson = ruContext.AoaDashboardApp.participantItems(data)[0];
+const human = (person) => ({ title: person.title, role: person.role, model: person.model, task: person.task, relationship: person.relationship, focus: person.focus, owner: person.owner });
+const target = node("section");
+enContext.AoaDashboardApp.renderDiagnosticRoutes(data, target);
+const body = target.children[0].children[1];
+const ownerEntry = body.children.find((item) => item.children?.[0]?.textContent === "Goal and branch context");
+const developer = ownerEntry.children[1];
+const before = JSON.stringify(ownerEntry).includes("thread:owner");
+developer.open = true;
+developer.trigger("toggle");
+const after = JSON.stringify(developer).includes("thread:owner") && developer.children.some((item) => item.tagName === "pre");
+process.stdout.write(JSON.stringify({ en: human(enPerson), ru: human(ruPerson), before, after }));
+'''
+        )
+        self.assertEqual(observed["en"]["title"], "Participant 1")
+        self.assertEqual(observed["ru"]["title"], "Участник 1")
+        self.assertEqual(observed["en"]["role"], "Working agent")
+        self.assertEqual(observed["ru"]["role"], "Рабочий агент")
+        self.assertEqual(observed["en"]["task"], "Review the Goal context")
+        self.assertIsNone(observed["en"]["model"])
+        self.assertNotIn("actor:", json.dumps(observed["en"]))
+        self.assertNotIn("thread:", json.dumps(observed["en"]))
+        self.assertFalse(observed["before"])
+        self.assertTrue(observed["after"])
 
     def test_diagnostics_materializes_raw_detail_only_after_developer_disclosure(self) -> None:
         observed = run_node(

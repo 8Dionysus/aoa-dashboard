@@ -310,6 +310,18 @@ def _build_actor(
     return {
         "actor_key": actor_key,
         "state": actor_state,
+        "correlation": {
+            "goal_id": _first_identifier(
+                [envelope.get("goal", {})] if isinstance(envelope.get("goal"), dict) else [],
+                ("goal_id",),
+            ),
+            "master_thread_id": _first_identifier(
+                [envelope.get("goal", {})] if isinstance(envelope.get("goal"), dict) else [],
+                ("master_thread_id",),
+            ),
+            "state": actor_state,
+            "claim_limit": "Explicit task-local correlation identity is retained for comparison only; it does not create a cross-owner Goal or actor binding.",
+        },
         "identity": {
             "state": "observed" if any((actor_id, actor_label, incarnation_id, role_id, model_id)) else ("missing" if not payloads else "unknown"),
             "actor_id": actor_id,

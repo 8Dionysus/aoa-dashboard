@@ -1,0 +1,328 @@
+"""Project independently degraded participant dimensions.
+
+This is a dashboard adapter envelope.  It does not mint an aoa-agents role,
+select an aoa-models realization, or turn task-local runtime observations into
+health or acceptance.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+
+SCHEMA_VERSION = "aoa_dashboard_participant_envelope_v1"
+DIMENSION_STATES = frozenset({"present", "missing", "unknown", "stale", "deferred", "invalid"})
+LIFECYCLE_STATES = frozenset({"planned", "bound", "running", "paused", "returned", "reviewed", "accepted", "reentered"})
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+CLAIM_LIMIT = (
+    "Participant context is a dashboard adapter over bounded owner/task-local "
+    "observations. It does not establish human identity, role authority, model "
+    "fit or activation, runtime health, proof, review, acceptance, or Goal completion."
+)
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _string(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _refs(value: Any) -> list[dict[str, Any]]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _source(refs: list[dict[str, Any]], *, currentness: str | None, claim_limit: str) -> dict[str, Any]:
+    return {
+        "owner": "aoa-dashboard",
+        "ref": "task-local-actor-activity",
+        "currentness": currentness or "unknown",
+        "evidence_refs": refs,
+        "claim_limit": claim_limit,
+    }
+
+
+def _state(value: Any, fallback: str = "unknown") -> str:
+    if value in {"observed", "bound", "current_at_read"}:
+        return "present"
+    return value if isinstance(value, str) and value in DIMENSION_STATES else fallback
+
+
+def _model_subject(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    kind = _string(value.get("kind"))
+    source = _string(value.get("source"))
+    digest = _string(value.get("digest"))
+    if not kind or not source or not digest or not SHA256_RE.fullmatch(digest):
+        return None
+    return {"kind": kind, "source": source, "digest": digest}
+
+
+def _task_context(actor: dict[str, Any], owner_goal_context: dict[str, Any]) -> dict[str, Any]:
+    task = _dict(actor.get("task"))
+    correlation = _dict(actor.get("correlation"))
+    task_id = _string(task.get("task_id"))
+    summary = _string(task.get("summary")) or _string(task.get("title"))
+    task_observation_state = "present" if task_id or summary else ("missing" if actor.get("payload_state") == "missing" else "unknown")
+    goal_ref = _dict(owner_goal_context.get("goal_ref"))
+    exact_thread_id = _string(goal_ref.get("thread_id"))
+    observed_thread_id = _string(correlation.get("master_thread_id"))
+    thread_view = _dict(owner_goal_context.get("thread"))
+    if not observed_thread_id:
+        join_state = "unknown"
+        join_reason = "participant_goal_thread_binding_missing"
+        joined_thread_id = None
+    elif not exact_thread_id:
+        join_state = "unknown"
+        join_reason = "participant_goal_thread_owner_context_missing"
+        joined_thread_id = None
+    elif observed_thread_id != exact_thread_id:
+        join_state = "invalid"
+        join_reason = "participant_goal_thread_correlation_mismatch"
+        joined_thread_id = None
+    elif thread_view.get("state") != "bound":
+        join_state = "deferred"
+        join_reason = "participant_goal_thread_observation_deferred"
+        joined_thread_id = None
+    else:
+        join_state = "present"
+        join_reason = None
+        joined_thread_id = exact_thread_id
+    if join_state == "invalid":
+        state = "invalid"
+    elif task_observation_state == "present" and join_state == "present":
+        state = "stale" if actor.get("freshness") == "stale" else "present"
+    elif task_observation_state == "missing" and join_state in {"missing", "unknown"}:
+        state = "missing"
+    elif join_state in {"deferred", "unknown"} or task_observation_state == "unknown":
+        state = "unknown" if join_state == "unknown" and task_observation_state != "present" else "deferred"
+    else:
+        state = task_observation_state
+    return {
+        "state": state,
+        "observation_state": task_observation_state,
+        "task_id": task_id,
+        "summary": summary,
+        "goal_thread": {
+            "state": join_state,
+            "thread_id": joined_thread_id,
+            "owner": "codex-app-server" if joined_thread_id else None,
+            "reason": join_reason,
+        },
+        "source": _source(
+            _refs(actor.get("evidence_refs")),
+            currentness=actor.get("freshness"),
+            claim_limit="Task and Goal/thread joins remain bounded adapter observations; they do not establish assignment or semantic continuation.",
+        ),
+        "claim_limit": "Task context retains task-local fields and an explicit exact-thread comparison only; it is not an owner mandate or branch verdict.",
+    }
+
+
+def _identity(actor: dict[str, Any]) -> dict[str, Any]:
+    identity = _dict(actor.get("identity"))
+    role_id = _string(identity.get("role_id"))
+    specialization_id = _string(identity.get("specialization_id"))
+    tier_id = _string(identity.get("tier_id"))
+    role_resolution_ref = _string(identity.get("role_resolution_ref"))
+    obligation_ref = _string(identity.get("obligation_ref"))
+    owner_display_name = _string(identity.get("display_name"))
+    candidate_label = _string(identity.get("label"))
+    any_observation = any((role_id, specialization_id, tier_id, role_resolution_ref, obligation_ref, candidate_label))
+    if any_observation:
+        state = "stale" if actor.get("freshness") == "stale" else "present"
+    else:
+        state = "missing" if actor.get("payload_state") == "missing" else "unknown"
+    display_state = "present" if owner_display_name else "missing"
+    return {
+        "state": state,
+        "role_id": role_id,
+        "specialization_id": specialization_id,
+        "tier_id": tier_id,
+        "role_resolution_ref": role_resolution_ref,
+        "obligation_ref": obligation_ref,
+        "display_name": owner_display_name,
+        "display_name_state": display_state,
+        "candidate_label": candidate_label,
+        "source": _source(
+            _refs(actor.get("evidence_refs")),
+            currentness=actor.get("freshness"),
+            claim_limit="No canonical owner-published human participant display name was connected; candidate labels remain diagnostics-only.",
+        ),
+        "claim_limit": "Identity fields are bounded task-local observations unless an explicit owner ref is present; a holder suffix or label is not human identity or role acceptance.",
+    }
+
+
+def _model(actor: dict[str, Any]) -> dict[str, Any]:
+    identity = _dict(actor.get("identity"))
+    realization = _dict(actor.get("model_realization"))
+    model_identity_ref = _string(realization.get("model_identity_ref"))
+    model_realization_ref = _string(realization.get("model_realization_ref"))
+    fit_projection_ref = _string(realization.get("fit_projection_ref"))
+    runtime_subject = _model_subject(realization.get("runtime_subject"))
+    candidate_model_id = _string(identity.get("model_id"))
+    if model_identity_ref and model_realization_ref and runtime_subject:
+        state = "stale" if actor.get("freshness") == "stale" else "present"
+    elif candidate_model_id:
+        state = "stale" if actor.get("freshness") == "stale" else "unknown"
+    else:
+        state = "missing" if actor.get("payload_state") == "missing" else "unknown"
+    return {
+        "state": state,
+        "model_identity_ref": model_identity_ref,
+        "model_realization_ref": model_realization_ref,
+        "fit_projection_ref": fit_projection_ref,
+        "runtime_subject": runtime_subject,
+        "candidate_model_id": candidate_model_id,
+        "source": _source(
+            _refs(actor.get("evidence_refs")),
+            currentness=actor.get("freshness"),
+            claim_limit="A model slug alone is not an aoa-models identity, fit, activation, or current runtime subject.",
+        ),
+        "claim_limit": "Model realization is present only with explicit identity, realization, and exact runtime subject refs; candidate values remain bounded diagnostics.",
+    }
+
+
+def _runtime(actor: dict[str, Any]) -> dict[str, Any]:
+    groups = {name: _dict(actor.get(name)) for name in ("process", "session", "terminal", "wake_return", "usage")}
+    states = [_state(group.get("state"), "unknown") for group in groups.values()]
+    if "invalid" in states:
+        state = "invalid"
+    elif all(value == "missing" for value in states):
+        state = "missing"
+    elif any(value in {"unknown", "deferred"} for value in states):
+        state = "deferred"
+    elif any(value == "stale" for value in states):
+        state = "stale" if all(value in {"stale", "missing"} for value in states) else "deferred"
+    elif any(value == "missing" for value in states):
+        state = "deferred"
+    else:
+        state = "present"
+    return {
+        "state": state,
+        "process": groups["process"],
+        "session": groups["session"],
+        "terminal": groups["terminal"],
+        "wake_return": groups["wake_return"],
+        "usage": groups["usage"],
+        "source": _source(
+            _refs(actor.get("evidence_refs")),
+            currentness=actor.get("freshness"),
+            claim_limit="Runtime fields are observed task-local metadata and do not establish process health, deployment, return acceptance, or completion.",
+        ),
+        "claim_limit": "Process, session, terminal, wake/return, and usage fields remain independent observations; missing is not zero.",
+    }
+
+
+def _participant(actor: dict[str, Any], index: int, owner_goal_context: dict[str, Any]) -> dict[str, Any]:
+    identity = _identity(actor)
+    task_context = _task_context(actor, owner_goal_context)
+    model = _model(actor)
+    runtime = _runtime(actor)
+    dimensions = {
+        "identity": identity["state"],
+        "task_context": task_context["state"],
+        "model_realization": model["state"],
+        "runtime_evidence": runtime["state"],
+    }
+    degraded = set(dimensions.values())
+    if "invalid" in degraded:
+        quality = "invalid"
+    elif degraded and all(value == "stale" for value in degraded):
+        quality = "stale"
+    elif any(value in {"missing", "unknown", "stale", "deferred"} for value in degraded):
+        quality = "deferred"
+    else:
+        quality = "present"
+    lifecycle_state = _string(actor.get("state")) or "unknown"
+    return {
+        "ref": f"actor:{_string(actor.get('actor_key')) or index}",
+        "lifecycle_state": lifecycle_state,
+        "quality": quality,
+        "dimension_states": dimensions,
+        "identity": identity,
+        "task_context": task_context,
+        "model_realization": model,
+        "runtime_evidence": runtime,
+        "evidence_refs": _refs(actor.get("evidence_refs")),
+        "claim_limit": CLAIM_LIMIT,
+    }
+
+
+def project_participant_context(
+    actor_activity: dict[str, Any] | None,
+    owner_goal_context: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build the participant envelope without inventing missing dimensions."""
+
+    activity = actor_activity if isinstance(actor_activity, dict) else {}
+    owner_context = owner_goal_context if isinstance(owner_goal_context, dict) else {}
+    actors = activity.get("actors")
+    if not isinstance(actors, list):
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "state": "missing",
+            "freshness": "missing",
+            "participants": [],
+            "summary": {"participant_count": None, "dimension_counts": {}},
+            "source": _source([], currentness="missing", claim_limit=CLAIM_LIMIT),
+            "diagnostics": ["participant_activity_missing"],
+            "claim_limit": CLAIM_LIMIT,
+        }
+    participants = [
+        _participant(actor, index, owner_context)
+        for index, actor in enumerate(actors)
+        if isinstance(actor, dict)
+    ]
+    if not participants:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "state": "missing",
+            "freshness": "missing",
+            "participants": [],
+            "summary": {"participant_count": 0, "dimension_counts": {}},
+            "source": _source(_refs(activity.get("evidence_refs")), currentness=activity.get("freshness"), claim_limit=CLAIM_LIMIT),
+            "diagnostics": ["participant_activity_empty"],
+            "claim_limit": CLAIM_LIMIT,
+        }
+    qualities = {item["quality"] for item in participants}
+    if "invalid" in qualities:
+        state = "invalid"
+    elif qualities and all(value == "stale" for value in qualities):
+        state = "stale"
+    elif any(value in {"deferred", "stale", "unknown", "missing"} for value in qualities):
+        state = "deferred"
+    else:
+        state = "bound"
+    dimensions = ("identity", "task_context", "model_realization", "runtime_evidence")
+    counts = {
+        dimension: {
+            value: sum(item["dimension_states"][dimension] == value for item in participants)
+            for value in sorted(DIMENSION_STATES)
+        }
+        for dimension in dimensions
+    }
+    diagnostics = sorted(
+        {
+            reason
+            for item in participants
+            for reason in (
+                item["task_context"].get("goal_thread", {}).get("reason"),
+            )
+            if reason
+        }
+    )
+    evidence_refs = _refs(activity.get("evidence_refs"))
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "state": state,
+        "freshness": activity.get("freshness") or state,
+        "participants": participants,
+        "summary": {"participant_count": len(participants), "dimension_counts": counts},
+        "source": _source(evidence_refs, currentness=activity.get("freshness"), claim_limit=CLAIM_LIMIT),
+        "evidence_refs": evidence_refs,
+        "diagnostics": diagnostics,
+        "claim_limit": CLAIM_LIMIT,
+    }

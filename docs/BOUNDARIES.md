@@ -2,7 +2,7 @@
 
 ## What this organ owns
 
-The dashboard owns seven local derived/operator surfaces:
+The dashboard owns ten local derived/operator surfaces:
 
 1. `aoa_dashboard_projection_v1`, a derived read model assembled from named
    owner sources;
@@ -30,6 +30,12 @@ The dashboard owns seven local derived/operator surfaces:
 8. a normalized Goal catalog view over the exact owner-published
    `aoa_session_memory_goal_catalog_v1` snapshot. Grouping and presentation are
    dashboard-owned; lifecycle history and Goal identity remain owner data.
+9. a read-only Codex Goal/Thread observation envelope for one exact current
+   thread, including bounded direct-child and descendant relation pages. Goal,
+   Thread, and branch meaning remain with the Codex app-server owner.
+10. an independently degraded participant-context envelope. Identity, task,
+    model, and runtime dimensions remain separate observations; the envelope
+    does not create participant authority, model activation, or runtime health.
 
 ## What remains outside the organ
 
@@ -39,6 +45,7 @@ The dashboard owns seven local derived/operator surfaces:
 | capability ABI and task-local DAG | `aoa-skills` | show bounded owner metadata only |
 | RunPlan and incarnation binding | `aoa-sdk` | show binding refs, never choose them |
 | deployed runtime lifecycle | `abyss-stack` | source/deploy/live is separate and may be deferred |
+| Goal/thread semantics and spawn relations | Codex app-server | read exact Goal/Thread records and bounded relation pages only |
 | raw session transcript and freshness | `.aoa/session-memory` | use refs and metadata, never promote a projection to proof; configured bootstrap bindings are historical |
 | proof, review, eval verdict | `aoa-evals` | missing until an independent packet is connected |
 | reviewed durable memory | `aoa-memo` | optional context, never current truth |

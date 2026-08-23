@@ -10,6 +10,15 @@
     "access": "read_only",
     "claim_limit": "Current Goal objective and lifecycle are read from the Codex owner API for the exact master thread."
   },
+  "owner_thread_source": {
+    "enabled": true,
+    "kind": "codex_app_server_thread_context",
+    "methods": ["thread/read", "thread/list"],
+    "relation_queries": ["parentThreadId", "ancestorThreadId"],
+    "requires_experimental_api": true,
+    "access": "read_only",
+    "claim_limit": "Exact Thread metadata and scoped relation pages only; no branch lifecycle or participant authority."
+  },
   "goal_topology_source": {
     "enabled": true,
     "owner": "master-thread",

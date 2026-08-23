@@ -24,7 +24,7 @@ MAX_FRAME_BYTES = 1024 * 1024
 MAX_HANDSHAKE_BYTES = 16 * 1024
 WEBSOCKET_ACCEPT_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 GOAL_STATUSES = frozenset(
-    {"active", "paused", "complete", "blocked", "usage_limited"}
+    {"active", "paused", "complete", "blocked", "usage_limited", "budgetLimited"}
 )
 
 

@@ -14,9 +14,10 @@ from .cursor import (
     read_correlation_observation_log,
     rebuild_goal_local_projection,
 )
-from .codex_goal import observe_codex_goal
 from .goal_catalog import observe_goal_catalog
 from .goal_topology import observe_goal_topology
+from .owner_context import observe_codex_goal_context
+from .participant_context import project_participant_context
 from .model import LIFECYCLE_STATES, STATUS_VOCABULARY, Projection
 from .pressure import build_pressure_inbox, migrate_legacy_pressure_candidates
 from .sources import observe_all, observe_owner_surfaces, utc_now
@@ -288,7 +289,8 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     source_index["goal-local-correlation"] = {"status": goal_local_correlation.get("status")}
     source_index["pressure-inbox"] = pressure_inbox
     lifecycle = _lifecycle(config, source_index)
-    owner_goal = observe_codex_goal(config)
+    owner_goal_context = observe_codex_goal_context(config)
+    owner_goal = owner_goal_context["goal_projection"]
     goal_topology = observe_goal_topology(config)
     dag: list[dict[str, Any]] = []
     if goal_topology.get("state") == "bound":
@@ -352,6 +354,7 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     )
     safe_sources = redact_legacy_metadata(sources)
     actor_activity = source_index["task-local-actor-activity"].get("metadata", {})
+    participant_context = project_participant_context(actor_activity, owner_goal_context)
     presentation = config.get("presentation") if isinstance(config.get("presentation"), dict) else {}
     goal_catalog = observe_goal_catalog(config)
     legacy_goal = {
@@ -395,6 +398,7 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
         "presentation": presentation,
         "goal": goal,
         "owner_goal": owner_goal,
+        "owner_goal_context": owner_goal_context,
         "goal_topology": goal_topology,
         "goal_catalog": goal_catalog,
         "correlation": safe_correlation,
@@ -402,6 +406,7 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
         "pressure_inbox": pressure_inbox,
         "current_holder": safe_correlation.get("current_holder", {"scope": "current_correlation", "claim_limit": "Current holder is not runtime authority."}),
         "actor_activity": actor_activity,
+        "participant_context": participant_context,
         "dag": dag,
         "lifecycle": lifecycle,
         "state_inventory": state_inventory,

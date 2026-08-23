@@ -73,6 +73,8 @@ class Projection(TypedDict, total=False):
     generated_at: str
     presentation: dict[str, object]
     goal: dict[str, object]
+    owner_goal_context: dict[str, object]
+    participant_context: dict[str, object]
     correlation: dict[str, object]
     correlation_read_model: dict[str, object]
     pressure_inbox: dict[str, object]
