@@ -44,7 +44,7 @@ class IntegrationWiringTests(unittest.TestCase):
         )
         self.assertEqual(
             set(project["tool"]["setuptools"]["data-files"]["share/aoa-dashboard/contracts"]),
-            {"contracts/runtime_binding.schema.json", "contracts/goal_anchor.schema.json"},
+            {"contracts/runtime_binding.schema.json", "contracts/goal_anchor.schema.json", "contracts/goal-context-projection.schema.json"},
         )
         self.assertNotIn("config/demo/first-slice.json", project["tool"]["setuptools"]["data-files"]["share/aoa-dashboard/config"])
 

@@ -217,6 +217,8 @@ function humanOwner(value, fallback = "") {
     "aoa-evals-surface": t("evidence.proofSurface"),
     "aoa-memo-surface": t("evidence.reviewedMemory"),
     "abyss-stack-surface": t("evidence.runtimeSurface"),
+    "goal-thread-board": t("evidence.goalThreadBoard"),
+    "participant-relations": t("evidence.participantRelations"),
     "aoa-evals": t("evidence.proofSurface"),
     "aoa-memo": t("evidence.reviewedMemory"),
     "abyss-stack": t("evidence.runtimeSurface"),
@@ -243,6 +245,8 @@ function humanSourceLabel(value) {
     "aoa-evals-surface": "evidence.proofSurface",
     "aoa-memo-surface": "evidence.reviewedMemory",
     "abyss-stack-surface": "evidence.runtimeSurface",
+    "goal-thread-board": "evidence.goalThreadBoard",
+    "participant-relations": "evidence.participantRelations",
   };
   const key = labels[String(value || "").toLowerCase()];
   return key ? t(key) : humanValue(value, t("evidence.connectedSource"));
@@ -511,7 +515,7 @@ function publishNativePresentationPreference() {
 }
 
 function qualityForData(data) {
-  const observed = [data?.correlation?.state, data?.correlation_read_model?.status, data?.pressure_inbox?.status, data?.actor_activity?.state, data?.owner_goal_context?.state, data?.participant_context?.state]
+  const observed = [data?.correlation?.state, data?.correlation_read_model?.status, data?.pressure_inbox?.status, data?.actor_activity?.state, data?.owner_goal_context?.state, data?.participant_context?.state, data?.goal_context?.state]
     .map((value) => String(value || "").toLowerCase());
   for (const value of ["invalid", "deferred", "stale", "missing", "unknown"]) if (observed.includes(value)) return value;
   return "unknown";
@@ -766,6 +770,80 @@ function participantItems(data) {
   }).filter(Boolean);
 }
 
+function contextDisplayState(value) {
+  return value === "current" ? "current_at_read" : value || "unknown";
+}
+
+function goalThreadBoard(data) {
+  const value = data?.goal_context?.thread_board;
+  return value && typeof value === "object" ? value : { state: "missing", items: [], relations: [], diagnostics: [] };
+}
+
+function participantGraph(data) {
+  const value = data?.goal_context?.participant_graph;
+  return value && typeof value === "object" ? value : { state: "missing", records: [], diagnostics: [] };
+}
+
+function goalThreadItems(data) {
+  const board = goalThreadBoard(data);
+  if (board.state !== "current") return [];
+  return arrayOrEmpty(board.items).slice(0, 24).map((item, index) => ({
+    ref: `thread-item:${item.item_ref || index}`,
+    kind: "thread_item",
+    title: t("thread.boardItem"),
+    state: contextDisplayState(item.review_state || board.state),
+    owner: null,
+    relationship: t("thread.boardOrder"),
+    focus: t("thread.boardItem"),
+    evidence_refs: arrayOrEmpty(board.evidence_refs),
+    raw: { item_kind: item.item_kind || null, order_state: item.order_state || null, review_state: item.review_state || null },
+  }));
+}
+
+function goalThreadRelationItems(data) {
+  const board = goalThreadBoard(data);
+  if (board.state !== "current") return [];
+  return arrayOrEmpty(board.relations).slice(0, 24).map((item, index) => ({
+    ref: `thread-relation:${item.relation_ref || index}`,
+    kind: "thread_relation",
+    title: t("thread.boardRelation"),
+    state: contextDisplayState(item.relation_state || "present"),
+    owner: null,
+    relationship: t("thread.boardOrder"),
+    focus: t("thread.boardRelation"),
+    evidence_refs: arrayOrEmpty(board.evidence_refs),
+    raw: { relation_kind: item.relation_kind || null, relation_state: item.relation_state || null, semantic_branch_state: item.semantic_branch_state || null },
+  }));
+}
+
+function participantAssignmentItems(data) {
+  const graph = participantGraph(data);
+  if (graph.state !== "current") return [];
+  return arrayOrEmpty(graph.records).slice(0, 24).map((record, index) => {
+    const dimensions = record?.dimensions || {};
+    const state = record?.state || "unknown";
+    return {
+      ref: `assignment:${record.relation_id || index}`,
+      kind: "assignment",
+      title: t("participants.assignment"),
+      state,
+      owner: null,
+      role: statusLabel(dimensions.obligation_role?.state || "unknown"),
+      task: statusLabel(dimensions.task_assignment?.state || "unknown"),
+      model: statusLabel(dimensions.model_realization?.state || "unknown"),
+      model_state: dimensions.model_realization?.state || "unknown",
+      runtime: statusLabel(dimensions.runtime_incarnation?.state || "unknown"),
+      relationship: t("participants.assignmentState", { value: statusLabel(state) }),
+      focus: t("participants.assignmentTask", { value: statusLabel(dimensions.task_assignment?.state || "unknown") }),
+      evidence_refs: arrayOrEmpty(graph.evidence_refs),
+      raw: {
+        state,
+        dimensions: Object.fromEntries(Object.entries(dimensions).map(([key, value]) => [key, { state: value?.state || "unknown" }])),
+      },
+    };
+  });
+}
+
 function sourceItems(data) {
   return arrayOrEmpty(data?.sources).map((item) => {
     const configured = itemPresentation(data, ["sources", "evidence"], item.id || item.ref, item);
@@ -790,6 +868,9 @@ function contextForRef(data, ref) {
     || directionItems(data).find((item) => item.ref === ref)
     || topologyDirectionItems(data).find((item) => item.ref === ref)
     || participantItems(data).find((item) => item.ref === ref)
+    || participantAssignmentItems(data).find((item) => item.ref === ref)
+    || goalThreadItems(data).find((item) => item.ref === ref)
+    || goalThreadRelationItems(data).find((item) => item.ref === ref)
     || sourceItems(data).find((item) => item.ref === ref)
     || null;
 }
@@ -1270,29 +1351,49 @@ function renderParticipantsLens(data, target) {
   const list = document.createElement("div");
   list.className = "participant-grid";
   const people = participantItems(data);
-  const windowed = dashboardUI.pageWindow(people, pageFor("people"), MAX_PEOPLE, selection.focus_ref);
+  const assignments = participantAssignmentItems(data);
+  const entries = [...people, ...assignments];
+  const windowed = dashboardUI.pageWindow(entries, pageFor("people"), MAX_PEOPLE, selection.focus_ref);
   for (const person of windowed.items) {
     const card = document.createElement("article");
-    card.className = `participant-card${selection.focus_ref === person.ref ? " selected" : ""}`;
+    card.className = `participant-card${person.kind === "assignment" ? " assignment-card" : ""}${selection.focus_ref === person.ref ? " selected" : ""}`;
     const select = text("button", person.title, "direction-select");
     select.type = "button";
     select.setAttribute("data-focus-key", person.ref);
-    select.setAttribute("aria-label", t("participants.inspect", { value: person.title }));
+    select.setAttribute("aria-label", person.kind === "assignment" ? t("participants.assignmentInspect") : t("participants.inspect", { value: person.title }));
     select.addEventListener("click", () => selectDetail(person.ref, "people", pageFor("people")));
-    card.append(select, badge(person.state), text("p", t("participants.role", { value: person.role }), "direction-meta"), text("p", t("participants.task", { value: person.task }), "direction-focus"));
+    card.append(select, badge(person.state));
+    if (person.kind === "assignment") {
+      card.append(
+        text("p", t("participants.assignmentState", { value: statusLabel(person.state) }), "direction-meta"),
+        text("p", t("participants.assignmentRole", { value: person.role }), "direction-meta"),
+        text("p", t("participants.assignmentTask", { value: person.task }), "direction-focus"),
+      );
+    } else {
+      card.append(text("p", t("participants.role", { value: person.role }), "direction-meta"), text("p", t("participants.task", { value: person.task }), "direction-focus"));
+    }
     list.append(card);
   }
   if (!windowed.items.length) {
     const participantState = data?.participant_context?.state || data?.actor_activity?.state;
     const aggregateCount = data?.participant_context?.summary?.aggregate_count;
     const aggregateLabel = aggregateCount == null ? "" : `: ${aggregateCount}`;
-    list.append(text("p", participantState === "invalid"
+    const graphState = participantGraph(data).state;
+    const message = participantState === "invalid"
       ? t("participants.aggregateUnavailable", { count: aggregateLabel })
-      : t("participants.unknown"), "empty-copy"));
+      : graphState === "deferred"
+        ? t("participants.assignmentDeferred")
+        : graphState === "missing" || graphState === "current"
+          ? t("participants.assignmentMissing")
+          : graphState === "invalid" || graphState === "stale" || graphState === "unknown"
+            ? t("participants.assignmentUnavailable")
+            : t("participants.unknown");
+    list.append(text("p", message, "empty-copy"));
   }
   surface.body.append(list);
   showPageControls(surface.body, "people", windowed);
   if (windowed.omitted) surface.body.append(text("p", t("participants.more", { count: windowed.total - windowed.items.length }), "panel-intro"));
+  if (people.length && participantGraph(data).state === "deferred") surface.body.append(text("p", t("participants.assignmentDeferred"), "participant-state-note"));
   target.append(surface.panel);
 }
 
@@ -1367,6 +1468,20 @@ function diagnosticEntries(data, context = contextForSelection(data)) {
       value: safeDiagnosticValue({ owner_goal_context: data.owner_goal_context, participant_context: data.participant_context }),
     });
   }
+  if (data?.goal_context && typeof data.goal_context === "object") {
+    const threadBoard = data.goal_context.thread_board || {};
+    const graph = data.goal_context.participant_graph || {};
+    entries.push({
+      label: t("thread.boardHeading"),
+      refs: [...arrayOrEmpty(threadBoard.evidence_refs), ...arrayOrEmpty(graph.evidence_refs)].slice(0, MAX_REFS),
+      value: safeDiagnosticValue({
+        state: data.goal_context.state,
+        thread_board: { state: threadBoard.state, relation_state: threadBoard.relation_state, diagnostics: threadBoard.diagnostics, source: threadBoard.source },
+        participant_graph: { state: graph.state, records: graph.records, diagnostics: graph.diagnostics, source: graph.source },
+        claim_limit: data.goal_context.claim_limit,
+      }),
+    });
+  }
   if (data?.goal_topology?.state === "bound") {
     entries.push({
       label: t("diagnostics.goalTopology"),
@@ -1439,20 +1554,88 @@ function renderOwnerThreadDetails(data, target) {
   target.append(details);
 }
 
+function threadBoardNotice(state) {
+  const key = {
+    current: "thread.boardCurrent",
+    missing: "thread.boardMissing",
+    unknown: "thread.boardUnknown",
+    stale: "thread.boardStale",
+    deferred: "thread.boardDeferred",
+    invalid: "thread.boardInvalid",
+  }[state] || "thread.boardUnknown";
+  return t(key);
+}
+
+function renderGoalThreadBoard(data, target) {
+  const board = goalThreadBoard(data);
+  const section = document.createElement("section");
+  section.className = "thread-board";
+  const heading = document.createElement("div");
+  heading.className = "thread-board-heading";
+  heading.append(text("h3", t("thread.boardHeading")), badge(contextDisplayState(board.state)));
+  section.append(heading, text("p", threadBoardNotice(board.state), "context-detail"));
+
+  const items = goalThreadItems(data);
+  if (items.length) {
+    const list = document.createElement("div");
+    list.className = "thread-board-list";
+    for (const item of items.slice(0, 6)) {
+      const button = text("button", item.title, "thread-board-item");
+      button.type = "button";
+      button.setAttribute("data-focus-key", item.ref);
+      button.setAttribute("aria-label", t("thread.selection", { value: item.title }));
+      button.addEventListener("click", () => selectDetail(item.ref, "thread", pageFor("thread")));
+      list.append(button);
+    }
+    section.append(list);
+  } else if (board.state === "current") section.append(text("p", t("thread.boardEmpty"), "context-detail"));
+
+  const relationState = board.relation_state;
+  const relations = goalThreadRelationItems(data);
+  if (relations.length && ["complete", "available"].includes(relationState)) section.append(text("p", t("thread.boardRelationsObserved", { count: relations.length }), "context-detail"));
+  else if (relationState === "deferred") section.append(text("p", t("thread.boardRelationsDeferred"), "context-detail"));
+  else if (relationState !== "missing" && board.state === "current") section.append(text("p", t("thread.boardRelationsUnavailable"), "context-detail"));
+  if (board.branch?.state === "missing") section.append(text("p", t("thread.boardNoBranch"), "context-detail"));
+  section.append(text("p", t("thread.boardOrder"), "context-detail"));
+
+  const details = document.createElement("details");
+  details.className = "thread-board-details";
+  details.dataset.detailKey = "thread-board:source";
+  details.append(text("summary", t("thread.boardDetails")));
+  const body = document.createElement("div");
+  body.className = "thread-board-detail-body";
+  body.append(evidenceList(board.evidence_refs), text("p", t("thread.metadata"), "context-detail"));
+  details.append(body);
+  section.append(details);
+  target.append(section);
+}
+
 function renderThread(data) {
   const target = byId("thread-items");
   clear(target);
   const context = contextForSelection(data);
   const quality = byId("thread-quality");
-  setBadge(quality, context ? (context.evidence_refs?.length ? "present" : context.state) : "missing");
+  setBadge(quality, context ? (context.evidence_refs?.length ? "present" : context.state) : contextDisplayState(goalThreadBoard(data).state));
   const selectionLabel = byId("thread-selection");
   if (selectionLabel) selectionLabel.textContent = context ? context.title : t("thread.noSelection");
   target.append(text("p", t("thread.deferredNotice"), "thread-deferred"));
+  renderGoalThreadBoard(data, target);
   if (!context) target.append(text("p", t("thread.noSelection"), "empty-state"));
   else {
     const card = document.createElement("article");
     card.className = "context-card";
-    card.append(text("p", context.kind === "person" ? t("thread.person") : context.kind === "source" ? t("evidence.heading") : t("thread.direction"), "card-label"), text("h3", context.title));
+    const contextLabel = context.kind === "person"
+      ? t("thread.person")
+      : context.kind === "source"
+        ? t("evidence.heading")
+        : context.kind === "assignment"
+          ? t("thread.assignment")
+          : context.kind === "thread_item"
+            ? t("thread.boardItem")
+            : context.kind === "thread_relation"
+              ? t("thread.boardRelation")
+              : t("thread.direction");
+    card.append(text("p", contextLabel, "card-label"), text("h3", context.title));
     if (statusLabel(context.state) !== statusLabel("unknown")) card.append(badge(context.state));
     if (context.owner) card.append(text("p", t("thread.owner", { value: context.owner }), "context-detail"));
     card.append(text("p", t("thread.relationship", { value: context.relationship }), "context-detail"), text("p", t("thread.focus", { value: context.focus }), "context-focus"));
@@ -1461,6 +1644,13 @@ function renderThread(data) {
       if (context.model) card.append(text("p", t("thread.model", { value: context.model }), "context-detail"));
       else if (context.model_state) card.append(text("p", t("thread.modelUnavailable"), "context-detail"));
       card.append(text("p", t("thread.task", { value: context.task }), "context-focus"));
+    } else if (context.kind === "assignment") {
+      card.append(
+        text("p", t("participants.assignmentRole", { value: context.role }), "context-detail"),
+        text("p", t("participants.assignmentTask", { value: context.task }), "context-focus"),
+        text("p", t("participants.assignmentModel", { value: context.model }), "context-detail"),
+        text("p", t("participants.assignmentRuntime", { value: context.runtime }), "context-detail"),
+      );
     }
     card.append(text("p", `${t("thread.evidence")}: ${context.evidence_refs?.length ? statusLabel("present") : statusLabel("unknown")}`, "context-detail"));
     target.append(card);
@@ -1530,7 +1720,7 @@ function renderDiagnosticsSurface(data) {
 }
 
 function knownFocusRefs(data) {
-  return new Set([...primaryDirectionItems(data).map((item) => item.ref), ...directionItems(data).map((item) => item.ref), ...topologyDirectionItems(data).map((item) => item.ref), ...participantItems(data).map((item) => item.ref), ...arrayOrEmpty(data.sources).map((item) => `source:${item.id || "unknown"}`)]);
+  return new Set([...primaryDirectionItems(data).map((item) => item.ref), ...directionItems(data).map((item) => item.ref), ...topologyDirectionItems(data).map((item) => item.ref), ...participantItems(data).map((item) => item.ref), ...participantAssignmentItems(data).map((item) => item.ref), ...goalThreadItems(data).map((item) => item.ref), ...goalThreadRelationItems(data).map((item) => item.ref), ...arrayOrEmpty(data.sources).map((item) => `source:${item.id || "unknown"}`)]);
 }
 
 function renderProjection(data) {
@@ -1679,6 +1869,9 @@ window.AoaDashboardApp = Object.freeze({
   primaryDirectionItems,
   topologyDirectionItems,
   participantItems,
+  participantAssignmentItems,
+  goalThreadItems,
+  goalThreadRelationItems,
   sourceItems,
   contextForRef,
   knownFocusRefs,
@@ -1686,6 +1879,9 @@ window.AoaDashboardApp = Object.freeze({
   catalogItemForRef,
   renderDiagnosticRoutes,
   renderTrajectoryLens,
+  renderParticipantsLens,
+  renderGoalThreadBoard,
+  renderThread,
   renderHome,
   renderCatalogWorkspace,
   renderProjection,

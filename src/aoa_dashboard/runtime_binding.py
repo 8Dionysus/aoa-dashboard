@@ -28,6 +28,7 @@ from .source_binding import (
     read_file_snapshot,
     snapshot_ref,
 )
+from .goal_context import GRAPH_OWNER_COMMIT, THREAD_OWNER_COMMIT
 
 
 RUNTIME_BINDING_SCHEMA = "aoa_dashboard_runtime_binding_v1"
@@ -590,6 +591,46 @@ def _validate_source_map(payload: dict[str, Any], selected: dict[str, str]) -> d
             descriptor["freshness_status"] = _text(raw.get("freshness_status", "unknown"), "stats_freshness_status", maximum=64)
         result[key] = descriptor
 
+    goal_context_sources: dict[str, Any] = {}
+    raw_goal_context = sources.get("goal_context")
+    if raw_goal_context is not None:
+        if not isinstance(raw_goal_context, dict):
+            raise RuntimeBindingError("runtime_binding_goal_context_sources_invalid")
+        context_bindings = {
+            "thread_board": ("aoa-session-memory", "aoa_session_memory_goal_thread_board_v1", THREAD_OWNER_COMMIT),
+            "participant_graph": ("aoa-agents", "aoa_agents_goal_participant_graph_v1", GRAPH_OWNER_COMMIT),
+        }
+        for key, (expected_owner, expected_schema, expected_commit) in context_bindings.items():
+            raw_context = raw_goal_context.get(key)
+            if raw_context is None:
+                continue
+            if not isinstance(raw_context, dict):
+                raise RuntimeBindingError(f"runtime_binding_{key}_source_invalid")
+            descriptor = _owner_descriptor(raw_context, key, expected_owner=expected_owner)
+            if raw_context.get("expected_schema_version") != expected_schema:
+                raise RuntimeBindingError(f"runtime_binding_{key}_schema_invalid")
+            configured_commit = raw_context.get("owner_commit")
+            if configured_commit is not None and configured_commit != expected_commit:
+                raise RuntimeBindingError(f"runtime_binding_{key}_owner_commit_invalid")
+            publication = _publication_binding(raw_context, key)
+            descriptor.update(
+                {
+                    "schema_version": "aoa_dashboard_goal_context_source_binding_v1",
+                    "expected_schema_version": expected_schema,
+                    "owner_commit": expected_commit,
+                    "publication": publication,
+                }
+            )
+            if publication["transport"] == "path":
+                descriptor["path"] = publication["path"]
+            goal_scope = raw_context.get("goal_scope")
+            if goal_scope is not None:
+                if not isinstance(goal_scope, dict):
+                    raise RuntimeBindingError(f"runtime_binding_{key}_goal_scope_invalid")
+                descriptor["goal_scope"] = copy.deepcopy(goal_scope)
+            goal_context_sources[key] = descriptor
+    result["goal_context_sources"] = goal_context_sources
+
     owner_surfaces = payload.get("owner_surfaces", [])
     if not isinstance(owner_surfaces, list) or len(owner_surfaces) > 32:
         raise RuntimeBindingError("runtime_binding_owner_surfaces_invalid")
@@ -689,6 +730,7 @@ def _flatten_binding(
             "owner_surfaces": descriptors["owner_surfaces"],
             "pressure_inbox": [],
             "pressure_source": descriptors["pressure"],
+            "goal_context_sources": descriptors.get("goal_context_sources", {}),
         }
     )
     historical = descriptors.get("historical")

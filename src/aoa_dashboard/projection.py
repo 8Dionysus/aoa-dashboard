@@ -16,6 +16,7 @@ from .cursor import (
     rebuild_goal_local_projection,
 )
 from .goal_catalog import observe_goal_catalog, observe_goal_projection
+from .goal_context import observe_goal_context
 from .goal_topology import observe_goal_topology
 from .master_context import project_master_context
 from .owner_context import observe_codex_goal_context
@@ -391,6 +392,12 @@ def build_projection(
     owner_goal_context = observe_codex_goal_context(config)
     owner_goal = owner_goal_context["goal_projection"]
     goal_topology = observe_goal_topology(config)
+    goal_context = observe_goal_context(
+        config,
+        goal_ref=goal_id if isinstance(goal_id, str) else None,
+        master_thread_id=master_thread_id if isinstance(master_thread_id, str) else None,
+    )
+    sources.extend(goal_context.get("source_observations", []))
     dag: list[dict[str, Any]] = []
     if goal_topology.get("state") == "bound":
         for node in goal_topology["nodes"]:
@@ -504,6 +511,7 @@ def build_projection(
         "goal": goal,
         "owner_goal": owner_goal,
         "owner_goal_context": owner_goal_context,
+        "goal_context": goal_context,
         "master_context": master_context,
         "goal_topology": goal_topology,
         "goal_catalog": goal_catalog,

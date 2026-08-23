@@ -73,6 +73,7 @@ class Projection(TypedDict, total=False):
     generated_at: str
     presentation: dict[str, object]
     goal: dict[str, object]
+    goal_context: dict[str, object]
     owner_goal_context: dict[str, object]
     master_context: dict[str, object]
     participant_context: dict[str, object]

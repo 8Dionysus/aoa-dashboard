@@ -287,6 +287,17 @@ h1, h2, h3 { font-family: inherit; font-weight: 650; letter-spacing: -.025em; }
 .thread-selection { margin-bottom: 16px; color: var(--ink); font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
 .thread-items { display: grid; gap: 8px; }
 .thread-deferred { margin: 0 0 12px; padding: 9px 10px; border-left: 2px solid var(--amber); color: var(--muted); background: var(--surface-warm); font-size: 11px; line-height: 1.45; }
+.thread-board { display: grid; gap: 8px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.thread-board-heading { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.thread-board-heading h3 { min-width: 0; margin: 0; font-size: 17px; overflow-wrap: anywhere; }
+.thread-board-list { display: grid; gap: 5px; min-width: 0; }
+.thread-board-item { min-width: 0; padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--surface-subtle); text-align: left; font-size: 11px; overflow-wrap: anywhere; }
+.thread-board-item:hover { border-color: var(--teal); background: var(--surface-tint); }
+.thread-board-details { margin-top: 2px; border-top: 1px solid var(--line); }
+.thread-board-details > summary { padding: 8px 0; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; }
+.thread-board-detail-body { display: grid; gap: 7px; min-width: 0; padding: 0 0 8px; }
+.participant-state-note { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.assignment-card { border-top: 2px solid var(--line-strong); }
 .context-card { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-subtle); }
 .context-card h3 { margin-bottom: 0; font-size: 22px; overflow-wrap: anywhere; }
 .context-card p { margin: 0; }

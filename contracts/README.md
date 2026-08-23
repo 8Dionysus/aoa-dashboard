@@ -55,6 +55,11 @@ through adapters and retained only as bounded metadata plus provenance refs.
 - `goal_topology_projection.schema.json` describes structural planning nodes and
   dependency closures. It does not create canonical branch or trajectory
   lifecycle authority.
+- `goal-context-projection.schema.json` describes the dashboard-owned join of
+  the exact public-safe session-memory Goal/thread board and aoa-agents
+  participant relation dimensions. It preserves each source's currentness,
+  privacy omissions, and claim limit; it does not create actor, branch,
+  runtime, proof, acceptance, or action authority.
 - `goal_catalog_projection.schema.json` describes the dashboard-normalized
   view of the versioned `aoa-session-memory` Goal catalog plus its optional
   explicit live Codex app-server federation. The adapters admit only the exact

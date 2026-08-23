@@ -25,7 +25,8 @@
       "aoa_dashboard_codex_goal_thread_observation_v1",
       "aoa_dashboard_participant_envelope_v1",
       "aoa_dashboard_master_context_projection_v1",
-      "aoa_dashboard_goal_topology_projection_v1"
+      "aoa_dashboard_goal_topology_projection_v1",
+      "aoa_dashboard_goal_context_projection_v1"
     ],
     "effects": [
       "read_named_owner_surfaces",
@@ -135,8 +136,10 @@
     "contracts/participant_context.schema.json",
     "contracts/master_context_projection.schema.json",
     "contracts/goal_topology_projection.schema.json",
+    "contracts/goal-context-projection.schema.json",
     "contracts/runtime_binding.schema.json",
     "src/aoa_dashboard/runtime_binding.py",
+    "src/aoa_dashboard/goal_context.py",
     "src/aoa_dashboard/goal_catalog.py",
     "src/aoa_dashboard/live_goal_catalog.py",
     "scripts/release_check.py",
