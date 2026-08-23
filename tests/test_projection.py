@@ -96,6 +96,7 @@ class ProjectionFixture:
                 "goal_id": "test-goal",
                 "title": "Test goal",
                 "owner_goal_source": {"enabled": False},
+                "goal_topology_source": {"enabled": False},
                 "parent_posture": "paused",
                 "goal_catalog_source": {
                     "path": str(self.root / "goal-catalog.json"),

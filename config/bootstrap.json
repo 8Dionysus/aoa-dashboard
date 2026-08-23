@@ -10,6 +10,13 @@
     "access": "read_only",
     "claim_limit": "Current Goal objective and lifecycle are read from the Codex owner API for the exact master thread."
   },
+  "goal_topology_source": {
+    "enabled": true,
+    "owner": "master-thread",
+    "relative_path": "goal-space-wave/goal-space-dag.json",
+    "expected_schema_version": "aoa_dashboard_goal_space_task_dag_v1",
+    "claim_limit": "Master-owned task-local planning topology; no node is proof, acceptance or runtime health."
+  },
   "goal_catalog_source": {
     "schema_version": "aoa_dashboard_goal_catalog_binding_v1",
     "owner": "aoa-session-memory",

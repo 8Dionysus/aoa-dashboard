@@ -16,6 +16,7 @@ from .cursor import (
 )
 from .codex_goal import observe_codex_goal
 from .goal_catalog import observe_goal_catalog
+from .goal_topology import observe_goal_topology
 from .model import LIFECYCLE_STATES, STATUS_VOCABULARY, Projection
 from .pressure import build_pressure_inbox, migrate_legacy_pressure_candidates
 from .sources import observe_all, observe_owner_surfaces, utc_now
@@ -287,20 +288,42 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     source_index["goal-local-correlation"] = {"status": goal_local_correlation.get("status")}
     source_index["pressure-inbox"] = pressure_inbox
     lifecycle = _lifecycle(config, source_index)
+    owner_goal = observe_codex_goal(config)
+    goal_topology = observe_goal_topology(config)
     dag: list[dict[str, Any]] = []
-    for node in config.get("dag", []):
-        state, observation = _node_state(node["id"], config, source_index)
-        dag.append(
-            {
-                "id": node["id"],
-                "title": node["title"],
-                "pressure": node["pressure"],
-                "state": state,
-                "observation": observation,
-                "claim_limit": "DAG state is a dashboard observation, not owner acceptance or proof.",
-                "evidence_refs": [{"label": "node observation", "kind": "derived", "ref": observation, "claim_limit": "Derived node status is bounded to the listed source."}],
-            }
-        )
+    if goal_topology.get("state") == "bound":
+        root_ids = set(goal_topology["root_ids"])
+        owner_state = owner_goal.get("goal", {}).get("status") if isinstance(owner_goal.get("goal"), dict) else None
+        for node in goal_topology["nodes"]:
+            if node["id"] not in root_ids:
+                continue
+            dag.append(
+                {
+                    "id": node["id"],
+                    "title": node["title"],
+                    "owner": node.get("owner"),
+                    "state": owner_state or "unknown",
+                    "source_state": node["source_state"],
+                    "depends_on": node["depends_on"],
+                    "observation": node.get("scope"),
+                    "claim_limit": goal_topology["claim_limit"],
+                    "evidence_refs": goal_topology["evidence_refs"],
+                }
+            )
+    else:
+        for node in config.get("dag", []):
+            state, observation = _node_state(node["id"], config, source_index)
+            dag.append(
+                {
+                    "id": node["id"],
+                    "title": node["title"],
+                    "pressure": node["pressure"],
+                    "state": state,
+                    "observation": observation,
+                    "claim_limit": "DAG state is a dashboard observation, not owner acceptance or proof.",
+                    "evidence_refs": [{"label": "node observation", "kind": "derived", "ref": observation, "claim_limit": "Derived node status is bounded to the listed source."}],
+                }
+            )
 
     counts = Counter(item["state"] for item in lifecycle)
     counts.update(item["state"] for item in dag)
@@ -330,7 +353,6 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     actor_activity = source_index["task-local-actor-activity"].get("metadata", {})
     presentation = config.get("presentation") if isinstance(config.get("presentation"), dict) else {}
     goal_catalog = observe_goal_catalog(config)
-    owner_goal = observe_codex_goal(config)
     legacy_goal = {
         "goal_id": config["goal_id"],
         "title": config["title"],
@@ -372,6 +394,7 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
         "presentation": presentation,
         "goal": goal,
         "owner_goal": owner_goal,
+        "goal_topology": goal_topology,
         "goal_catalog": goal_catalog,
         "correlation": safe_correlation,
         "correlation_read_model": goal_local_correlation,
