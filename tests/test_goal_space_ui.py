@@ -233,11 +233,13 @@ vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
 const app = context.AoaDashboardApp;
 const goal = { goal: { goal_id: "goal:future-one", title: "Canonical future goal" }, presentation: { goal: { title: { en: "Create the first Goal Space slice", ru: "Собрать первый рабочий срез пространства целей" } } } };
+const ownerGoal = { goal: { goal_id: "goal:current", title: "Live owner Goal", title_source: "codex_app_server_thread_goal" }, presentation: { goal: { title: { en: "Stale configured title", ru: "Устаревший заголовок" } } } };
 const recent = app.formatHumanRecency("2026-08-22T16:17:00Z", "2026-08-22T16:29:00Z");
 const old = app.formatHumanRecency("2026-08-01T09:10:45.123Z", "2026-08-22T16:29:00Z");
 const enTitle = app.goalTitle(goal);
+const ownerTitle = app.goalTitle(ownerGoal);
 context.AoaDashboardI18n.createI18n;
-process.stdout.write(JSON.stringify({ recent, old, enTitle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasIso: /T|Z/.test(old) }));
+process.stdout.write(JSON.stringify({ recent, old, enTitle, ownerTitle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasIso: /T|Z/.test(old) }));
 '''
         )
         self.assertIn("12", observed["recent"])
@@ -245,6 +247,7 @@ process.stdout.write(JSON.stringify({ recent, old, enTitle, hasSeconds: /:\d{2}(
         self.assertFalse(observed["hasSeconds"])
         self.assertFalse(observed["hasIso"])
         self.assertEqual(observed["enTitle"], "Create the first Goal Space slice")
+        self.assertEqual(observed["ownerTitle"], "Live owner Goal")
 
     def test_generic_localized_presentation_handles_future_goals_and_hides_technical_cards(self) -> None:
         observed = run_node(

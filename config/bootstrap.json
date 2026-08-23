@@ -3,6 +3,13 @@
   "profile": "host-local-first-slice",
   "goal_id": "aoa-dashboard-goal-01a00722-20260815",
   "title": "Create aoa-dashboard first working vertical slice",
+  "owner_goal_source": {
+    "enabled": true,
+    "kind": "codex_app_server_thread_goal",
+    "method": "thread/goal/get",
+    "access": "read_only",
+    "claim_limit": "Current Goal objective and lifecycle are read from the Codex owner API for the exact master thread."
+  },
   "goal_catalog_source": {
     "schema_version": "aoa_dashboard_goal_catalog_binding_v1",
     "owner": "aoa-session-memory",

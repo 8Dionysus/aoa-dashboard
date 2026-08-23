@@ -228,6 +228,7 @@ function humanSourceLabel(value) {
 function goalTitle(data) {
   const goal = data?.goal || {};
   const configured = presentationField(presentationEntry(data, "goal"), "title", "");
+  if (goal.title_source === "codex_app_server_thread_goal") return humanValue(goal.title, t("goal.unnamed"));
   return configured || humanValue(goal.title, t("goal.unnamed"));
 }
 

@@ -14,6 +14,7 @@ from .cursor import (
     read_correlation_observation_log,
     rebuild_goal_local_projection,
 )
+from .codex_goal import observe_codex_goal
 from .goal_catalog import observe_goal_catalog
 from .model import LIFECYCLE_STATES, STATUS_VOCABULARY, Projection
 from .pressure import build_pressure_inbox, migrate_legacy_pressure_candidates
@@ -329,19 +330,48 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     actor_activity = source_index["task-local-actor-activity"].get("metadata", {})
     presentation = config.get("presentation") if isinstance(config.get("presentation"), dict) else {}
     goal_catalog = observe_goal_catalog(config)
+    owner_goal = observe_codex_goal(config)
+    legacy_goal = {
+        "goal_id": config["goal_id"],
+        "title": config["title"],
+        "state": goal_source["state"],
+        "anchor_digest": goal_metadata.get("anchor_digest"),
+        "master_thread_id": config.get("current_correlation", {}).get("master_thread_id"),
+        "source_refs": goal_source.get("evidence_refs", []),
+        "claim_limit": "The Goal Anchor is a task-local source binding; the dashboard does not own Goal semantics or acceptance.",
+    }
+    current_goal = owner_goal.get("goal")
+    if owner_goal.get("state") == "bound" and isinstance(current_goal, dict):
+        goal = {
+            "goal_id": config["goal_id"],
+            "title": current_goal["title"],
+            "objective": current_goal["objective"],
+            "state": current_goal["status"],
+            "currentness": owner_goal["currentness"],
+            "master_thread_id": current_goal["thread_id"],
+            "owner_ref": owner_goal["source"]["ref"],
+            "title_source": "codex_app_server_thread_goal",
+            "source_refs": owner_goal["evidence_refs"],
+            "usage": {
+                "token_budget": current_goal["token_budget"],
+                "tokens_used": current_goal["tokens_used"],
+                "time_used_seconds": current_goal["time_used_seconds"],
+            },
+            "observed_at": {
+                "created": current_goal["created_at"],
+                "updated": current_goal["updated_at"],
+            },
+            "legacy_binding": legacy_goal,
+            "claim_limit": "Goal objective and lifecycle come from Codex thread/goal/get; the local Goal key remains only a correlation binding.",
+        }
+    else:
+        goal = {**legacy_goal, "owner_binding_state": owner_goal.get("state", "unknown")}
     return {
         "schema_version": "aoa_dashboard_projection_v1",
         "generated_at": utc_now(),
         "presentation": presentation,
-        "goal": {
-            "goal_id": config["goal_id"],
-            "title": config["title"],
-            "state": goal_source["state"],
-            "anchor_digest": goal_metadata.get("anchor_digest"),
-            "master_thread_id": config.get("current_correlation", {}).get("master_thread_id"),
-            "source_refs": goal_source.get("evidence_refs", []),
-            "claim_limit": "The Goal Anchor is source binding; the dashboard does not own Goal semantics or acceptance.",
-        },
+        "goal": goal,
+        "owner_goal": owner_goal,
         "goal_catalog": goal_catalog,
         "correlation": safe_correlation,
         "correlation_read_model": goal_local_correlation,
