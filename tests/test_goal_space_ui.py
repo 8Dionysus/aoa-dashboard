@@ -290,7 +290,7 @@ function projection(goalId, title, goalPresentation) {
     goal: { goal_id: goalId, title },
     presentation: { ...presentation, goal: { title: goalPresentation } },
     dag: [{ id: "D4", title: "D4 versioned cursor/checkpoint correlation projection is degraded; source dashboard:correlation_read_model.", pressure: "runtime event drift", observation: "versioned cursor/checkpoint correlation projection is degraded; source dashboard:correlation_read_model.", next: "filter exact pressure-cursor-ui handoff" }],
-    pressure_inbox: { items: [{ pressure_ref: { id: "pressure:test" }, affected_goal_criterion: "D4 requires a deterministic rebuild", consequence_of_omission: "source dashboard:correlation_read_model", next_route: { owner: "master-thread", route: "filter exact pressure-cursor-ui handoff" }, outcome: { state: "deferred" } }] },
+    pressure_inbox: { items: [{ pressure_ref: { id: "pressure:test" }, affected_goal_criterion: "D4 requires a deterministic rebuild", consequence_of_omission: "source dashboard:correlation_read_model", next_route: { owner: "master-thread", route: "filter exact pressure-cursor-ui handoff", critical: true }, outcome: { state: "deferred" } }] },
     actor_activity: { actors: [{ actor_key: "actor:one", identity: { label: "one-shot return holder description that belongs in diagnostics", role_id: "external_codex_incarnation", model_id: "gpt-5" }, task: { task_id: "task:private", state: "returned" }, responsibility: { holder: "actor:one", responsibility_state: "not_independent" } }] },
     sources: [{ id: "aoa-session-memory", owner: "aoa-session-memory", state: "missing", observation: "The historical source dashboard path is unavailable.", evidence_refs: [] }],
   };
@@ -312,7 +312,7 @@ const source = en.sourceItems(one)[0];
 process.stdout.write(JSON.stringify({
   goals: [en.goalTitle(one), en.goalTitle(two), ru.goalTitle(one)],
   direction: { title: enDirection.title, relationship: enDirection.relationship, focus: enDirection.focus, next: enDirection.next, raw: enDirection.raw.observation },
-  topology: { title: topologyDirection.title, focus: topologyDirection.focus, nextFocus: en.nextFocus(topology).title },
+  topology: { title: topologyDirection.title, focus: topologyDirection.focus, nextFocus: en.nextFocus(topology).title, attentionFocus: en.attentionFocus(topology).title },
   pressure: { title: ruPressure.title, focus: ruPressure.focus, next: ruPressure.next, raw: ruPressure.raw.next_route.route },
   person: { title: person.title, role: person.role, task: person.task },
   source: { title: source.title, focus: source.focus },
@@ -323,7 +323,7 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(observed["direction"]["title"], "Observation history")
         self.assertNotIn("correlation_read_model", json.dumps({key: value for key, value in observed["direction"].items() if key != "raw"}))
         self.assertIn("correlation_read_model", observed["direction"]["raw"])
-        self.assertEqual(observed["topology"], {"title": "Full aoa-dashboard Goal readiness", "focus": "Hold source, runtime, visual and human evidence together", "nextFocus": "Full aoa-dashboard Goal readiness"})
+        self.assertEqual(observed["topology"], {"title": "Full aoa-dashboard Goal readiness", "focus": "Hold source, runtime, visual and human evidence together", "nextFocus": "Full aoa-dashboard Goal readiness", "attentionFocus": "Review the update"})
         self.assertEqual(observed["pressure"]["title"], "Проверить обновление")
         self.assertNotIn("pressure-cursor-ui", json.dumps({key: value for key, value in observed["pressure"].items() if key != "raw"}))
         self.assertIn("pressure-cursor-ui", observed["pressure"]["raw"])

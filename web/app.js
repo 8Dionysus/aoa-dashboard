@@ -593,6 +593,11 @@ function nextFocus(data) {
   return critical || directions[0] || null;
 }
 
+function attentionFocus(data) {
+  return directionItems(data).find((item) => item.ref.startsWith("pressure:") && item.raw?.next_route?.critical)
+    || null;
+}
+
 function renderRouteState() {
   const target = byId("route-status");
   if (!target) return;
@@ -813,7 +818,7 @@ function renderGoalSummary(data) {
 function renderAttentionStrip(data) {
   const target = byId("attention-strip");
   clear(target);
-  const focus = nextFocus(data);
+  const focus = attentionFocus(data);
   target.append(text("p", t("attention.next"), "card-label"));
   if (focus && focus.ref.startsWith("pressure:")) {
     target.append(text("strong", focus.title, "attention-title"), badge(focus.state), text("span", t("attention.owner", { value: focus.owner }), "attention-meta"));
@@ -1321,6 +1326,7 @@ window.AoaDashboardApp = Object.freeze({
   goalTitle,
   lifecycleForData,
   nextFocus,
+  attentionFocus,
   directionItems,
   participantItems,
   sourceItems,
