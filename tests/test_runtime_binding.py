@@ -217,6 +217,41 @@ class RuntimeBindingTests(unittest.TestCase):
         self.assertNotEqual(selected_a["goal_catalog_source"]["path"], selected_b["goal_catalog_source"]["path"])
         self.assertNotEqual(selected_a["pressure_source"]["path"], selected_b["pressure_source"]["path"])
 
+    def test_live_goal_catalog_requires_explicit_read_only_socket_and_query_budget(self) -> None:
+        binding_path, payload = self._binding("live", "goal-live", "thread-live")
+        payload["sources"]["live_goal_catalog"] = {
+            **self._owner("codex-app-server", "source_owner", "source_owner_metadata"),
+            "enabled": True,
+            "access": "read_only",
+            "methods": ["thread/list", "thread/goal/get"],
+            "socket_path": "/run/user/test/app-server-control.sock",
+            "page_size": 8,
+            "max_pages": 3,
+            "timeout_seconds": 2.0,
+            "archived": False,
+            "client_version": "dashboard-live-goal-catalog-test",
+        }
+        binding_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        selected = load_config(binding_path)
+
+        self.assertEqual(selected["runtime_binding_state"], "bound")
+        self.assertEqual(selected["live_goal_catalog_source"]["owner"], "codex-app-server")
+        self.assertEqual(selected["live_goal_catalog_source"]["socket_path"], "/run/user/test/app-server-control.sock")
+        self.assertEqual(selected["live_goal_catalog_source"]["page_size"], 8)
+        self.assertEqual(selected["live_goal_catalog_source"]["max_pages"], 3)
+
+        invalid_payload = copy.deepcopy(payload)
+        invalid_payload["sources"]["live_goal_catalog"]["methods"] = ["thread/list"]
+        invalid_path = self.root / "invalid-live.binding.json"
+        invalid_path.write_text(json.dumps(invalid_payload), encoding="utf-8")
+        invalid = load_config(invalid_path)
+        self.assertEqual(invalid["runtime_binding_state"], "invalid")
+        self.assertIn(
+            "runtime_binding_live_goal_catalog_contract_invalid",
+            invalid["runtime_binding_observation"]["diagnostics"],
+        )
+
     @patch("aoa_dashboard.owner_context.discover_control_socket", side_effect=CodexGoalUnavailable("owner_socket_missing"))
     def test_catalog_and_selected_goal_projection_bind_to_explicit_owner_commands(self, _socket: object) -> None:
         binding_path, payload = self._binding("command", "goal-command", "thread-command")

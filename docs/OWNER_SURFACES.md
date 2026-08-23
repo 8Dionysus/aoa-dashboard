@@ -19,10 +19,14 @@ owns only the thin translation and presentation layer.
   The configured bootstrap session is explicitly historical; it is not the
   current holder. The live rollout source and archived raw source are both
   referenced; an advancing source marks the archive as deferred/stale.
-- `aoa-session-memory` also publishes the bounded Goal catalog consumed by the
-  home view. The dashboard admits its exact v1 schema, preserves its
+- `aoa-session-memory` publishes the bounded historical Goal catalog consumed by
+  the home view. The dashboard admits its exact v1 schema, preserves its
   currentness, and projects only safe titles, lifecycle grouping, timestamps,
-  and one stable ref per Goal.
+  and one stable ref per Goal. A separately bound Codex app-server adapter can
+  add live Goals before historical publication catches up; it uses only exact
+  `thread/list` ids followed by exact `thread/goal/get` ids and never treats
+  the current or selected Goal as a catalog query. Federation retains both
+  owner records and their independent pagination/currentness/failure states.
 - Current Goal/thread return correlation is dashboard-owned derived metadata
   over the bounded task-local handoff/wake directory and master filter. It
   supports the historical task-local v2 witness beside the versioned
@@ -37,9 +41,12 @@ owns only the thin translation and presentation layer.
   continuation.
 - Codex app-server is the semantic owner for the exact Goal and Thread. The
   dashboard reads `thread/goal/get`, `thread/read`, and the experimental,
-  read-only `thread/list` relation filters for one exact current thread. A
-  relation page is retained as bounded direct-child or descendant context; it
-  is not a complete branch lifecycle or participant graph.
+  read-only `thread/list` relation filters for one exact current thread. The
+  separate live Goal catalog reads paginated `thread/list` with an explicit
+  archived/query budget and then asks `thread/goal/get` for each returned id;
+  `goal: null` is a valid no-Goal thread, not a dashboard Goal. A relation
+  page is retained as bounded direct-child or descendant context; it is not a
+  complete branch lifecycle or participant graph.
 - The participant envelope projects task-local actor observations into
   independently degraded identity, task, model-realization, and runtime
   dimensions. Candidate labels and model slugs remain diagnostics-only unless

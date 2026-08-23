@@ -20,6 +20,7 @@
       "pressure_inbox_v1",
       "task_local_actor_activity_projection_v1",
       "aoa_dashboard_goal_catalog_projection_v1",
+      "aoa_dashboard_live_goal_catalog_federation_v1",
       "aoa_dashboard_goal_projection_v1",
       "aoa_dashboard_codex_goal_thread_observation_v1",
       "aoa_dashboard_participant_envelope_v1",
@@ -137,10 +138,12 @@
     "contracts/runtime_binding.schema.json",
     "src/aoa_dashboard/runtime_binding.py",
     "src/aoa_dashboard/goal_catalog.py",
+    "src/aoa_dashboard/live_goal_catalog.py",
     "scripts/release_check.py",
     "scripts/validate_default_binding.py",
     "scripts/validate_organ_contract.py",
     "tests/test_runtime_binding.py",
+    "tests/test_live_goal_catalog.py",
     "tests/test_organ_contract.py"
   ],
   "validation": {

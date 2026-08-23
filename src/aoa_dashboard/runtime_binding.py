@@ -430,6 +430,57 @@ def _validate_source_map(payload: dict[str, Any], selected: dict[str, str]) -> d
     if catalog_publication["transport"] == "path":
         catalog["path"] = catalog_publication["path"]
 
+    live_goal_catalog = None
+    raw_live_goal_catalog = sources.get("live_goal_catalog")
+    if raw_live_goal_catalog is not None:
+        live_goal_catalog = _owner_descriptor(
+            raw_live_goal_catalog,
+            "live_goal_catalog",
+            expected_owner="codex-app-server",
+        )
+        if raw_live_goal_catalog.get("enabled") is not True:
+            raise RuntimeBindingError("runtime_binding_live_goal_catalog_disabled")
+        if raw_live_goal_catalog.get("access") != "read_only":
+            raise RuntimeBindingError("runtime_binding_live_goal_catalog_access_invalid")
+        if raw_live_goal_catalog.get("methods") != ["thread/list", "thread/goal/get"]:
+            raise RuntimeBindingError("runtime_binding_live_goal_catalog_contract_invalid")
+        live_socket = _path(raw_live_goal_catalog.get("socket_path"), "live_goal_catalog_socket_path")
+        page_size = raw_live_goal_catalog.get("page_size")
+        max_pages = raw_live_goal_catalog.get("max_pages")
+        timeout_seconds = raw_live_goal_catalog.get("timeout_seconds")
+        client_version = raw_live_goal_catalog.get("client_version")
+        if not isinstance(page_size, int) or isinstance(page_size, bool) or not 1 <= page_size <= 512:
+            raise RuntimeBindingError("runtime_binding_live_goal_catalog_page_size_invalid")
+        if not isinstance(max_pages, int) or isinstance(max_pages, bool) or not 1 <= max_pages <= 128:
+            raise RuntimeBindingError("runtime_binding_live_goal_catalog_max_pages_invalid")
+        if not isinstance(timeout_seconds, (int, float)) or isinstance(timeout_seconds, bool) or not 0 < timeout_seconds <= 30:
+            raise RuntimeBindingError("runtime_binding_live_goal_catalog_timeout_invalid")
+        if raw_live_goal_catalog.get("archived") is not False:
+            raise RuntimeBindingError("runtime_binding_live_goal_catalog_archived_invalid")
+        if not isinstance(client_version, str) or not client_version.strip() or len(client_version) > 64 or any(
+            character.isspace() for character in client_version
+        ):
+            raise RuntimeBindingError("runtime_binding_live_goal_catalog_client_version_invalid")
+        live_goal_catalog.update(
+            {
+                "schema_version": "aoa_dashboard_live_goal_catalog_binding_v1",
+                "kind": "codex_app_server_goal_catalog",
+                "enabled": True,
+                "access": "read_only",
+                "methods": ["thread/list", "thread/goal/get"],
+                "socket_path": live_socket,
+                "page_size": page_size,
+                "max_pages": max_pages,
+                "timeout_seconds": timeout_seconds,
+                "archived": False,
+                "client_version": client_version.strip(),
+            }
+        )
+        for key in ("sort_key", "sort_direction"):
+            value = raw_live_goal_catalog.get(key)
+            if value is not None:
+                live_goal_catalog[key] = _text(value, f"live_goal_catalog_{key}", maximum=64)
+
     goal_projection = None
     raw_goal_projection = sources.get("goal_projection")
     if raw_goal_projection is not None:
@@ -502,6 +553,7 @@ def _validate_source_map(payload: dict[str, Any], selected: dict[str, str]) -> d
         "codex_thread": codex_thread,
         "topology": topology,
         "catalog": catalog,
+        "live_goal_catalog": live_goal_catalog,
         "goal_projection": goal_projection,
         "correlation": correlation,
         "pressure": pressure,
@@ -631,6 +683,7 @@ def _flatten_binding(
             "owner_thread_source": descriptors["codex_thread"],
             "goal_topology_source": descriptors["topology"],
             "goal_catalog_source": descriptors["catalog"],
+            "live_goal_catalog_source": descriptors.get("live_goal_catalog"),
             "goal_projection_source": descriptors.get("goal_projection"),
             "current_correlation": descriptors["correlation"],
             "owner_surfaces": descriptors["owner_surfaces"],

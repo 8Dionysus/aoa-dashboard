@@ -922,7 +922,12 @@ function renderCatalogWorkspace(data, item) {
     notes.append(text("p", t("workspace.historyDetailsMissing"), "catalog-disclosure"));
     if (selectedProjection?.state === "deferred" || selectedProjection?.state === "missing") notes.append(text("p", t("workspace.ownerProjectionDeferred"), "catalog-disclosure"));
   }
-  if (["stale", "deferred", "unknown"].includes(catalog.state)) notes.append(text("p", t("workspace.historyMayLag"), "catalog-disclosure"));
+  const sourceLag = arrayOrEmpty(catalog.sources).some((source) =>
+    !["current", "current_at_read"].includes(source?.currentness)
+  );
+  if (["stale", "deferred", "unknown"].includes(catalog.state) || sourceLag) {
+    notes.append(text("p", t("workspace.historyMayLag"), "catalog-disclosure"));
+  }
   if (item.ambiguity) notes.append(text("p", t("workspace.historyIncomplete"), "catalog-disclosure"));
   body?.append(notes);
 }

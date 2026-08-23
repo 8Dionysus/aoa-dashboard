@@ -56,10 +56,11 @@ through adapters and retained only as bounded metadata plus provenance refs.
   dependency closures. It does not create canonical branch or trajectory
   lifecycle authority.
 - `goal_catalog_projection.schema.json` describes the dashboard-normalized
-  view of the versioned `aoa-session-memory` Goal catalog. The adapter admits
-  only the exact owner/schema pair, keeps source degradation, opaque pagination,
-  localized title provenance, and omits raw objectives, session bodies, usage,
-  work chains, and host paths.
+  view of the versioned `aoa-session-memory` Goal catalog plus its optional
+  explicit live Codex app-server federation. The adapters admit only the exact
+  owner/schema or method bindings, keep per-source degradation and opaque
+  pagination, preserve exact owner refs on overlap, and omit raw objectives,
+  session bodies, usage, work chains, and host paths.
 - `goal_projection.schema.json` describes the exact selected Goal projection
   admitted only after catalog membership. It carries only owner-published
   public-safe Goal/branch/thread items and explicit omissions; it is not a
@@ -75,6 +76,8 @@ through adapters and retained only as bounded metadata plus provenance refs.
   correlation selectors), and binds the selected Goal and every current source
   through owner, authority, access, currentness, and claim-limit fields; it is
   consumed as read evidence and does not grant role, runtime, proof,
-  acceptance, or action authority.
+  acceptance, or action authority. Its optional `live_goal_catalog` source
+  requires an explicit read-only socket, exact method pair, client capability
+  label, archived filter, page size, page budget, and timeout.
 - `dashboard_annotation.schema.json` and `action_intent.schema.json` are
   append-only dashboard-owned records.

@@ -41,6 +41,8 @@ LIFECYCLE_STATES = frozenset(
         "deferred",
         "complete",
         "blocked",
+        "usage_limited",
+        "budgetLimited",
     }
 )
 GROUPS = {
@@ -54,6 +56,8 @@ GROUPS = {
     "paused": "paused",
     "deferred": "paused",
     "complete": "completed",
+    "usage_limited": "attention",
+    "budgetLimited": "attention",
 }
 TECHNICAL_TITLE_RE = re.compile(
     r"(?:^[/~.]|/(?:home|srv|tmp|var|run|etc|opt|usr)/|"
@@ -847,7 +851,7 @@ def _observe_public_catalog(
     return normalized
 
 
-def observe_goal_catalog(config: dict[str, Any]) -> dict[str, Any]:
+def observe_historical_goal_catalog(config: dict[str, Any]) -> dict[str, Any]:
     binding = config.get("goal_catalog_source")
     if not isinstance(binding, dict):
         return _empty("missing", "publisher_binding_missing")
@@ -945,6 +949,24 @@ def observe_goal_catalog(config: dict[str, Any]) -> dict[str, Any]:
         "diagnostics": diagnostics,
         "claim_limit": claim_limit,
     }
+
+
+def observe_goal_catalog(config: dict[str, Any]) -> dict[str, Any]:
+    """Observe the historical owner and, when explicitly bound, live Goals.
+
+    The historical adapter remains independently usable for backwards
+    compatibility.  A live binding is opt-in because the current Goal/thread
+    binding is not a catalog query and must never be widened implicitly.
+    """
+
+    historical = observe_historical_goal_catalog(config)
+    live_binding = config.get("live_goal_catalog_source")
+    if not isinstance(live_binding, dict):
+        return historical
+    from .live_goal_catalog import federate_goal_catalog, observe_live_goal_catalog
+
+    live = observe_live_goal_catalog(config)
+    return federate_goal_catalog(historical, live)
 
 
 def _empty_goal_projection(

@@ -199,6 +199,49 @@ process.stdout.write(JSON.stringify({
         self.assertEqual([item["ref"] for item in observed["page"]["items"]], ["c", "d"])
         self.assertEqual(observed["page"]["page"], 1)
 
+    def test_federated_catalog_keeps_owner_inputs_and_selected_goal_page_stable(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = { globalThis: null };
+context.globalThis = context;
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+const ui = context.AoaDashboardUiState;
+const items = [
+  { ref: "history:one", title: "Historical Goal", title_state: "available", lifecycle_state: "complete", group: "completed", first_observed_at: null, last_observed_at: null, ambiguity: false },
+  { ref: "live:two", title: "Live Goal", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: null, ambiguity: false },
+  { ref: "live:three", title: "Attention Goal", title_state: "available", lifecycle_state: "blocked", group: "attention", first_observed_at: null, last_observed_at: null, ambiguity: false },
+];
+const catalog = {
+  schema_version: "aoa_dashboard_goal_catalog_projection_v1",
+  state: "current",
+  currentness: "current",
+  source: {
+    owner: "aoa-dashboard",
+    ref: "aoa-dashboard:goal-catalog-federation",
+    kind: "derived_federation",
+    currentness: "current",
+    inputs: [
+      { owner: "aoa-session-memory", ref: "aoa-session-memory:goal-lifecycles", currentness: "stale" },
+      { owner: "codex-app-server", ref: "codex-app-server:goal-catalog", currentness: "current_at_read" },
+    ],
+  },
+  items,
+  counts_by_group: { completed: 1, active: 1, attention: 1 },
+  pagination: { mode: "federated", cursor: null, next_cursor: null, complete: true, sources: {} },
+  claim_limit: "federated owner navigation",
+};
+const admitted = ui.qualifiedCatalog(catalog);
+const page = ui.pageWindow(admitted.items, 0, 2, "live:three");
+process.stdout.write(JSON.stringify({ state: admitted.state, refs: admitted.items.map((item) => item.ref), selectedPage: page.items.map((item) => item.ref), sourceCount: admitted.sources.length }));
+'''
+        )
+        self.assertEqual(observed["state"], "current")
+        self.assertEqual(observed["refs"], ["history:one", "live:two", "live:three"])
+        self.assertEqual(observed["selectedPage"], ["live:three"])
+        self.assertEqual(observed["sourceCount"], 2)
+
     def test_versioned_preferences_share_invalid_future_fallback_and_plural_categories(self) -> None:
         observed = run_node(
             r'''

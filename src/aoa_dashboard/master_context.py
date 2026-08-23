@@ -85,10 +85,37 @@ def project_master_context(
     if isinstance(owner_thread.get("diagnostics"), list):
         diagnostics.update(item for item in owner_thread["diagnostics"] if isinstance(item, str) and item)
 
+    catalog_source = _dict(catalog.get("source"))
+    catalog_sources: list[dict[str, Any]] = []
+    if isinstance(catalog_source.get("owner"), str) and isinstance(catalog_source.get("ref"), str):
+        catalog_sources.append(
+            {
+                "owner": catalog_source["owner"],
+                "ref": catalog_source["ref"],
+                "currentness": catalog_source.get("currentness", catalog.get("currentness")),
+                "claim_limit": catalog_source.get("claim_limit") or "Goal catalog federation source only.",
+            }
+        )
+    for source in catalog.get("sources", []) if isinstance(catalog.get("sources"), list) else []:
+        if not isinstance(source, dict):
+            continue
+        source_owner = source.get("owner")
+        ref = source.get("ref")
+        if not isinstance(source_owner, str) or not isinstance(ref, str) or not ref:
+            continue
+        catalog_sources.append(
+            {
+                "owner": source_owner,
+                "ref": ref,
+                "currentness": source.get("currentness", source.get("state", "unknown")),
+                "claim_limit": source.get("claim_limit") or "Owner Goal catalog input only.",
+            }
+        )
+
     sources = [
         {
             "owner": "codex-app-server",
-            "ref": owner.get("goal_ref", {}).get("source") if isinstance(owner.get("goal_ref"), dict) else None,
+            "ref": _dict(owner.get("goal_ref")).get("source"),
             "currentness": owner.get("currentness"),
             "claim_limit": "Exact Goal/thread owner observation only.",
         },
@@ -98,12 +125,7 @@ def project_master_context(
             "currentness": _dict(master_filter).get("currentness"),
             "claim_limit": "Task-local Master filter disposition only.",
         },
-        {
-            "owner": "aoa-session-memory",
-            "ref": _dict(catalog.get("source")).get("ref"),
-            "currentness": catalog.get("currentness"),
-            "claim_limit": "Goal catalog navigation currentness only.",
-        },
+        *catalog_sources,
         {
             "owner": "master-thread",
             "ref": _dict(topology.get("source")).get("ref"),
@@ -128,7 +150,8 @@ def project_master_context(
             "state": catalog.get("state", "missing"),
             "currentness": catalog.get("currentness", "missing"),
             "source": deepcopy(catalog.get("source")),
-            "claim_limit": "Goal catalog navigation remains owned by aoa-session-memory.",
+            "sources": deepcopy(catalog.get("sources", [])) if isinstance(catalog.get("sources"), list) else [],
+            "claim_limit": catalog.get("claim_limit") or "Goal catalog navigation remains owner-qualified.",
         },
         "topology": {
             "state": topology.get("state", "missing"),

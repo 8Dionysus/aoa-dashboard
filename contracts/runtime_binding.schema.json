@@ -35,6 +35,7 @@
         "codex_thread": {"$ref": "#/$defs/codex_thread_source"},
         "topology": {"$ref": "#/$defs/topology_source"},
         "catalog": {"$ref": "#/$defs/catalog_source"},
+        "live_goal_catalog": {"$ref": "#/$defs/live_goal_catalog_source"},
         "goal_projection": {"$ref": "#/$defs/goal_projection_source"},
         "correlation": {"$ref": "#/$defs/correlation_source"},
         "pressure": {"$ref": "#/$defs/pressure_source"},
@@ -67,9 +68,16 @@
         "goal_ref_arg": {"type": "string", "minLength": 1, "maxLength": 128},
         "publication": {"$ref": "#/$defs/publication"},
         "enabled": {"type": "boolean"},
+        "access": {"enum": ["read_only"]},
         "method": {"type": "string", "minLength": 1, "maxLength": 128},
         "socket_path": {"type": "string", "minLength": 1, "maxLength": 4096},
         "methods": {"type": "array", "maxItems": 16, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "page_size": {"type": "integer", "minimum": 1, "maximum": 512},
+        "max_pages": {"type": "integer", "minimum": 1, "maximum": 128},
+        "archived": {"type": "boolean"},
+        "client_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "sort_key": {"type": "string", "minLength": 1, "maxLength": 64},
+        "sort_direction": {"type": "string", "minLength": 1, "maxLength": 64},
         "relation_queries": {"type": "array", "maxItems": 16, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
         "requires_experimental_api": {"type": "boolean"},
         "relative_path": {"type": "string", "minLength": 1, "maxLength": 512},
@@ -111,6 +119,12 @@
       "allOf": [
         {"$ref": "#/$defs/source"},
         {"type": "object", "required": ["enabled", "methods", "relation_queries"]}
+      ]
+    },
+    "live_goal_catalog_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["enabled", "access", "methods", "socket_path", "page_size", "max_pages", "timeout_seconds", "archived", "client_version"]}
       ]
     },
     "topology_source": {

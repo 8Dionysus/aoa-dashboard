@@ -7,7 +7,7 @@
   const MAX_CONTEXT_STRING = 512;
   const CATALOG_SCHEMA = "aoa_dashboard_goal_catalog_projection_v1";
   const CATALOG_GROUPS = ["active", "attention", "paused", "completed"];
-  const CATALOG_CURRENTNESS = ["current", "stale", "deferred", "unknown", "invalid", "missing"];
+  const CATALOG_CURRENTNESS = ["current", "current_at_read", "stale", "deferred", "unknown", "invalid", "missing"];
 
   function textOrNull(value, limit = MAX_CONTEXT_STRING) {
     if (value === null || value === undefined || value === "") return null;
@@ -168,17 +168,27 @@
       };
     }
     const source = candidate.source;
+    const historicalSource = source && typeof source === "object" && !Array.isArray(source)
+      && source.owner === "aoa-session-memory"
+      && source.ref === "aoa-session-memory:goal-lifecycles"
+      && source.owner_schema_version === "aoa_session_memory_goal_catalog_v1";
+    const federatedSource = source && typeof source === "object" && !Array.isArray(source)
+      && source.owner === "aoa-dashboard"
+      && source.ref === "aoa-dashboard:goal-catalog-federation"
+      && source.kind === "derived_federation"
+      && Array.isArray(source.inputs)
+      && source.inputs.length > 0
+      && source.inputs.every((input) => input && typeof input === "object" && !Array.isArray(input)
+        && ["aoa-session-memory", "codex-app-server"].includes(input.owner)
+        && typeof input.ref === "string" && input.ref.length > 0
+        && ["current", "current_at_read", "stale", "deferred", "unknown", "invalid", "missing"].includes(input.currentness));
     const qualified = candidate.schema_version === CATALOG_SCHEMA
       && CATALOG_CURRENTNESS.includes(candidate.currentness)
       && candidate.state === candidate.currentness
-      && source && typeof source === "object" && !Array.isArray(source)
-      && source.owner === "aoa-session-memory"
-      && source.ref === "aoa-session-memory:goal-lifecycles"
-      && source.owner_schema_version === "aoa_session_memory_goal_catalog_v1"
+      && (historicalSource || federatedSource)
       && ["current", "current_at_read", "stale", "deferred", "unknown", "invalid", "missing"].includes(source.currentness)
       && (!candidate.publication_schema_version || candidate.publication_schema_version === "aoa_session_memory_goal_catalog_public_v1")
       && Array.isArray(candidate.items)
-      && candidate.items.length <= 500
       && typeof candidate.claim_limit === "string" && candidate.claim_limit.length > 0;
     if (!qualified) {
       return { state: "invalid", items: [], source: null, currentness: "invalid", claim_limit: null, reason: "publisher_unqualified" };
@@ -216,18 +226,22 @@
       items.push(normalizedItem);
     }
     const pagination = candidate.pagination === undefined ? { mode: "snapshot", cursor: null, next_cursor: null, complete: true } : candidate.pagination;
-    if (!pagination || typeof pagination !== "object" || Array.isArray(pagination) || !["snapshot", "opaque_cursor", "immutable_snapshot"].includes(pagination.mode)
+    if (!pagination || typeof pagination !== "object" || Array.isArray(pagination) || !["snapshot", "opaque_cursor", "immutable_snapshot", "federated"].includes(pagination.mode)
       || (pagination.cursor !== null && typeof pagination.cursor !== "string")
       || (pagination.next_cursor !== null && typeof pagination.next_cursor !== "string")
       || typeof pagination.complete !== "boolean"
       || (pagination.mode === "snapshot" && (pagination.cursor !== null || pagination.next_cursor !== null))
-      || (pagination.mode === "immutable_snapshot" && pagination.supports_immutable_snapshot !== true)) {
+      || (pagination.mode === "immutable_snapshot" && pagination.supports_immutable_snapshot !== true)
+      || (pagination.mode === "federated" && (!pagination.sources || typeof pagination.sources !== "object" || Array.isArray(pagination.sources)))) {
       return { state: "invalid", items: [], source, currentness: "invalid", claim_limit: candidate.claim_limit, reason: "pagination_invalid" };
     }
     return {
       state: candidate.state,
       items,
       source,
+      sources: Array.isArray(candidate.sources)
+        ? candidate.sources
+        : (federatedSource ? source.inputs : []),
       currentness: candidate.currentness,
       claim_limit: candidate.claim_limit,
       counts_by_group: candidate.counts_by_group && typeof candidate.counts_by_group === "object" ? candidate.counts_by_group : {},
