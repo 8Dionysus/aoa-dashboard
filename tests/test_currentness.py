@@ -139,7 +139,6 @@ class CurrentnessFixture:
         return head
 
     def advance(self, reviewed_at: str, *, transition: str = "advance", digest: str | None = None) -> dict:
-        previous = self._digest(self.current_head)
         old_head = json.loads(self.current_head.read_text(encoding="utf-8"))
         self._write_filter(reviewed_at)
         new_digest = digest or self._digest(self.filter)

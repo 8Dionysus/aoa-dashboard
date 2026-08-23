@@ -900,7 +900,21 @@ function renderRouteState() {
   } else target.className = "route-status hidden";
 }
 
+function renderConnectionState() {
+  const target = byId("connection");
+  if (!target) return;
+  const presentation = {
+    loading: { label: "connection.loading", className: "loading" },
+    current: { label: "connection.available", className: "ready" },
+    stale: { label: "connection.degraded", className: "stale" },
+    disconnected: { label: "connection.unavailable", className: "disconnected" },
+  }[refreshState] || { label: "connection.unavailable", className: "disconnected" };
+  target.textContent = t(presentation.label);
+  target.className = `connection-state state-${presentation.className}`;
+}
+
 function renderRefreshState() {
+  renderConnectionState();
   const target = byId("refresh-status");
   if (!target || typeof target.append !== "function") return;
   clear(target);
@@ -915,11 +929,6 @@ function renderHeader(data) {
   const title = goalTitle(data);
   const lifecycle = lifecycleForData(data);
   const quality = selectionQuality === "missing" ? "missing" : selectionQuality === "stale" ? "stale" : qualityForData(data);
-  const connection = byId("connection");
-  if (connection) {
-    connection.textContent = refreshState === "current" ? t("connection.available") : t("connection.unavailable");
-    connection.className = `connection-state state-${refreshState === "current" ? "ready" : refreshState}`;
-  }
   const heading = byId("workspace-heading");
   setDisplayTitle(heading, compactGoalTitle(data), title);
   const focus = nextFocus(data);

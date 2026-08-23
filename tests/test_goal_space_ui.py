@@ -711,6 +711,107 @@ process.stdout.write(JSON.stringify({ rendered, note, selection: context.AoaDash
         self.assertEqual(observed["selection"]["goal_ref"], "019f9075-41a3-7933-a81d-f32bc4da12ca")
         self.assertIn("#goal/019f9075-41a3-7933-a81d-f32bc4da12ca/trajectory", observed["routed"])
 
+    def test_home_and_selected_goal_connection_states_follow_projection_refresh_state(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+function makeNode(tag, documentRef) {
+  const classes = new Set();
+  const listeners = {};
+  const node = {
+    tagName: tag, children: [], firstChild: null, className: "", textContent: "", dataset: {}, style: {}, value: "", type: "", name: "", disabled: false, open: false, scrollTop: 0, scrollLeft: 0,
+    classList: {
+      add(...names) { names.forEach((name) => classes.add(name)); node.className = [...classes].join(" "); },
+      remove(...names) { names.forEach((name) => classes.delete(name)); node.className = [...classes].join(" "); },
+      toggle(name, force) { const enabled = force === undefined ? !classes.has(name) : Boolean(force); if (enabled) classes.add(name); else classes.delete(name); node.className = [...classes].join(" "); return enabled; },
+      contains(name) { return classes.has(name); },
+    },
+    append(...items) { node.children.push(...items.filter(Boolean)); node.firstChild = node.children[0] || null; },
+    appendChild(item) { node.append(item); return item; },
+    removeChild(item) { const index = node.children.indexOf(item); if (index >= 0) node.children.splice(index, 1); node.firstChild = node.children[0] || null; },
+    setAttribute(name, value) { node[name] = String(value); },
+    getAttribute(name) { return node[name] ?? null; },
+    removeAttribute(name) { delete node[name]; },
+    addEventListener(name, listener) { listeners[name] = listener; },
+    focus() { documentRef.activeElement = node; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+  };
+  return node;
+}
+function textOf(node) { return node.textContent || (node.children || []).map(textOf).join(""); }
+function projection() {
+  return {
+    generated_at: "2026-08-23T22:00:00Z",
+    goal: { goal_id: "goal:current", master_thread_id: "thread:current", title: "Current Goal", state: "bound" },
+    goal_catalog: { schema_version: "aoa_dashboard_goal_catalog_projection_v1", state: "current", currentness: "current", source: { owner: "aoa-dashboard", ref: "aoa-dashboard:catalog", currentness: "current" }, items: [{ ref: "goal:current", title: "Current Goal", title_locale: "en", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: "2026-08-23T22:00:00Z", ambiguity: false }], counts_by_group: { active: 1 }, claim_limit: "bounded" },
+    dag: [], directions: [], trajectories: [], pressure_inbox: { status: "missing", items: [] }, correlation: { state: "missing", evidence_refs: [] }, sources: [], lifecycle: [], annotations: { state: "missing", items: [] }, action_intents: { state: "missing", items: [] },
+  };
+}
+async function load(hash, failInitially = false) {
+  const nodes = new Map();
+  let pendingResolve;
+  let fetchMode = failInitially ? "fail" : "pending";
+  const document = {
+    activeElement: null, title: "", documentElement: { lang: "", dataset: {} },
+    querySelectorAll() { return []; },
+    getElementById(id) { if (!nodes.has(id)) nodes.set(id, makeNode(id, document)); return nodes.get(id); },
+    createElement(tag) { return makeNode(tag, document); }, addEventListener() {},
+  };
+  const context = {
+    document, globalThis: null, window: null, console,
+    localStorage: { getItem() { return null; }, setItem() {} },
+    location: { hash }, history: { replaceState() {} }, navigator: { language: hash ? "ru-RU" : "en-US" },
+    fetch() {
+      if (fetchMode === "fail") return Promise.reject(new Error("offline"));
+      return new Promise((resolve) => { pendingResolve = resolve; });
+    },
+    setInterval() {}, addEventListener() {}, URLSearchParams,
+    AoaDashboardTheme: { getMode() { return "system"; }, getDensity() { return "comfortable"; }, setLabels() {}, subscribe() {} },
+  };
+  context.globalThis = context; context.window = context;
+  vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+  vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+  await new Promise((resolve) => setImmediate(resolve));
+  const connection = () => ({ text: document.getElementById("connection").textContent, className: document.getElementById("connection").className });
+  const refresh = () => textOf(document.getElementById("refresh-status"));
+  const loading = connection();
+  if (failInitially) return { loading, unavailable: { ...connection(), refresh: refresh() } };
+  pendingResolve({ ok: true, async json() { return projection(); } });
+  await new Promise((resolve) => setImmediate(resolve));
+  const current = { ...connection(), refresh: refresh(), workspaceHidden: document.getElementById("workspace-view").classList.contains("hidden"), homeHidden: document.getElementById("home-view").classList.contains("hidden") };
+  fetchMode = "fail";
+  await context.AoaDashboardApp.refresh();
+  return { loading, current, failed: { ...connection(), refresh: refresh(), workspaceHidden: document.getElementById("workspace-view").classList.contains("hidden"), homeHidden: document.getElementById("home-view").classList.contains("hidden") } };
+}
+(async () => {
+  process.stdout.write(JSON.stringify({ home: await load(""), selected: await load("#goal/goal%3Acurrent/trajectory"), unavailable: await load("", true) }));
+})();
+'''
+        )
+        self.assertEqual(observed["home"]["loading"], {"text": "Checking", "className": "connection-state state-loading"})
+        self.assertEqual(observed["home"]["current"]["text"], "Updated")
+        self.assertEqual(observed["home"]["current"]["className"], "connection-state state-ready")
+        self.assertFalse(observed["home"]["current"]["homeHidden"])
+        self.assertTrue(observed["home"]["current"]["workspaceHidden"])
+        self.assertEqual(observed["home"]["failed"]["text"], "Degraded")
+        self.assertEqual(observed["home"]["failed"]["className"], "connection-state state-stale")
+        self.assertIn("Trying again shortly.", observed["home"]["failed"]["refresh"])
+        self.assertEqual(observed["selected"]["loading"], {"text": "Проверка", "className": "connection-state state-loading"})
+        self.assertEqual(observed["selected"]["current"]["text"], "Обновлено")
+        self.assertEqual(observed["selected"]["current"]["className"], "connection-state state-ready")
+        self.assertTrue(observed["selected"]["current"]["homeHidden"])
+        self.assertFalse(observed["selected"]["current"]["workspaceHidden"])
+        self.assertEqual(observed["selected"]["failed"]["text"], "Сниженная актуальность")
+        self.assertEqual(observed["selected"]["failed"]["className"], "connection-state state-stale")
+        self.assertIn("Скоро будет новая попытка.", observed["selected"]["failed"]["refresh"])
+        self.assertEqual(observed["unavailable"]["unavailable"]["text"], "Waiting")
+        self.assertEqual(observed["unavailable"]["unavailable"]["className"], "connection-state state-disconnected")
+        self.assertIn("Trying again shortly.", observed["unavailable"]["unavailable"]["refresh"])
+
     def test_home_catalog_paginates_groups_and_keeps_selected_ref_stable_on_refresh(self) -> None:
         observed = run_node(
             r'''

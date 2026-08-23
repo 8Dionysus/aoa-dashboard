@@ -291,7 +291,7 @@ def _read_source(
         return None, evidence, state, [descriptor_error or "binding_invalid"]
     try:
         snapshot, publication, publication_error = _read_publication(descriptor, goal_ref=goal_ref)
-    except (OSError, TypeError, ValueError) as exc:
+    except (OSError, TypeError, ValueError):
         diagnostic = "publisher_read_invalid"
         evidence = _missing_evidence(descriptor, label=label, owner=owner, capability=capability, state="invalid", claim_limit=claim_limit, diagnostic=diagnostic)
         return None, evidence, "invalid", [diagnostic]

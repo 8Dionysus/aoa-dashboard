@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import sys
@@ -11,7 +10,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aoa_dashboard.goal_context import (  # noqa: E402
-    GRAPH_OWNER_COMMIT,
     THREAD_OWNER_COMMIT,
     observe_goal_context,
 )
