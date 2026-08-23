@@ -13,16 +13,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aoa_dashboard.desktop import (  # noqa: E402
     APPLICATION_ID,
+    DEFAULT_DESKTOP_PORT,
     GTK_AVAILABLE,
     LOOPBACK_HOST,
     BackendStartError,
     DashboardBackend,
     DashboardApplication,
     PresentationPreference,
+    PRESENTATION_READ_SCRIPT,
     PRESENTATION_HANDLER_NAME,
     native_text,
     parse_presentation_message,
+    presentation_document_sync_script,
     presentation_from_javascript_value,
+    install_shutdown_signal_handlers,
     startup_language,
     dashboard_url,
 )
@@ -51,6 +55,11 @@ class FakeWidget:
         self.tooltip = ""
         self.title = ""
         self.css_classes: set[str] = set()
+        self.role = "none"
+        self.visible = True
+        self.mapped = True
+        self.focusable = False
+        self.can_focus = False
 
     def set_text(self, value: str) -> None:
         self.text = value
@@ -60,6 +69,24 @@ class FakeWidget:
 
     def set_title(self, value: str) -> None:
         self.title = value
+
+    def set_accessible_role(self, value: object) -> None:
+        self.role = value
+
+    def get_accessible_role(self) -> object:
+        return self.role
+
+    def get_visible(self) -> bool:
+        return self.visible
+
+    def get_mapped(self) -> bool:
+        return self.mapped
+
+    def get_focusable(self) -> bool:
+        return self.focusable
+
+    def get_can_focus(self) -> bool:
+        return self.can_focus
 
     def remove_css_class(self, value: str) -> None:
         self.css_classes.discard(value)
@@ -83,12 +110,39 @@ class FakeStack:
         self.visible_name = name
 
 
+class FakeWebView:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, ...]] = []
+
+    def evaluate_javascript(self, *args: object) -> None:
+        self.calls.append(args)
+
+    def evaluate_javascript_finish(self, result: object) -> object:
+        return result
+
+
 class DesktopBackendTests(unittest.TestCase):
     def test_native_window_and_system_theme_contract_are_bounded(self) -> None:
         source = Path(desktop_module.__file__).read_text(encoding="utf-8")
         self.assertIn("set_default_size(1280, 900)", source)
         self.assertIn("set_size_request(800, 600)", source)
         self.assertIn('getattr(Adw.ColorScheme, "DEFAULT"', source)
+        self.assertIn("Gtk.AccessibleRole.APPLICATION", source)
+        self.assertIn("Gtk.AccessibleRole.STATUS", source)
+        self.assertIn("direct-gtk-widget-properties-v1", source)
+
+    def test_document_sync_script_is_bounded_and_reuses_web_controls(self) -> None:
+        script = presentation_document_sync_script(
+            PresentationPreference(language="ru", theme="dark")
+        )
+        self.assertIn('"language":"ru"', script)
+        self.assertIn('"theme":"dark"', script)
+        self.assertIn('[data-language="${expected.language}"]', script)
+        self.assertIn("expectedTitle", script)
+        self.assertIn("document.title", script)
+        self.assertIn('getElementById("theme-mode")', script)
+        self.assertIn("dispatchEvent(new Event(\"change\"", script)
+        self.assertNotIn("localStorage.setItem", script)
 
     def test_native_startup_locale_and_bridge_payload_are_strictly_bounded(self) -> None:
         self.assertEqual(startup_language(lambda _category: ("ru_RU", "UTF-8")), "ru")
@@ -173,6 +227,47 @@ class DesktopBackendTests(unittest.TestCase):
         self.assertEqual(application.theme_mode, "dark")
 
     @unittest.skipUnless(GTK_AVAILABLE, "GTK4, Libadwaita, and WebKitGTK 6.0 are not installed")
+    def test_native_bridge_resyncs_document_without_a_second_preference_store(self) -> None:
+        application = DashboardApplication(style_manager=FakeStyleManager())
+        web_view = FakeWebView()
+        application._web_view = web_view
+        application._on_persisted_presentation_result(
+            web_view,
+            FakeJavascriptValue('{"language":"ru","theme":"dark"}'),
+            "presentation-read",
+        )
+        self.assertEqual(application.language, "ru")
+        self.assertEqual(application.theme_mode, "dark")
+        self.assertEqual(len(web_view.calls), 1)
+        self.assertEqual(web_view.calls[0][3], "aoa-dashboard://presentation-sync")
+        application._on_presentation_message(
+            None,
+            FakeJavascriptValue('{"language":"ru","theme":"system"}'),
+        )
+        self.assertEqual(application.theme_mode, "dark")
+        application._on_presentation_message(
+            None,
+            FakeJavascriptValue('{"language":"ru","theme":"dark"}'),
+        )
+        self.assertIsNone(application._document_sync_expected)
+
+        self.assertIn("AoaDashboardPreferences", PRESENTATION_READ_SCRIPT)
+
+    @unittest.skipUnless(GTK_AVAILABLE, "GTK4, Libadwaita, and WebKitGTK 6.0 are not installed")
+    def test_direct_native_accessibility_observation_is_bounded(self) -> None:
+        application = DashboardApplication(style_manager=FakeStyleManager())
+        application._window = FakeWidget()
+        application._title_label = FakeWidget()
+        application._status_label = FakeWidget()
+        application._stack = FakeWidget()
+        application._web_view = FakeWidget()
+        snapshot = application.accessibility_snapshot()
+        self.assertEqual(snapshot["observation_contract"], "direct-gtk-widget-properties-v1")
+        self.assertEqual(snapshot["window"]["role"], "none")
+        self.assertTrue(snapshot["window"]["visible"])
+        self.assertEqual(snapshot["document_sync"]["state"], "not_requested")
+
+    @unittest.skipUnless(GTK_AVAILABLE, "GTK4, Libadwaita, and WebKitGTK 6.0 are not installed")
     def test_native_bridge_registers_the_expected_webkit_channel(self) -> None:
         application = DashboardApplication(style_manager=FakeStyleManager())
         manager = application._create_presentation_bridge()
@@ -183,6 +278,42 @@ class DesktopBackendTests(unittest.TestCase):
             desktop_module, "GTK_IMPORT_ERROR", ImportError("test dependency missing")
         ):
             self.assertEqual(desktop_module.main([]), 2)
+
+    @unittest.skipUnless(GTK_AVAILABLE, "GTK4, Libadwaita, and WebKitGTK 6.0 are not installed")
+    def test_sigint_and_sigterm_are_routed_to_one_clean_quit(self) -> None:
+        class FakeApplication:
+            def __init__(self) -> None:
+                self.quit_calls = 0
+
+            def quit(self) -> None:
+                self.quit_calls += 1
+
+        application = FakeApplication()
+        installed: dict[int, object] = {}
+        restored: list[tuple[int, object]] = []
+
+        def fake_signal(signum: int, handler: object) -> object:
+            if callable(handler):
+                installed[signum] = handler
+                return "previous"
+            restored.append((signum, handler))
+            return handler
+
+        with patch.object(desktop_module.signal, "signal", side_effect=fake_signal), patch.object(
+            desktop_module.GLib,
+            "idle_add",
+            side_effect=lambda callback, priority=0: callback(),
+        ):
+            restore = install_shutdown_signal_handlers(application)
+            installed[desktop_module.signal.SIGTERM](desktop_module.signal.SIGTERM, None)
+            installed[desktop_module.signal.SIGINT](desktop_module.signal.SIGINT, None)
+            restore()
+
+        self.assertEqual(application.quit_calls, 1)
+        self.assertEqual(
+            restored,
+            [(desktop_module.signal.SIGINT, "previous"), (desktop_module.signal.SIGTERM, "previous")],
+        )
 
     def test_ephemeral_loopback_binding_and_url_handoff(self) -> None:
         backend = DashboardBackend()
@@ -234,6 +365,13 @@ class DesktopBackendTests(unittest.TestCase):
 
     def test_application_id_is_stable(self) -> None:
         self.assertEqual(APPLICATION_ID, "org.aoa.AoaDashboard")
+
+    @unittest.skipUnless(GTK_AVAILABLE, "GTK4, Libadwaita, and WebKitGTK 6.0 are not installed")
+    def test_desktop_backend_origin_port_is_stable_by_default_and_overridable(self) -> None:
+        application = DashboardApplication(style_manager=FakeStyleManager())
+        self.assertEqual(application._backend_factory().port, DEFAULT_DESKTOP_PORT)
+        ephemeral = DashboardApplication(style_manager=FakeStyleManager(), desktop_port=0)
+        self.assertEqual(ephemeral._backend_factory().port, 0)
 
     @unittest.skipUnless(GTK_AVAILABLE, "GTK4, Libadwaita, and WebKitGTK 6.0 are not installed")
     def test_application_shutdown_stops_owned_backend(self) -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import locale
+import signal
 import sys
 import threading
 from dataclasses import dataclass
@@ -21,7 +22,17 @@ from .server import DashboardHTTPServer, DashboardHandler
 
 APPLICATION_ID = "org.aoa.AoaDashboard"
 LOOPBACK_HOST = "127.0.0.1"
+DEFAULT_DESKTOP_PORT = 8765
 PRESENTATION_HANDLER_NAME = "aoaDashboardPresentation"
+PRESENTATION_READ_SCRIPT = """
+(() => {
+  const api = window.AoaDashboardPreferences;
+  if (!api || typeof api.read !== "function") return null;
+  const preferences = api.read(window.localStorage);
+  if (!preferences || typeof preferences.language !== "string") return null;
+  return {language: preferences.language, theme: preferences.theme};
+})()
+"""
 PresentationLanguage = Literal["en", "ru"]
 PresentationTheme = Literal["system", "light", "dark"]
 PRESENTATION_LANGUAGES = frozenset({"en", "ru"})
@@ -64,6 +75,53 @@ class PresentationPreference:
 
     language: PresentationLanguage
     theme: PresentationTheme
+
+
+def presentation_document_sync_script(preference: PresentationPreference) -> str:
+    """Return a bounded script that reuses the web-owned preference controls.
+
+    The native shell does not own a second preference store or translation
+    catalog.  This small repair is only a recovery path for a page whose
+    persisted preference was changed before the document finished loading.
+    Normal web preference changes already update the document themselves.
+    """
+
+    expected = json.dumps(
+        {"language": preference.language, "theme": preference.theme},
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    return """
+(() => {
+  const expected = __AOA_DASHBOARD_EXPECTED__;
+  const dictionary = window.AoaDashboardI18n?.dictionaries?.[expected.language] || null;
+  const expectedTitle = dictionary && typeof dictionary["app.title"] === "string" ? dictionary["app.title"] : null;
+  const result = {
+    language_changed: false,
+    theme_changed: false,
+    document_language: document.documentElement ? document.documentElement.lang : null,
+    theme_mode: null,
+  };
+  const languageButton = document.querySelector(`[data-language="${expected.language}"]`);
+  const titleNeedsUpdate = expectedTitle && document.title !== expectedTitle;
+  if (document.documentElement && (document.documentElement.lang !== expected.language || titleNeedsUpdate) && languageButton) {
+    languageButton.click();
+    result.language_changed = true;
+  }
+  const themeControl = document.getElementById("theme-mode");
+  if (themeControl) {
+    result.theme_mode = themeControl.value || null;
+    if (themeControl.value !== expected.theme) {
+      themeControl.value = expected.theme;
+      themeControl.dispatchEvent(new Event("change", {bubbles: true}));
+      result.theme_changed = true;
+      result.theme_mode = themeControl.value || null;
+    }
+  }
+  result.document_language = document.documentElement ? document.documentElement.lang : null;
+  return result;
+})()
+""".replace("__AOA_DASHBOARD_EXPECTED__", expected)
 
 
 def startup_language(
@@ -111,6 +169,16 @@ def presentation_from_javascript_value(value: object) -> PresentationPreference 
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
     return parse_presentation_message(payload)
+
+
+def _javascript_value_to_python(value: object) -> object | None:
+    to_json = getattr(value, "to_json", None)
+    if not callable(to_json):
+        return None
+    try:
+        return json.loads(to_json(0))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def native_text(language: PresentationLanguage, key: str) -> str:
@@ -248,14 +316,30 @@ class DashboardBackend:
             server = self._server
             thread = self._thread
             self._state = "stopping"
-        if server is not None:
-            if thread is not None and thread.is_alive():
+        stop_error: Exception | None = None
+        try:
+            if (
+                server is not None
+                and thread is not None
+                and thread.is_alive()
+                and thread is not threading.current_thread()
+            ):
                 server.shutdown()
-            server.server_close()
-        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
-            thread.join(timeout=5)
+        except Exception as exc:  # pragma: no cover - defensive host/runtime path
+            stop_error = exc
+        finally:
+            if server is not None:
+                try:
+                    server.server_close()
+                except Exception as exc:  # pragma: no cover - defensive host/runtime path
+                    stop_error = stop_error or exc
+            if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+                thread.join(timeout=5)
         with self._lock:
-            self._state = "stopped"
+            thread_alive = bool(thread and thread.is_alive())
+            self._state = "failed" if thread_alive else "stopped"
+            if stop_error is not None:
+                self._error = str(stop_error)
 
 
 try:
@@ -264,7 +348,7 @@ try:
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
     gi.require_version("WebKit", "6.0")
-    from gi.repository import Adw, Gtk, WebKit  # type: ignore[import-not-found]
+    from gi.repository import Adw, GLib, Gtk, WebKit  # type: ignore[import-not-found]
 except (ImportError, ValueError) as exc:  # pragma: no cover - exercised on non-GTK CI hosts
     GTK_AVAILABLE = False
     GTK_IMPORT_ERROR: Exception | None = exc
@@ -281,6 +365,49 @@ def require_desktop_dependencies() -> None:
         )
 
 
+def install_shutdown_signal_handlers(application: Any) -> Callable[[], None]:
+    """Route ordinary SIGINT/SIGTERM through the GTK main loop.
+
+    Python signal handlers run on the main thread, but GTK object work belongs
+    in the main loop.  Scheduling ``quit`` keeps the same shutdown path for a
+    terminal interrupt, a service stop, and an explicit application close.
+    """
+
+    previous: dict[int, Any] = {}
+    scheduled = False
+
+    def quit_from_main_loop() -> bool:
+        application.quit()
+        return False
+
+    def request_shutdown(_signum: int, _frame: Any) -> None:
+        nonlocal scheduled
+        if scheduled:
+            return
+        scheduled = True
+        try:
+            GLib.idle_add(
+                quit_from_main_loop,
+                priority=getattr(GLib, "PRIORITY_HIGH", 0),
+            )
+        except Exception:  # pragma: no cover - only if GLib is already tearing down
+            application.quit()
+
+    try:
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous[signum] = signal.signal(signum, request_shutdown)
+    except Exception:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+        raise
+
+    def restore() -> None:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+    return restore
+
+
 if GTK_AVAILABLE:
 
     class DashboardApplication(Adw.Application):  # type: ignore[misc,valid-type]
@@ -293,11 +420,14 @@ if GTK_AVAILABLE:
             binding_path: str | None = None,
             locale_getter: Callable[[int], tuple[str | None, str | None]] = locale.getlocale,
             style_manager: Any | None = None,
+            desktop_port: int = DEFAULT_DESKTOP_PORT,
         ) -> None:
             # No NON_UNIQUE flag is set: Gio.Application provides single-instance
             # behavior for this stable application id.
             super().__init__(application_id=APPLICATION_ID)
-            self._backend_factory = backend_factory or (lambda: DashboardBackend(binding_path=binding_path))
+            self._backend_factory = backend_factory or (
+                lambda: DashboardBackend(binding_path=binding_path, port=desktop_port)
+            )
             self._style_manager = style_manager if style_manager is not None else Adw.StyleManager.get_default()
             self._backend: DashboardBackend | None = None
             self._window: Any | None = None
@@ -308,6 +438,11 @@ if GTK_AVAILABLE:
             self._status_label: Any | None = None
             self._status_state = "starting"
             self._status_key = "status.starting"
+            self._shutdown_started = False
+            self._presentation_read_requested = False
+            self._persisted_read_complete = False
+            self._document_sync_expected: PresentationPreference | None = None
+            self._document_sync_result: dict[str, Any] = {"state": "not_requested"}
             initial_language = startup_language(locale_getter)
             self._status_text = native_text(initial_language, self._status_key)
             self._message_specs: dict[str, tuple[str, str | None]] = {}
@@ -338,6 +473,8 @@ if GTK_AVAILABLE:
             return self._presentation.theme
 
         def do_activate(self) -> None:
+            if self._shutdown_started:
+                return
             if self._window is None:
                 self._window = self._build_window()
                 self._window.present()
@@ -346,30 +483,51 @@ if GTK_AVAILABLE:
                 self._window.present()
 
         def do_shutdown(self) -> None:
-            if self._backend is not None:
-                self._backend.stop()
+            if self._shutdown_started:
+                return
+            self._shutdown_started = True
+            web_view = self._web_view
+            backend = self._backend
+            try:
+                if web_view is not None:
+                    stop_loading = getattr(web_view, "stop_loading", None)
+                    if callable(stop_loading):
+                        stop_loading()
+                if backend is not None:
+                    backend.stop()
+            finally:
+                self._web_view = None
+                self._user_content_manager = None
                 self._backend = None
-            Adw.Application.do_shutdown(self)
+                self._document_sync_expected = None
+                Adw.Application.do_shutdown(self)
 
         def _build_window(self) -> Any:
             window = Adw.ApplicationWindow(application=self)
+            window.set_accessible_role(Gtk.AccessibleRole.APPLICATION)
+            window.connect("close-request", self._on_window_close)
             window.set_title(native_text(self.language, "title"))
             window.set_default_size(1280, 900)
             if hasattr(window, "set_size_request"):
                 window.set_size_request(800, 600)
 
             toolbar = Adw.ToolbarView()
+            toolbar.set_accessible_role(Gtk.AccessibleRole.TOOLBAR)
             header = Adw.HeaderBar()
+            header.set_accessible_role(Gtk.AccessibleRole.BANNER)
             title = Gtk.Label(label=native_text(self.language, "title"))
+            title.set_accessible_role(Gtk.AccessibleRole.HEADING)
             title.add_css_class("title")
             header.set_title_widget(title)
             self._status_label = Gtk.Label(label=self._status_text)
+            self._status_label.set_accessible_role(Gtk.AccessibleRole.STATUS)
             self._status_label.add_css_class("dim-label")
             self._status_label.set_tooltip_text(self._status_text)
             header.pack_end(self._status_label)
             toolbar.add_top_bar(header)
 
             self._stack = Gtk.Stack()
+            self._stack.set_accessible_role(Gtk.AccessibleRole.MAIN)
             self._stack.set_hexpand(True)
             self._stack.set_vexpand(True)
             self._message_specs["starting"] = ("message.starting", None)
@@ -381,8 +539,14 @@ if GTK_AVAILABLE:
             self._title_label = title
             return window
 
+        def _on_window_close(self, _window: Any) -> bool:
+            self.quit()
+            return False
+
         def _message_view(self, message_key: str, detail: str | None = None) -> Any:
             view = Gtk.Label(label=self._message_text(message_key, detail))
+            role = Gtk.AccessibleRole.ALERT if message_key in {"message.backend_error", "message.load_error"} else Gtk.AccessibleRole.STATUS
+            view.set_accessible_role(role)
             view.set_wrap(True)
             view.set_margin_top(36)
             view.set_margin_bottom(36)
@@ -405,6 +569,45 @@ if GTK_AVAILABLE:
                 self._status_label.remove_css_class("error")
                 if state == "error":
                     self._status_label.add_css_class("error")
+
+        @staticmethod
+        def _widget_accessibility_snapshot(widget: Any) -> dict[str, Any] | None:
+            """Observe direct GTK widget properties without contacting AT-SPI."""
+
+            if widget is None:
+                return None
+            result: dict[str, Any] = {"type": type(widget).__name__}
+            for method_name, key in (
+                ("get_accessible_role", "role"),
+                ("get_visible", "visible"),
+                ("get_mapped", "mapped"),
+                ("get_focusable", "focusable"),
+                ("get_can_focus", "can_focus"),
+            ):
+                method = getattr(widget, method_name, None)
+                if not callable(method):
+                    continue
+                try:
+                    value = method()
+                    if key == "role":
+                        value = getattr(value, "value_nick", None) or getattr(value, "value_name", None) or str(value)
+                    result[key] = value
+                except Exception as exc:  # pragma: no cover - host API variance
+                    result[key] = f"error:{type(exc).__name__}:{exc}"
+            return result
+
+        def accessibility_snapshot(self) -> dict[str, Any]:
+            """Return bounded native observations available without a display."""
+
+            return {
+                "observation_contract": "direct-gtk-widget-properties-v1",
+                "window": self._widget_accessibility_snapshot(self._window),
+                "title": self._widget_accessibility_snapshot(self._title_label),
+                "status": self._widget_accessibility_snapshot(self._status_label),
+                "main": self._widget_accessibility_snapshot(self._stack),
+                "web_view": self._widget_accessibility_snapshot(self._web_view),
+                "document_sync": dict(self._document_sync_result),
+            }
 
         def _show_message(self, name: str, message_key: str, detail: str | None = None) -> None:
             self._message_specs[name] = (message_key, detail)
@@ -446,8 +649,91 @@ if GTK_AVAILABLE:
 
         def _on_presentation_message(self, _manager: Any, value: Any) -> None:
             preference = presentation_from_javascript_value(value)
+            if preference is None:
+                return
+            expected = self._document_sync_expected
+            if expected is not None:
+                if preference == expected:
+                    self._apply_presentation(preference)
+                    self._document_sync_expected = None
+                return
+            self._apply_presentation(preference)
+            if self._persisted_read_complete:
+                self._sync_web_document(preference)
+
+        def _sync_web_document(self, preference: PresentationPreference) -> None:
+            if self._shutdown_started or self._web_view is None:
+                return
+            evaluate = getattr(self._web_view, "evaluate_javascript", None)
+            if not callable(evaluate):
+                return
+            self._document_sync_expected = preference
+            try:
+                evaluate(
+                    presentation_document_sync_script(preference),
+                    -1,
+                    None,
+                    "aoa-dashboard://presentation-sync",
+                    None,
+                    self._on_document_sync_result,
+                    "presentation-sync",
+                )
+            except Exception as exc:  # pragma: no cover - WebKit teardown/race
+                self._document_sync_expected = None
+                self._document_sync_result = {"state": "error", "error": str(exc)}
+
+        def _on_document_sync_result(self, web_view: Any, result: Any, _label: str) -> None:
+            try:
+                finish = getattr(web_view, "evaluate_javascript_finish")
+                value = _javascript_value_to_python(finish(result))
+            except Exception as exc:  # pragma: no cover - WebKit teardown/race
+                self._document_sync_expected = None
+                self._document_sync_result = {"state": "error", "error": str(exc)}
+                return
+            if isinstance(value, Mapping):
+                self._document_sync_result = {"state": "observed", **dict(value)}
+                if value.get("language_changed") or value.get("theme_changed"):
+                    GLib.timeout_add(250, self._expire_document_sync)
+                    return
+            self._document_sync_expected = None
+
+        def _expire_document_sync(self) -> bool:
+            self._document_sync_expected = None
+            return False
+
+        def _request_persisted_presentation(self) -> None:
+            if self._presentation_read_requested or self._shutdown_started or self._web_view is None:
+                return
+            evaluate = getattr(self._web_view, "evaluate_javascript", None)
+            if not callable(evaluate):
+                return
+            self._presentation_read_requested = True
+            try:
+                evaluate(
+                    PRESENTATION_READ_SCRIPT,
+                    -1,
+                    None,
+                    "aoa-dashboard://presentation-read",
+                    None,
+                    self._on_persisted_presentation_result,
+                    "presentation-read",
+                )
+            except Exception as exc:  # pragma: no cover - WebKit teardown/race
+                self._persisted_read_complete = True
+                self._document_sync_result = {"state": "error", "error": str(exc)}
+
+        def _on_persisted_presentation_result(self, web_view: Any, result: Any, _label: str) -> None:
+            if self._shutdown_started:
+                return
+            self._persisted_read_complete = True
+            try:
+                finish = getattr(web_view, "evaluate_javascript_finish")
+                preference = presentation_from_javascript_value(finish(result))
+            except Exception:  # pragma: no cover - WebKit teardown/race
+                return
             if preference is not None:
                 self._apply_presentation(preference)
+                self._sync_web_document(preference)
 
         def _create_presentation_bridge(self) -> Any:
             manager = WebKit.UserContentManager()
@@ -490,6 +776,7 @@ if GTK_AVAILABLE:
                 self._set_status("loading", "status.connected")
             elif event == WebKit.LoadEvent.FINISHED:
                 self._set_status("loaded", "status.loaded")
+                self._request_persisted_presentation()
 
         def _on_load_failed(self, _web_view: Any, _event: Any, _failing_uri: str, error: Any) -> bool:
             detail = getattr(error, "message", None) or str(error)
@@ -516,8 +803,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     program = raw_args[0] if raw_args else "aoa-dashboard-desktop"
     parser = argparse.ArgumentParser(description="Run the aoa-dashboard desktop shell")
     parser.add_argument("--binding", type=str, help="explicit owner-qualified runtime Goal binding JSON")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_DESKTOP_PORT,
+        help="loopback port for the persistent WebKit origin (0 selects an ephemeral port)",
+    )
     parsed, gio_args = parser.parse_known_args(raw_args[1:] if raw_args else [])
-    application = DashboardApplication(binding_path=parsed.binding)
+    application = DashboardApplication(binding_path=parsed.binding, desktop_port=parsed.port)
+    restore_signal_handlers = install_shutdown_signal_handlers(application)
     try:
         return int(application.run([program, *gio_args]))
     except KeyboardInterrupt:
@@ -525,6 +819,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Treat that operator close as a normal application shutdown.
         application.quit()
         return 0
+    finally:
+        restore_signal_handlers()
 
 
 if __name__ == "__main__":
