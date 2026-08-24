@@ -36,7 +36,7 @@ class IntegrationWiringTests(unittest.TestCase):
         data_files = project["tool"]["setuptools"]["data-files"]["share/aoa-dashboard/web"]
         self.assertEqual(
             set(data_files),
-            {"web/index.html", "web/app.js", "web/i18n.js", "web/preferences.js", "web/styles.css", "web/theme.js", "web/ui_state.js"},
+            {"web/index.html", "web/app.js", "web/favicon.svg", "web/i18n.js", "web/preferences.js", "web/styles.css", "web/theme.js", "web/ui_state.js"},
         )
         self.assertEqual(
             project["tool"]["setuptools"]["data-files"]["share/aoa-dashboard/config"],
@@ -55,19 +55,20 @@ class IntegrationWiringTests(unittest.TestCase):
         try:
             connection = HTTPConnection("127.0.0.1", server.server_port, timeout=3)
             try:
-                for route, marker in (
-                    ("/i18n.js", "AoaDashboardI18n"),
-                    ("/preferences.js", "AoaDashboardPreferences"),
-                    ("/theme.js", "AoaDashboardTheme"),
-                    ("/ui_state.js", "AoaDashboardUiState"),
-                    ("/styles.css", ':root[data-theme="dark"]'),
+                for route, marker, content_type in (
+                    ("/favicon.svg", "<svg", "image/svg+xml"),
+                    ("/i18n.js", "AoaDashboardI18n", "text/"),
+                    ("/preferences.js", "AoaDashboardPreferences", "text/"),
+                    ("/theme.js", "AoaDashboardTheme", "text/"),
+                    ("/ui_state.js", "AoaDashboardUiState", "text/"),
+                    ("/styles.css", ':root[data-theme="dark"]', "text/"),
                 ):
                     connection.request("GET", route)
                     response = connection.getresponse()
                     body = response.read().decode("utf-8")
                     self.assertEqual(response.status, 200, route)
                     self.assertIn(marker, body, route)
-                    self.assertTrue(response.getheader("Content-Type", "").startswith("text/"), route)
+                    self.assertTrue(response.getheader("Content-Type", "").startswith(content_type), route)
             finally:
                 connection.close()
         finally:

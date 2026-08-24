@@ -121,6 +121,7 @@ h1, h2, h3 { font-family: inherit; font-weight: 650; letter-spacing: -.025em; }
 .app-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
 .connection-state { color: var(--muted); font-size: 11px; }
 .connection-state.state-ready { color: var(--teal); }
+.connection-state.state-needs-review { color: var(--amber); }
 .connection-state.state-stale, .connection-state.state-loading { color: var(--amber); }
 .connection-state.state-disconnected, .connection-state.state-invalid { color: var(--red); }
 .settings-panel { position: relative; z-index: 4; }
@@ -143,6 +144,7 @@ h1, h2, h3 { font-family: inherit; font-weight: 650; letter-spacing: -.025em; }
 #main-content { padding-top: 34px; }
 .refresh-note { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; min-height: 26px; margin-bottom: 24px; color: var(--muted); font-size: 12px; }
 .refresh-note strong { color: var(--ink); font-weight: 700; }
+.refresh-note.state-needs-review strong { color: var(--amber); }
 .refresh-note.state-stale strong, .refresh-note.state-disconnected strong { color: var(--amber); }
 .alert { margin-bottom: 20px; padding: 13px 16px; border-left: 3px solid var(--red); border-radius: 8px; color: var(--alert-ink); background: var(--surface-alert); font-size: 12px; }
 .route-status { display: flex; gap: 9px; align-items: center; margin-bottom: 18px; padding: 10px 13px; border: 1px solid var(--alert-line); border-radius: 9px; color: var(--alert-ink); background: var(--surface-alert); font-size: 12px; }

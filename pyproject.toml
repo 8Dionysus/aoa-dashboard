@@ -16,7 +16,7 @@ aoa-dashboard-desktop = "aoa_dashboard.desktop:main"
 where = ["src"]
 
 [tool.setuptools.data-files]
-"share/aoa-dashboard/web" = ["web/index.html", "web/app.js", "web/i18n.js", "web/preferences.js", "web/styles.css", "web/theme.js", "web/ui_state.js"]
+"share/aoa-dashboard/web" = ["web/index.html", "web/app.js", "web/favicon.svg", "web/i18n.js", "web/preferences.js", "web/styles.css", "web/theme.js", "web/ui_state.js"]
 "share/aoa-dashboard/config" = ["config/bootstrap.json"]
 "share/aoa-dashboard/contracts" = ["contracts/runtime_binding.schema.json", "contracts/goal_anchor.schema.json", "contracts/goal-context-projection.schema.json"]
 "share/applications" = ["packaging/org.aoa.AoaDashboard.desktop"]

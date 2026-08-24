@@ -252,8 +252,23 @@ function humanSourceLabel(value) {
   return key ? t(key) : humanValue(value, t("evidence.connectedSource"));
 }
 
+function currentOwnerGoal(data) {
+  const goal = data?.goal;
+  const owner = data?.owner_goal;
+  if (!owner || typeof owner !== "object") return null;
+  const exact = owner.goal;
+  if (owner.state !== "bound" || owner.currentness !== "current_at_read") return null;
+  if (!exact || typeof exact !== "object" || typeof exact.title !== "string" || typeof exact.thread_id !== "string") return null;
+  if (goal?.title_source !== "codex_app_server_thread_goal" || goal.currentness !== "current_at_read") return null;
+  if (goal.master_thread_id !== exact.thread_id || goal.title !== exact.title) return null;
+  return goal;
+}
+
 function goalTitle(data) {
   const goal = data?.goal || {};
+  const ownerGoal = currentOwnerGoal(data);
+  if (ownerGoal) return boundedHumanText(ownerGoal.title, t("goal.titleUnavailable"));
+  if (Object.prototype.hasOwnProperty.call(data || {}, "owner_goal") || goal.title_source === "codex_app_server_thread_goal") return t("goal.titleUnavailable");
   const configured = localizedBoundLabel(presentationEntry(data, "goal")?.title, "");
   const ownerLocalized = localizedBoundLabel(goal.title_by_locale || goal.localized_title, "");
   if (configured) return boundedHumanText(configured, t("goal.titleUnavailable"));
@@ -295,6 +310,7 @@ function compactDisplayText(value, limit = MAX_GOAL_DISPLAY) {
 
 function compactGoalTitle(data) {
   const full = goalTitle(data);
+  if (currentOwnerGoal(data)) return compactDisplayText(full);
   const configured = presentationEntry(data, "goal");
   const explicit = presentationField(configured, "short_title", "")
     || presentationField(configured, "compact_title", "");
@@ -316,7 +332,13 @@ function setDisplayTitle(node, visible, full) {
 }
 
 function goalRef(data) {
-  return data?.goal?.goal_id || data?.goal?.goal_ref || null;
+  const goal = currentOwnerGoal(data);
+  return goal?.goal_id || goal?.goal_ref || null;
+}
+
+function selectedCurrentGoalForData(data) {
+  const ref = goalRef(data);
+  return Boolean(ref && selection.goal_ref === ref);
 }
 
 function statusClass(value) {
@@ -515,15 +537,48 @@ function publishNativePresentationPreference() {
 }
 
 function qualityForData(data) {
-  const observed = [data?.correlation?.state, data?.correlation_read_model?.status, data?.pressure_inbox?.status, data?.actor_activity?.state, data?.owner_goal_context?.state, data?.participant_context?.state, data?.goal_context?.state]
+  const observed = [
+    data?.goal_catalog?.state,
+    data?.goal_catalog?.currentness,
+    data?.goal_context?.state,
+    data?.goal_context?.currentness,
+    data?.goal_topology?.state,
+    data?.goal_topology?.currentness,
+    data?.correlation?.state,
+    data?.correlation?.freshness,
+    data?.correlation_read_model?.status,
+    data?.correlation_read_model?.currentness,
+    data?.correlation_read_model?.rebuild?.source_currentness,
+    data?.pressure_inbox?.status,
+    data?.actor_activity?.state,
+    data?.owner_goal_context?.state,
+    data?.participant_context?.state,
+  ]
     .map((value) => String(value || "").toLowerCase());
   for (const value of ["invalid", "deferred", "stale", "missing", "unknown"]) if (observed.includes(value)) return value;
   return "unknown";
 }
 
+function workspaceNeedsReview(data) {
+  const observed = [
+    data?.goal_catalog?.state,
+    data?.goal_catalog?.currentness,
+    data?.goal_context?.state,
+    data?.goal_context?.currentness,
+    data?.goal_topology?.state,
+    data?.goal_topology?.currentness,
+    data?.correlation?.state,
+    data?.correlation?.freshness,
+    data?.correlation_read_model?.status,
+    data?.correlation_read_model?.currentness,
+    data?.correlation_read_model?.rebuild?.source_currentness,
+  ].map((value) => String(value || "").toLowerCase());
+  return observed.some((value) => QUALITY.includes(value)) || ["missing", "stale"].includes(selectionQuality);
+}
+
 function lifecycleForData(data) {
-  const ownerState = data?.goal?.state;
-  if (data?.goal?.title_source === "codex_app_server_thread_goal" && ownerState) return ownerState;
+  const ownerState = currentOwnerGoal(data)?.state;
+  if (ownerState) return ownerState;
   const values = arrayOrEmpty(data?.lifecycle);
   for (const step of [...LIFECYCLE].reverse()) {
     const item = values.find((candidate) => candidate?.step === step && candidate.state && !QUALITY.includes(candidate.state));
@@ -619,9 +674,7 @@ function isUserFacingDirection(item) {
 
 function goalDirectionItem(data) {
   const goal = data?.goal || {};
-  const ownerGoalBound = data?.owner_goal?.state === "bound"
-    || goal.title_source === "codex_app_server_thread_goal";
-  if (!ownerGoalBound || !goalRef(data)) return null;
+  if (!currentOwnerGoal(data) || !goalRef(data)) return null;
   const configured = presentationEntry(data, ["trajectory", "goal_direction"], "primary");
   const sourceRefs = arrayOrEmpty(goal.source_refs);
   return {
@@ -900,12 +953,15 @@ function renderRouteState() {
   } else target.className = "route-status hidden";
 }
 
-function renderConnectionState() {
+function renderConnectionState(data = currentProjection) {
   const target = byId("connection");
   if (!target) return;
+  const needsReview = refreshState === "current" && selectedCurrentGoalForData(data) && workspaceNeedsReview(data);
   const presentation = {
     loading: { label: "connection.loading", className: "loading" },
-    current: { label: "connection.available", className: "ready" },
+    current: needsReview
+      ? { label: "connection.needsReview", className: "needs-review" }
+      : { label: "connection.available", className: "ready" },
     stale: { label: "connection.degraded", className: "stale" },
     disconnected: { label: "connection.unavailable", className: "disconnected" },
   }[refreshState] || { label: "connection.unavailable", className: "disconnected" };
@@ -913,13 +969,15 @@ function renderConnectionState() {
   target.className = `connection-state state-${presentation.className}`;
 }
 
-function renderRefreshState() {
-  renderConnectionState();
+function renderRefreshState(data = currentProjection) {
+  renderConnectionState(data);
   const target = byId("refresh-status");
   if (!target || typeof target.append !== "function") return;
   clear(target);
-  target.className = `refresh-note state-${refreshState}`;
+  const needsReview = refreshState === "current" && selectedCurrentGoalForData(data) && workspaceNeedsReview(data);
+  target.className = `refresh-note state-${refreshState}${needsReview ? " state-needs-review" : ""}`;
   if (refreshState === "loading") target.append(text("strong", t("refresh.loading")), text("span", t("refresh.noCounts")));
+  else if (refreshState === "current" && needsReview) target.append(text("strong", t("refresh.needsReview")), text("span", t("refresh.needsReviewDetail")));
   else if (refreshState === "current") target.append(text("strong", t("refresh.current")), text("span", formatHumanRecency(lastGoodAt)));
   else if (refreshState === "stale") target.append(text("strong", t("refresh.stale")), text("span", formatHumanRecency(lastGoodAt)), text("span", t("refresh.retry")));
   else target.append(text("strong", t("refresh.disconnected")), text("span", t("refresh.retry")));
@@ -936,7 +994,8 @@ function renderHeader(data) {
   if (summary) summary.textContent = t(focus ? "workspace.summary" : "workspace.summaryNoFocus", { state: statusLabel(lifecycle), focus: focus?.title || t("trajectory.nextFocusEmpty") });
   const recency = byId("workspace-recency");
   if (recency) {
-    recency.textContent = t("workspace.recency", { value: formatHumanRecency(data.generated_at || lastGoodAt) });
+    const recencyKey = workspaceNeedsReview(data) ? "workspace.observed" : "workspace.recency";
+    recency.textContent = t(recencyKey, { value: formatHumanRecency(data.generated_at || lastGoodAt) });
     if (data.generated_at) recency.dateTime = data.generated_at;
     recency.title = formatAbsoluteMinute(data.generated_at || lastGoodAt);
   }
@@ -1086,7 +1145,8 @@ function renderHome(data) {
   if (catalog.pagination?.next_cursor) catalogState.append(text("span", t("home.moreAvailable"), "catalog-muted"));
   if (!catalogState.children.length) catalogState.classList.add("hidden");
 
-  if (goal.goal_id) {
+  const currentGoalRef = goalRef(data);
+  if (currentGoalRef) {
     const card = document.createElement("article");
     card.className = "goal-selector-card selected-runtime-goal";
     const main = document.createElement("div");
@@ -1103,7 +1163,7 @@ function renderHome(data) {
     open.setAttribute("aria-label", `${t("home.openWorkspace")}: ${goalTitle(data)}`);
     open.addEventListener("click", () => {
       contextThreadOpen = false;
-      setSelection({ goal_ref: goalRef(data), lens: "trajectory", focus_ref: null, branch_path: [], thread_ref: goal.master_thread_id || goal.goal_id });
+      setSelection({ goal_ref: currentGoalRef, lens: "trajectory", focus_ref: null, branch_path: [], thread_ref: goal.master_thread_id || currentGoalRef });
       byId("center-surface")?.focus?.({ preventScroll: true });
     });
     card.append(main, open);
@@ -1181,7 +1241,7 @@ function renderAttentionStrip(data) {
     target.append(text("strong", focus.title, "attention-title"));
     if (statusLabel(focus.state) !== statusLabel("unknown")) target.append(badge(focus.state));
     target.append(text("span", t("attention.owner", { value: focus.owner }), "attention-meta"));
-  } else target.append(text("strong", t("attention.noPressure"), "attention-title"));
+  } else target.append(text("strong", workspaceNeedsReview(data) ? t("attention.needsReview") : t("attention.noPressure"), "attention-title"));
 }
 
 function updateLensButtons() {
@@ -1352,7 +1412,7 @@ function renderAttentionLens(data, target) {
     card.append(select, badge(item.state), text("p", t("attention.owner", { value: item.owner }), "direction-meta"), text("p", t("attention.consequence", { value: item.focus }), "direction-focus"), text("p", t("attention.route", { value: item.next }), "direction-next"));
     list.append(card);
   }
-  if (!items.length) list.append(text("p", t("attention.noPressure"), "empty-copy"));
+  if (!items.length) list.append(text("p", workspaceNeedsReview(data) ? t("attention.needsReview") : t("attention.noPressure"), "empty-copy"));
   surface.body.append(list);
   showPageControls(surface.body, "attention", windowed);
   if (windowed.omitted) surface.body.append(text("p", t("attention.more", { count: windowed.total - windowed.items.length }), "panel-intro"));
@@ -1738,10 +1798,10 @@ function knownFocusRefs(data) {
 
 function renderProjection(data) {
   interactionState = captureInteractionState();
-  renderRefreshState();
+  renderRefreshState(data);
   renderRouteState();
   renderHome(data);
-  const selectedCurrentGoal = Boolean(goalRef(data)) && selection.goal_ref === goalRef(data);
+  const selectedCurrentGoal = selectedCurrentGoalForData(data);
   const selectedCatalogItem = selectedCurrentGoal ? null : catalogItemForRef(data, selection.goal_ref);
   const selectedCatalogGoal = Boolean(selection.goal_ref && selectedCatalogItem);
   const selectedUnavailableGoal = Boolean(selection.goal_ref && !selectedCurrentGoal && !selectedCatalogItem);
@@ -1798,7 +1858,7 @@ async function refresh() {
     renderProjection(data);
     clearAlert();
     setProjectionBusy(false);
-    if (wasDegraded) announce(t("refresh.updated"));
+    if (wasDegraded) announce(selectedCurrentGoalForData(data) && workspaceNeedsReview(data) ? t("refresh.needsReviewAnnouncement") : t("refresh.updated"));
   } catch (error) {
     const alert = byId("alert");
     if (alert) { alert.textContent = t("refresh.failed"); alert.classList.remove("hidden"); }
@@ -1871,9 +1931,13 @@ window.AoaDashboardApp = Object.freeze({
   routeReadiness,
   formatHumanRecency,
   formatAbsoluteMinute,
+  currentOwnerGoal,
   goalTitle,
   compactGoalTitle,
   compactDisplayText,
+  goalRef,
+  qualityForData,
+  workspaceNeedsReview,
   lifecycleForData,
   nextFocus,
   attentionFocus,

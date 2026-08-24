@@ -299,7 +299,11 @@ vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
 const app = context.AoaDashboardApp;
 const goal = { goal: { goal_id: "goal:future-one", title: "Canonical future goal" }, presentation: { goal: { title: { en: "Create the first Goal Space slice", ru: "Собрать первый рабочий срез пространства целей" } } } };
-const ownerGoal = { goal: { goal_id: "goal:current", title: "Преобразовать aoa-dashboard в Goal Space", title_source: "codex_app_server_thread_goal" }, presentation: { goal: { title: { en: "Stale configured title", ru: "Устаревший заголовок" } } } };
+const ownerGoal = {
+  goal: { goal_id: "goal:current", title: "Преобразовать aoa-dashboard в Goal Space", title_source: "codex_app_server_thread_goal", currentness: "current_at_read", master_thread_id: "thread:current" },
+  owner_goal: { state: "bound", currentness: "current_at_read", goal: { title: "Преобразовать aoa-dashboard в Goal Space", thread_id: "thread:current" } },
+  presentation: { goal: { title: { en: "Stale configured title", ru: "Устаревший заголовок" } } },
+};
 const recent = app.formatHumanRecency("2026-08-22T16:17:00Z", "2026-08-22T16:29:00Z");
 const old = app.formatHumanRecency("2026-08-01T09:10:45.123Z", "2026-08-22T16:29:00Z");
 const absolute = app.formatAbsoluteMinute("2026-08-01T09:10:45.123Z");
@@ -308,7 +312,7 @@ const ownerTitle = app.goalTitle(ownerGoal);
 const longGoal = { goal: { goal_id: "goal:long", title: "Create a calm modern Goal-first workspace for the active and historical work view" } };
 const compactLong = app.compactGoalTitle(longGoal);
 const explicitCompact = app.compactGoalTitle({ ...longGoal, presentation: { goal: { short_title: { en: "Goal workspace" } } } });
-const ownerLifecycle = app.lifecycleForData({ goal: { state: "active", title_source: "codex_app_server_thread_goal" }, lifecycle: [{ step: "planned", state: "planned" }] });
+const ownerLifecycle = app.lifecycleForData({ goal: { goal_id: "goal:current", title: "Current owner Goal", title_source: "codex_app_server_thread_goal", currentness: "current_at_read", master_thread_id: "thread:current", state: "active" }, owner_goal: { state: "bound", currentness: "current_at_read", goal: { title: "Current owner Goal", thread_id: "thread:current" } }, lifecycle: [{ step: "planned", state: "planned" }] });
 const legacyLifecycle = app.lifecycleForData({ goal: { state: "active" }, lifecycle: [{ step: "planned", state: "planned" }] });
 context.AoaDashboardI18n.createI18n;
 process.stdout.write(JSON.stringify({ recent, old, absolute, enTitle, ownerTitle, compactLong, explicitCompact, ownerLifecycle, legacyLifecycle, hasSeconds: /:\d{2}(?:\.|Z|$)/.test(old), hasAbsoluteSeconds: /:\d{2}:\d{2}/.test(absolute), hasIso: /T|Z/.test(old) }));
@@ -320,11 +324,82 @@ process.stdout.write(JSON.stringify({ recent, old, absolute, enTitle, ownerTitle
         self.assertFalse(observed["hasAbsoluteSeconds"])
         self.assertFalse(observed["hasIso"])
         self.assertEqual(observed["enTitle"], "Create the first Goal Space slice")
-        self.assertEqual(observed["ownerTitle"], "Stale configured title")
+        self.assertEqual(observed["ownerTitle"], "Преобразовать aoa-dashboard в Goal Space")
         self.assertEqual(observed["compactLong"], "Goal title unavailable")
         self.assertEqual(observed["explicitCompact"], "Goal workspace")
         self.assertEqual(observed["ownerLifecycle"], "active")
         self.assertEqual(observed["legacyLifecycle"], "planned")
+
+    def test_selected_owner_goal_stays_separate_from_catalog_and_fails_closed(self) -> None:
+        observed = run_node(
+            r'''
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  globalThis: null,
+  document: { documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; }, getElementById() { return null; } },
+  localStorage: { getItem() { return null; }, setItem() {} },
+  navigator: { language: "en-US" },
+  location: { hash: "" },
+  history: { replaceState() {} },
+  fetch() { return new Promise(() => {}); },
+  setInterval() {},
+  addEventListener() {},
+};
+context.globalThis = context;
+context.window = context;
+vm.runInNewContext(fs.readFileSync("web/preferences.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
+vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
+const app = context.AoaDashboardApp;
+const exact = {
+  goal: { goal_id: "goal:exact", title: "Exact owner Goal", title_source: "codex_app_server_thread_goal", currentness: "current_at_read", master_thread_id: "thread:exact", state: "paused" },
+  owner_goal: { state: "bound", currentness: "current_at_read", goal: { title: "Exact owner Goal", thread_id: "thread:exact" } },
+  presentation: { goal: { title: { en: "Stale configured title", ru: "Устаревший заголовок" } } },
+  goal_catalog: { state: "stale", currentness: "stale", items: [{ ref: "goal:other" }], counts_by_group: { active: 1 }, source: { owner: "aoa-session-memory", currentness: "stale" } },
+  goal_context: { state: "current", currentness: "current" },
+  goal_topology: { state: "current", currentness: "current" },
+  correlation: { state: "current", freshness: "current" },
+};
+const legacy = {
+  goal: { goal_id: "goal:missing", title: "Legacy title that must not become current", state: "active" },
+  owner_goal: { state: "missing", currentness: "missing", goal: null },
+  presentation: { goal: { title: { en: "Configured fallback", ru: "Настроенный запасной текст" } } },
+  goal_catalog: { state: "missing", currentness: "missing", items: [], counts_by_group: {} },
+};
+const invalid = {
+  goal: { goal_id: "goal:invalid", title: "Invalid owner title", state: "active" },
+  owner_goal: { state: "invalid", currentness: "invalid", goal: { title: "Wrong owner title", thread_id: "thread:invalid" } },
+  presentation: { goal: { title: { en: "Configured fallback", ru: "Настроенный запасной текст" } } },
+  goal_catalog: { state: "current", currentness: "current", items: [], counts_by_group: {} },
+};
+const absent = { ...exact };
+delete absent.owner_goal;
+const degraded = {
+  ...exact,
+  goal_catalog: { state: "current", currentness: "current", items: [], counts_by_group: {} },
+  goal_context: { state: "missing", currentness: "missing" },
+  goal_topology: { state: "invalid", currentness: "invalid" },
+  correlation: { state: "stale", freshness: "stale" },
+};
+process.stdout.write(JSON.stringify({
+  exact: { title: app.goalTitle(exact), ref: app.goalRef(exact), owner: Boolean(app.currentOwnerGoal(exact)), catalogRefs: exact.goal_catalog.items.map((item) => item.ref), counts: exact.goal_catalog.counts_by_group, needsReview: app.workspaceNeedsReview(exact), quality: app.qualityForData(exact) },
+  missing: { title: app.goalTitle(legacy), ref: app.goalRef(legacy), owner: Boolean(app.currentOwnerGoal(legacy)) },
+  invalid: { title: app.goalTitle(invalid), ref: app.goalRef(invalid), owner: Boolean(app.currentOwnerGoal(invalid)) },
+  absent: { title: app.goalTitle(absent), ref: app.goalRef(absent), owner: Boolean(app.currentOwnerGoal(absent)) },
+  degraded: { title: app.goalTitle(degraded), ref: app.goalRef(degraded), needsReview: app.workspaceNeedsReview(degraded), quality: app.qualityForData(degraded) },
+}));
+'''
+        )
+        self.assertEqual(observed["exact"], {"title": "Exact owner Goal", "ref": "goal:exact", "owner": True, "catalogRefs": ["goal:other"], "counts": {"active": 1}, "needsReview": True, "quality": "stale"})
+        self.assertEqual(observed["missing"], {"title": "Goal title unavailable", "ref": None, "owner": False})
+        self.assertEqual(observed["invalid"], {"title": "Goal title unavailable", "ref": None, "owner": False})
+        self.assertEqual(observed["absent"], {"title": "Goal title unavailable", "ref": None, "owner": False})
+        self.assertEqual(observed["degraded"]["title"], "Exact owner Goal")
+        self.assertEqual(observed["degraded"]["ref"], "goal:exact")
+        self.assertTrue(observed["degraded"]["needsReview"])
+        self.assertIn(observed["degraded"]["quality"], {"missing", "invalid", "stale"})
 
     def test_generic_localized_presentation_handles_future_goals_and_hides_technical_cards(self) -> None:
         observed = run_node(
@@ -451,8 +526,8 @@ vm.runInNewContext(fs.readFileSync("web/i18n.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
 const data = {
-  goal: { goal_id: "goal:bound", title: "A human Goal", title_source: "codex_app_server_thread_goal", state: "paused", source_refs: [{ ref: "owner:goal" }] },
-  owner_goal: { state: "bound", source: { ref: "owner:goal" } },
+  goal: { goal_id: "goal:bound", title: "A human Goal", title_source: "codex_app_server_thread_goal", currentness: "current_at_read", master_thread_id: "thread:bound", state: "paused", source_refs: [{ ref: "owner:goal" }] },
+  owner_goal: { state: "bound", currentness: "current_at_read", source: { ref: "owner:goal" }, goal: { title: "A human Goal", thread_id: "thread:bound" } },
   current_holder: {},
   lifecycle: [{ step: "paused", state: "paused" }],
   presentation: { trajectory: { primary: {
@@ -669,7 +744,8 @@ vm.runInNewContext(fs.readFileSync("web/ui_state.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("web/app.js", "utf8"), context);
 context.AoaDashboardApp.renderHome({
   presentation: { goal: { title: { ru: "Текущая цель", en: "Current Goal" } } },
-  goal: { goal_id: "current-goal", title: "machine fallback", state: "bound" },
+  goal: { goal_id: "current-goal", title: "Current owner Goal", title_source: "codex_app_server_thread_goal", currentness: "current_at_read", master_thread_id: "thread:current", state: "bound" },
+  owner_goal: { state: "bound", currentness: "current_at_read", goal: { title: "Current owner Goal", thread_id: "thread:current" } },
   lifecycle: [],
   goal_catalog: {
     schema_version: "aoa_dashboard_goal_catalog_projection_v1",
@@ -701,7 +777,7 @@ row.trigger("click");
 process.stdout.write(JSON.stringify({ rendered, note, selection: context.AoaDashboardApp.getSelection(), routed }));
 '''
         )
-        self.assertIn("Текущая цель", observed["rendered"])
+        self.assertIn("Current owner Goal", observed["rendered"])
         self.assertIn("Развить пространство целей", observed["rendered"])
         self.assertIn("Активные", observed["rendered"])
         self.assertNotIn("019f9075", observed["rendered"])
@@ -744,9 +820,10 @@ function textOf(node) { return node.textContent || (node.children || []).map(tex
 function projection() {
   return {
     generated_at: "2026-08-23T22:00:00Z",
-    goal: { goal_id: "goal:current", master_thread_id: "thread:current", title: "Current Goal", state: "bound" },
+    goal: { goal_id: "goal:current", master_thread_id: "thread:current", title: "Current Goal", title_source: "codex_app_server_thread_goal", currentness: "current_at_read", state: "bound" },
+    owner_goal: { state: "bound", currentness: "current_at_read", goal: { title: "Current Goal", thread_id: "thread:current" } },
     goal_catalog: { schema_version: "aoa_dashboard_goal_catalog_projection_v1", state: "current", currentness: "current", source: { owner: "aoa-dashboard", ref: "aoa-dashboard:catalog", currentness: "current" }, items: [{ ref: "goal:current", title: "Current Goal", title_locale: "en", title_state: "available", lifecycle_state: "active", group: "active", first_observed_at: null, last_observed_at: "2026-08-23T22:00:00Z", ambiguity: false }], counts_by_group: { active: 1 }, claim_limit: "bounded" },
-    dag: [], directions: [], trajectories: [], pressure_inbox: { status: "missing", items: [] }, correlation: { state: "missing", evidence_refs: [] }, sources: [], lifecycle: [], annotations: { state: "missing", items: [] }, action_intents: { state: "missing", items: [] },
+    dag: [], directions: [], trajectories: [], pressure_inbox: { status: "current", items: [] }, correlation: { state: "current", freshness: "current", evidence_refs: [] }, correlation_read_model: { status: "current", currentness: "current" }, goal_context: { state: "current", currentness: "current" }, goal_topology: { state: "current", currentness: "current", nodes: [], root_ids: [] }, sources: [], lifecycle: [], annotations: { state: "missing", items: [] }, action_intents: { state: "missing", items: [] },
   };
 }
 async function load(hash, failInitially = false) {
