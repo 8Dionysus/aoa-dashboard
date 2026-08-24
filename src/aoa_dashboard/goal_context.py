@@ -15,7 +15,7 @@ from typing import Any
 
 from .goal_catalog import _read_publication
 from .quality import combine_quality_states
-from .source_binding import safe_diagnostic, snapshot_ref, utc_now
+from .source_binding import is_sha256, safe_diagnostic, snapshot_ref, utc_now
 
 
 DASHBOARD_SCHEMA = "aoa_dashboard_goal_context_v1"
@@ -88,6 +88,7 @@ _THREAD_ITEM_FIELDS = (
     "redacted_fields",
     "item_digest",
 )
+_THREAD_ITEM_REQUIRED = frozenset(_THREAD_ITEM_FIELDS)
 _THREAD_RELATION_FIELDS = (
     "relation_ref",
     "relation_kind",
@@ -104,6 +105,7 @@ _THREAD_RELATION_FIELDS = (
     "redacted_fields",
     "relation_digest",
 )
+_THREAD_RELATION_REQUIRED = frozenset(_THREAD_RELATION_FIELDS)
 _GRAPH_DIMENSIONS = (
     "identity",
     "obligation_role",
@@ -160,6 +162,13 @@ def _opaque(value: Any, *, maximum: int = 512) -> str | None:
     result = _text(value, maximum=maximum)
     if result is None or any(character.isspace() for character in result):
         return None
+    return result
+
+
+def _safe_public_digest(value: Any, diagnostic: str) -> str:
+    result = _opaque(value, maximum=128)
+    if result is None or not result.startswith("sha256:") or len(result) != 71 or not is_sha256(result[7:]) or result[7:] != result[7:].lower():
+        raise GoalContextInvalid(diagnostic)
     return result
 
 
@@ -355,6 +364,8 @@ def _source_record(
 def _safe_thread_item(value: Any, *, goal_ref: str, master_thread_id: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise GoalContextInvalid("thread_item_shape_invalid")
+    if not _THREAD_ITEM_REQUIRED.issubset(value):
+        raise GoalContextInvalid("thread_item_fields_missing")
     item_goal = value.get("goal_ref")
     if item_goal is not None and item_goal != goal_ref:
         raise GoalContextInvalid("thread_item_goal_mismatch")
@@ -367,7 +378,9 @@ def _safe_thread_item(value: Any, *, goal_ref: str, master_thread_id: str) -> di
             continue
         child = value[field]
         if field == "redacted_fields":
-            result[field] = [item for item in _bounded_list(child) if _text(item, maximum=128)]
+            if not isinstance(child, list) or len(child) > 64 or any(_text(item, maximum=128) is None for item in child):
+                raise GoalContextInvalid("thread_item_redacted_fields_invalid")
+            result[field] = [_text(item, maximum=128) for item in child]
         elif field == "order":
             if not isinstance(child, int) or isinstance(child, bool) or child < 0:
                 raise GoalContextInvalid("thread_item_order_invalid")
@@ -384,11 +397,14 @@ def _safe_thread_item(value: Any, *, goal_ref: str, master_thread_id: str) -> di
             if child not in {"owner_page_order", "owner_index_order"}:
                 raise GoalContextInvalid("thread_item_order_state_invalid")
             result[field] = child
-        elif field in {"thread_id", "observed_at"} and child is not None:
-            safe = _text(child, maximum=512)
-            if safe is None:
-                raise GoalContextInvalid("thread_item_text_invalid")
-            result[field] = safe
+        elif field in {"thread_id", "observed_at"}:
+            if child is None:
+                result[field] = None
+            else:
+                safe = _text(child, maximum=512)
+                if safe is None:
+                    raise GoalContextInvalid("thread_item_text_invalid")
+                result[field] = safe
         elif field == "item_kind":
             if child not in {"codex_thread_item_observation", "goal_lifecycle_observation"}:
                 raise GoalContextInvalid("thread_item_kind_invalid")
@@ -409,7 +425,9 @@ def _safe_thread_item(value: Any, *, goal_ref: str, master_thread_id: str) -> di
             if child != "withheld":
                 raise GoalContextInvalid("thread_item_body_state_invalid")
             result[field] = child
-        elif field in {"item_ref", "item_id", "source_ref", "evidence_ref", "item_digest"}:
+        elif field == "item_digest":
+            result[field] = _safe_public_digest(child, "thread_item_digest_invalid")
+        elif field in {"item_ref", "item_id", "source_ref", "evidence_ref"}:
             safe = _opaque(child, maximum=512)
             if safe is None:
                 raise GoalContextInvalid("thread_item_ref_invalid")
@@ -421,12 +439,15 @@ def _safe_thread_item(value: Any, *, goal_ref: str, master_thread_id: str) -> di
             result[field] = safe
     if not result.get("item_ref") or not result.get("item_id"):
         raise GoalContextInvalid("thread_item_identity_missing")
+    result["observed_at_state"] = "missing" if result["observed_at"] is None else "available"
     return result
 
 
 def _safe_thread_relation(value: Any, *, goal_ref: str, master_thread_id: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise GoalContextInvalid("thread_relation_shape_invalid")
+    if not _THREAD_RELATION_REQUIRED.issubset(value):
+        raise GoalContextInvalid("thread_relation_fields_missing")
     relation_goal = value.get("goal_ref")
     if relation_goal is not None and relation_goal != goal_ref:
         raise GoalContextInvalid("thread_relation_goal_mismatch")
@@ -440,7 +461,9 @@ def _safe_thread_relation(value: Any, *, goal_ref: str, master_thread_id: str) -
                 raise GoalContextInvalid("thread_relation_order_invalid")
             result[field] = child
         elif field in {"redacted_fields"}:
-            result[field] = [item for item in _bounded_list(child) if _text(item, maximum=128)]
+            if not isinstance(child, list) or len(child) > 64 or any(_text(item, maximum=128) is None for item in child):
+                raise GoalContextInvalid("thread_relation_redacted_fields_invalid")
+            result[field] = [_text(item, maximum=128) for item in child]
         elif field == "relation_kind":
             if child not in _THREAD_RELATION_KINDS:
                 raise GoalContextInvalid("thread_relation_kind_invalid")
@@ -453,7 +476,9 @@ def _safe_thread_relation(value: Any, *, goal_ref: str, master_thread_id: str) -
             if child != "missing":
                 raise GoalContextInvalid("thread_relation_branch_state_invalid")
             result[field] = child
-        elif field in {"relation_ref", "from_thread_id", "to_thread_id", "source_ref", "evidence_ref", "relation_digest"}:
+        elif field == "relation_digest":
+            result[field] = _safe_public_digest(child, "thread_relation_digest_invalid")
+        elif field in {"relation_ref", "from_thread_id", "to_thread_id", "source_ref", "evidence_ref"}:
             safe = _opaque(child, maximum=512)
             if safe is None:
                 raise GoalContextInvalid("thread_relation_ref_invalid")
@@ -630,10 +655,15 @@ def _observe_thread_board(config: dict[str, Any], *, goal_ref: str, master_threa
         else:
             items, relations = [], []
         diagnostics = [*read_diagnostics, *_safe_diagnostics(payload.get("diagnostics"))]
+        missing_observed_at = sum(item["observed_at"] is None for item in items)
+        projection_currentness = payload_currentness
+        if payload_state == "current" and missing_observed_at:
+            projection_currentness = "deferred"
+            diagnostics.append("thread_item_observed_at_missing")
         return {
             **base,
             "state": payload_state,
-            "currentness": payload_currentness,
+            "currentness": projection_currentness,
             "source": {
                 **base["source"],
                 "publisher_currentness": _currentness(source.get("currentness"), payload_currentness),
@@ -642,6 +672,10 @@ def _observe_thread_board(config: dict[str, Any], *, goal_ref: str, master_threa
             "items": items,
             "relations": relations,
             "relation_state": relation_state,
+            "item_freshness": {
+                "state": "missing" if missing_observed_at else "available",
+                "missing_observed_at_count": missing_observed_at,
+            },
             "branch": safe_branch,
             "diagnostics": list(dict.fromkeys(diagnostics)),
             "snapshot": {
@@ -881,7 +915,7 @@ def observe_goal_context(config: dict[str, Any], *, goal_ref: str | None, master
             claim_limit=GRAPH_CLAIM_LIMIT,
         ),
     ]
-    state = _combine_context_states(thread.get("state"), graph.get("state"))
+    state = _combine_context_states(thread.get("state"), thread.get("currentness"), graph.get("state"), graph.get("currentness"))
     return {
         "schema_version": DASHBOARD_SCHEMA,
         "state": state,

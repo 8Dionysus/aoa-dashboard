@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import sys
@@ -18,6 +19,7 @@ from aoa_dashboard.projection import build_projection  # noqa: E402
 
 GOAL = "goal:exact"
 THREAD = "thread:exact"
+CANDIDATE_ITEM = Path(__file__).resolve().parent / "fixtures" / "goal_context" / "session_memory_candidate_item.json"
 
 
 def ref(owner: str, object_id: str, schema: str = "owner_ref_v1") -> dict[str, str]:
@@ -153,6 +155,10 @@ def graph_payload(*, state: str = "current", scope: dict | None = None, syntheti
     }
 
 
+def candidate_session_memory_item() -> dict:
+    return json.loads(CANDIDATE_ITEM.read_text(encoding="utf-8"))["item"]
+
+
 class GoalContextConsumerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -216,6 +222,43 @@ class GoalContextConsumerTests(unittest.TestCase):
         current_without_scope = observe_goal_context(self.config(board_payload(), graph_payload(scope=self.scope), scope=None), goal_ref=GOAL, master_thread_id=THREAD)
         self.assertEqual(current_without_scope["participant_graph"]["state"], "deferred")
         self.assertEqual(current_without_scope["participant_graph"]["records"], [])
+
+    def test_exact_candidate_item_with_nullable_observed_at_is_admitted_with_degraded_freshness(self) -> None:
+        board = board_payload()
+        board["items"] = [candidate_session_memory_item()]
+        board["source_item_count"] = 1
+        board["item_count"] = 1
+        board["total_item_count"] = 1
+        observed = observe_goal_context(self.config(board, graph_payload(scope=self.scope), scope=self.scope), goal_ref=GOAL, master_thread_id=THREAD)
+        thread = observed["thread_board"]
+        self.assertEqual(observed["state"], "deferred")
+        self.assertEqual(thread["state"], "current")
+        self.assertEqual(thread["currentness"], "deferred")
+        self.assertEqual(thread["item_freshness"], {"state": "missing", "missing_observed_at_count": 1})
+        self.assertEqual(len(thread["items"]), 1)
+        self.assertIsNone(thread["items"][0]["observed_at"])
+        self.assertEqual(thread["items"][0]["observed_at_state"], "missing")
+        self.assertIn("thread_item_observed_at_missing", thread["diagnostics"])
+        self.assertNotIn("PRIVATE", json.dumps(observed))
+
+    def test_malformed_thread_items_and_wrappers_fail_closed_without_private_leakage(self) -> None:
+        valid = board_payload()["items"][0]
+        cases = {
+            "missing_identity": {key: value for key, value in valid.items() if key != "item_id"},
+            "wrong_wrapper": {"item": copy.deepcopy(valid), "turnId": "turn:private-correlation"},
+            "unsupported_item_type": {**valid, "owner_item_type": "privateFutureType"},
+            "conflicting_thread": {**valid, "thread_id": "thread:other"},
+            "malformed_digest": {**valid, "item_digest": "sha256:not-a-digest"},
+        }
+        for label, item in cases.items():
+            with self.subTest(label=label):
+                board = board_payload()
+                board["items"] = [item]
+                observed = observe_goal_context(self.config(board, None), goal_ref=GOAL, master_thread_id=THREAD)
+                self.assertEqual(observed["thread_board"]["state"], "invalid")
+                self.assertEqual(observed["thread_board"]["items"], [])
+                self.assertNotIn("turn:private-correlation", json.dumps(observed))
+                self.assertNotIn("PRIVATE_TRANSCRIPT", json.dumps(observed))
 
     def test_synthetic_relation_and_wrong_owner_commit_are_not_admitted(self) -> None:
         synthetic = observe_goal_context(self.config(None, graph_payload(scope=self.scope, synthetic=True), scope=self.scope), goal_ref=GOAL, master_thread_id=THREAD)
