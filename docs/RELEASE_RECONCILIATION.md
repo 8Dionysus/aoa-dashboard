@@ -94,6 +94,25 @@ No reachable commit in this source range was generated churn. Test and
 documentation cleanup is marked internal/noise where it has no standalone
 public behavior; merge commits are retained as duplicate integration events.
 
+## Asset boundary reconciliation
+
+The sole public `v0.1.0` Release is a source/test/bootstrap publication. Its
+legacy package attachments were preserved in a digest-bound recovery packet
+before the same Release was reconciled to the source-only boundary:
+
+| Asset | Bytes | SHA-256 | Final public state |
+|---|---:|---|---|
+| `aoa_dashboard-0.1.0-py3-none-any.whl` | 103994 | `429de8e2a85d63d5800ff4475bc4adb651279710d133cc0558d98a5597aa8c7d` | recovered, then removed from Release `375076051` |
+| `aoa_dashboard-0.1.0.tar.gz` | 166971 | `f6be69b7bc98e585f2f79b8de273a911a38f714b50576dca7fd19f33fcdf31fc` | recovered, then removed from Release `375076051` |
+
+The local producer route can build wheel and sdist outputs, but no
+dashboard-specific admitted package class, required sidecars, signature,
+SBOM, provenance, registry record, or consumer trust-gate allow was present
+for these attachments. The final Release therefore carries zero package
+assets; this reconciliation does not create `v0.1.1`, a second tag, or a
+second Release. The recovery packet remains the lossless byte-preservation
+record, not a public package-admission claim.
+
 ## Merged PR coverage
 
 | PR | Merge commit | Release coverage |

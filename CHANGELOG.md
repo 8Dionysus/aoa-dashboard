@@ -57,6 +57,11 @@ No unreleased changes are claimed after `0.1.0`.
 - Digest/ref provenance, owner boundaries, default-deny admission, and rollback evidence are explicit.
 - No secret material was observed in the inspected landed source. No independent secret scan, SBOM, signature, provenance, or security assessment is implied by this release; host-local absolute paths in `config/bootstrap.json` are portability/privacy exposure and are not credentials.
 
+### Artifacts
+
+- The public `v0.1.0` GitHub Release is source/test/bootstrap only and intentionally carries no package assets. Local wheel and sdist outputs are producer evidence, not registry-admitted consumer artifacts.
+- The two pre-existing public attachments were removed during the authorized single-release reconciliation only after lossless recovery: `aoa_dashboard-0.1.0-py3-none-any.whl` (`sha256:429de8e2a85d63d5800ff4475bc4adb651279710d133cc0558d98a5597aa8c7d`) and `aoa_dashboard-0.1.0.tar.gz` (`sha256:f6be69b7bc98e585f2f79b8de273a911a38f714b50576dca7fd19f33fcdf31fc`). No signature, SBOM, provenance, registry admission, or package-consumer allow is claimed for either attachment.
+
 ### Validation
 
 - The release-prep and exact landed-main gates run `scripts/release_check.py`, `scripts/validate_organ_contract.py`, the full unit suite, JSON parsing for every `contracts/*.json`, Python compileall, JavaScript syntax checks, `git diff --check`, and a PEP 517 wheel/sdist build.

@@ -43,6 +43,17 @@ admission, signature, SBOM, provenance, runtime, and proof evidence. If the
 host has the GTK4/Libadwaita/WebKitGTK stack, a bounded native canary may be
 run and recorded separately; it does not become a deployment or health claim.
 
+### Public package-asset boundary
+
+The public `v0.1.0` GitHub Release is source/test/bootstrap-only and must carry
+zero package assets unless a separately admitted owner artifact route exists.
+Local wheel and sdist outputs remain producer evidence; they are not public
+consumer artifacts without an owner-recognized artifact class, exact source
+provenance, required sidecars, registry admission, and a non-unknown trust
+gate. An authorized reconciliation may preserve and remove legacy attachments
+from this same Release after recording digest-bound recovery evidence, but it
+must not create a successor tag or Release.
+
 ## Landing and publication
 
 1. Commit the release-prep surface on a branch based on current `origin/main`.
@@ -62,7 +73,8 @@ run and recorded separately; it does not become a deployment or health claim.
    push that tag, and create the GitHub Release with the body derived from the
    canonical changelog.
 8. Recheck tag/object identity, the latest-release marker, Release body
-   parity, assets/attestations, postpublish audit, local `main` synchronization,
+   parity, zero public assets unless a separately admitted asset route exists,
+   assets/attestations, postpublish audit, local `main` synchronization,
    and clean status. A missing asset, attestation, runtime receipt, proof
    verdict, or acceptance remains missing; it is not replaced by CI green.
 

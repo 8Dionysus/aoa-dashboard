@@ -10,6 +10,7 @@ route; it does not widen the organ's derived-read or deferred-intent boundary.
 | organ contract | committed contract, docs, validator and tests | source contract |
 | federation registration | center registry and SDK workspace registration | source/workspace discovery |
 | release publication | canonical changelog, annotated tag and GitHub Release | source/test/bootstrap publication |
+| public package assets | local wheel/sdist producer outputs only; the reconciled `v0.1.0` Release has zero assets | no public package artifact or consumer-admission claim |
 | private organ access | no dashboard record; default-deny v2 route documented | not admitted |
 | deployment | no dashboard deployment is claimed by this organ contract | unknown/not claimed |
 | live health | no live service claim | unknown/not claimed |
@@ -39,4 +40,9 @@ not infer federation publication from workspace discovery.
 
 Artifact hashes and any available trust/attestation evidence are recorded as
 release evidence, not as proof of runtime admission, deployment, health, or
-human acceptance.
+human acceptance. The two package attachments that predated this boundary
+were retained in a digest-bound recovery packet and removed from the existing
+`v0.1.0` Release during single-release reconciliation. A future public package
+asset requires an owner-recognized artifact class, exact source provenance,
+required sidecars, registry record, and a non-unknown consumer trust-gate
+verdict; a local build alone is not sufficient.
