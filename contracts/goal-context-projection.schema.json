@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/goal-context-projection-v1",
+  "title": "aoa-dashboard derived exact Goal context projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "state", "currentness", "goal_ref", "master_thread_id", "thread_board", "participant_graph", "source_observations", "privacy", "claim_limit"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_goal_context_v1"},
+    "state": {"enum": ["current", "missing", "unknown", "stale", "deferred", "invalid"]},
+    "currentness": {"enum": ["current", "missing", "unknown", "stale", "deferred", "invalid"]},
+    "goal_ref": {"type": ["string", "null"]},
+    "master_thread_id": {"type": ["string", "null"]},
+    "thread_board": {"type": "object"},
+    "participant_graph": {"type": "object"},
+    "source_observations": {"type": "array", "items": {"type": "object"}},
+    "privacy": {"type": "object"},
+    "claim_limit": {"type": "string", "minLength": 1}
+  }
+}

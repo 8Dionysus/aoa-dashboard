@@ -19,10 +19,8 @@ def state_root() -> Path:
     return Path(os.environ.get("AOA_DASHBOARD_STATE_ROOT", DEFAULT_STATE_ROOT))
 
 
-def _read_records(filename: str) -> list[dict[str, Any]]:
+def _read_records(filename: str) -> tuple[str, list[dict[str, Any]]]:
     path = state_root() / filename
-    if not path.exists():
-        return []
     records: list[dict[str, Any]] = []
     try:
         with path.open("r", encoding="utf-8") as stream:
@@ -33,9 +31,20 @@ def _read_records(filename: str) -> list[dict[str, Any]]:
                     continue
                 if isinstance(value, dict):
                     records.append(value)
-    except OSError:
-        return []
-    return records
+    except FileNotFoundError:
+        return "missing", []
+    except (OSError, UnicodeError):
+        return "unavailable", []
+    return "present", records
+
+
+def _record_summary(filename: str) -> dict[str, Any]:
+    availability, records = _read_records(filename)
+    if availability == "missing":
+        return {"state": "missing", "availability": "missing", "count": None, "latest": []}
+    if availability == "unavailable":
+        return {"state": "unknown", "availability": "unavailable", "count": None, "latest": []}
+    return {"state": "bound", "availability": "present", "count": len(records), "latest": records[-5:]}
 
 
 def _append(filename: str, value: dict[str, Any]) -> dict[str, Any]:
@@ -48,13 +57,11 @@ def _append(filename: str, value: dict[str, Any]) -> dict[str, Any]:
 
 
 def annotation_summary() -> dict[str, Any]:
-    records = _read_records("annotations.jsonl")
-    return {"count": len(records), "latest": records[-5:]}
+    return _record_summary("annotations.jsonl")
 
 
 def action_intent_summary() -> dict[str, Any]:
-    records = _read_records("action_intents.jsonl")
-    return {"count": len(records), "latest": records[-5:]}
+    return _record_summary("action_intents.jsonl")
 
 
 def create_annotation(author_ref: str, target_ref: str, body: str) -> dict[str, Any]:

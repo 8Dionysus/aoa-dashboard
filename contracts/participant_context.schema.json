@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/participant-context-v1",
+  "title": "Independently degraded dashboard participant envelope",
+  "type": "object",
+  "required": ["schema_version", "state", "freshness", "participants", "summary", "source", "diagnostics", "claim_limit"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_participant_envelope_v1"},
+    "state": {"enum": ["bound", "missing", "unknown", "stale", "deferred", "invalid"]},
+    "freshness": {"type": "string"},
+    "participants": {"type": "array", "items": {"$ref": "#/$defs/participant"}},
+    "summary": {"type": "object"},
+    "source": {"type": "object"},
+    "evidence_refs": {"type": "array", "items": {"type": "object"}},
+    "diagnostics": {"type": "array", "items": {"type": "string"}},
+    "claim_limit": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "state": {"enum": ["present", "missing", "unknown", "stale", "deferred", "invalid"]},
+    "participant": {
+      "type": "object",
+      "required": ["ref", "lifecycle_state", "quality", "dimension_states", "identity", "task_context", "model_realization", "relationships", "runtime_evidence", "claim_limit"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "lifecycle_state": {"type": "string"},
+        "quality": {"$ref": "#/$defs/state"},
+        "dimension_states": {"type": "object", "required": ["identity", "task_context", "model_realization", "runtime_evidence"], "additionalProperties": {"$ref": "#/$defs/state"}},
+        "identity": {"type": "object", "required": ["state", "display_name_state", "claim_limit"], "properties": {"state": {"$ref": "#/$defs/state"}, "display_name_state": {"$ref": "#/$defs/state"}, "display_name": {"type": ["string", "null"]}, "name": {"type": ["string", "null"]}, "name_state": {"$ref": "#/$defs/state"}, "role_name": {"type": ["string", "null"]}, "role_state": {"$ref": "#/$defs/state"}, "claim_limit": {"type": "string"}}, "additionalProperties": true},
+        "task_context": {"type": "object", "required": ["state", "goal_thread", "claim_limit"], "properties": {"state": {"$ref": "#/$defs/state"}, "goal_thread": {"type": "object"}, "task_ref": {"type": ["string", "null"]}, "title": {"type": ["string", "null"]}, "claim_limit": {"type": "string"}}, "additionalProperties": true},
+        "model_realization": {"type": "object", "required": ["state", "runtime_subject", "claim_limit"], "properties": {"state": {"$ref": "#/$defs/state"}, "runtime_subject": {"type": ["object", "null"]}, "claim_limit": {"type": "string"}}, "additionalProperties": true},
+        "relationships": {"type": "object", "required": ["state", "claim_limit"], "properties": {"state": {"$ref": "#/$defs/state"}, "task_local": {"type": "object"}, "owner_thread": {"type": "object"}, "owner_relations": {"type": "object"}, "claim_limit": {"type": "string"}}, "additionalProperties": true},
+        "runtime_evidence": {"type": "object", "required": ["state", "claim_limit"], "properties": {"state": {"$ref": "#/$defs/state"}, "claim_limit": {"type": "string"}}, "additionalProperties": true},
+        "claim_limit": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

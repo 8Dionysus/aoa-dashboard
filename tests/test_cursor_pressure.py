@@ -38,6 +38,9 @@ from aoa_dashboard.pressure import (  # noqa: E402
 from aoa_dashboard.state_store import create_action_intent, create_annotation  # noqa: E402
 
 
+DEMO_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "demo" / "first-slice.json"
+
+
 def _active_record(lock_context: object) -> object:
     with cursor_module._ACTIVE_LEDGER_CAPABILITIES_GUARD:
         return cursor_module._ACTIVE_LEDGER_CAPABILITIES[id(lock_context)]
@@ -1299,7 +1302,7 @@ class PressureInboxTests(unittest.TestCase):
             try:
                 create_annotation("operator:test", "goal:test", "Keep the conflict visible.")
                 create_action_intent("operator:test", "goal:test", "owner:test-owner", "Review the pressure.")
-                projection = build_projection()
+                projection = build_projection(DEMO_CONFIG_PATH)
             finally:
                 if previous is None:
                     os.environ.pop("AOA_DASHBOARD_STATE_ROOT", None)

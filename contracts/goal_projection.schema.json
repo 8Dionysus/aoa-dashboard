@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/goal-projection-v1",
+  "title": "Owner-qualified public-safe per-Goal projection",
+  "type": "object",
+  "required": ["schema_version", "state", "currentness", "goal_ref", "title", "title_state", "lifecycle_state", "summary", "public_items", "omissions", "pagination", "source", "evidence_refs", "diagnostics", "claim_limit"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_goal_projection_v1"},
+    "state": {"enum": ["current", "stale", "deferred", "unknown", "invalid", "missing"]},
+    "currentness": {"enum": ["current", "stale", "deferred", "unknown", "invalid", "missing"]},
+    "goal_ref": {"type": ["string", "null"], "maxLength": 160},
+    "title": {"type": ["string", "null"], "maxLength": 96},
+    "title_state": {"enum": ["available", "missing", "withheld"]},
+    "title_locale": {"type": ["string", "null"], "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"},
+    "title_by_locale": {"type": "object", "maxProperties": 8, "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 96}},
+    "lifecycle_state": {"type": "string", "minLength": 1, "maxLength": 64},
+    "summary": {"type": ["string", "object", "null"]},
+    "presentation": {"type": "object"},
+    "public_items": {"type": "array", "maxItems": 200, "items": {"type": "object"}},
+    "omissions": {"type": "object"},
+    "pagination": {
+      "type": "object",
+      "required": ["mode", "cursor", "next_cursor", "complete"],
+      "properties": {
+        "mode": {"enum": ["snapshot", "opaque_cursor"]},
+        "cursor": {"type": ["string", "null"], "maxLength": 512},
+        "next_cursor": {"type": ["string", "null"], "maxLength": 512},
+        "complete": {"type": "boolean"}
+      },
+      "allOf": [{"if": {"properties": {"mode": {"const": "snapshot"}}}, "then": {"properties": {"cursor": {"const": null}, "next_cursor": {"const": null}}}}],
+      "additionalProperties": false
+    },
+    "source": {"type": ["object", "null"]},
+    "evidence_refs": {"type": "array", "items": {"type": "object"}},
+    "diagnostics": {"type": "array", "items": {"type": "string"}},
+    "claim_limit": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

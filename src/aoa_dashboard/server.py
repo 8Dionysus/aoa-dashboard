@@ -8,7 +8,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .projection import build_projection
 from .state_store import create_action_intent, create_annotation
@@ -23,6 +23,7 @@ class DashboardHTTPServer(ThreadingHTTPServer):
     """The dashboard server owns only request threads, never owner actions."""
 
     daemon_threads = True
+    binding_path: str | None = None
 
 
 def resolve_web_root() -> Path:
@@ -69,10 +70,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return value
 
     def do_GET(self) -> None:  # noqa: N802
-        route = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        route = parsed.path
         if route == "/api/projection":
             try:
-                self._json(build_projection())
+                selected_values = parse_qs(parsed.query).get("goal_ref", [])
+                selected_goal_ref = selected_values[0] if selected_values else None
+                if selected_goal_ref is not None and (not selected_goal_ref or len(selected_goal_ref) > 160):
+                    raise ValueError("selected Goal ref is invalid")
+                self._json(build_projection(getattr(self.server, "binding_path", None), selected_goal_ref=selected_goal_ref))
             except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
                 self._json({"error": "projection_unavailable", "detail": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -132,14 +138,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
             super().log_message(format, *args)
 
 
-def create_server(host: str = "127.0.0.1", port: int = 8765) -> DashboardHTTPServer:
+def create_server(
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    binding_path: str | os.PathLike[str] | None = None,
+) -> DashboardHTTPServer:
     """Create a server without starting it so an owning application can stop it."""
 
-    return DashboardHTTPServer((host, port), DashboardHandler)
+    server = DashboardHTTPServer((host, port), DashboardHandler)
+    server.binding_path = str(binding_path) if binding_path is not None else None
+    return server
 
 
-def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
-    server = create_server(host, port)
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    binding_path: str | os.PathLike[str] | None = None,
+) -> None:
+    server = create_server(host, port, binding_path)
     print(f"aoa-dashboard listening on http://{host}:{port}/", flush=True)
     try:
         server.serve_forever()

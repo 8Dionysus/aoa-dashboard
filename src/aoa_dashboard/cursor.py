@@ -1677,7 +1677,7 @@ def migrate_legacy_correlation_input(config: dict[str, Any], correlation_source:
             "claim_limit": "The compatibility bridge is deterministic only after the canonical observation cursor is built.",
         },
         "notes": [
-            "Existing current_correlation.master_filter_path, handoff_glob and wake_glob remain accepted.",
+            "Current owner-qualified correlation requires explicit master_filter_path, handoff_glob and wake_glob fields; historical input is never filled with selector defaults.",
             "Existing master-filter returns are adapted through the explicit metadata admission boundary.",
             "Legacy values are not silently treated as a cursor or as an owner verdict.",
         ],

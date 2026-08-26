@@ -31,6 +31,10 @@ class OrganContractTests(unittest.TestCase):
         self.assertIn("actor_creation_master_wake_or_action_execution", excluded)
         self.assertIn("proof_review_or_eval_verdicts", excluded)
 
+    def test_reusable_handoff_contract_has_no_task_instance_thread(self) -> None:
+        contract = json.loads((ROOT / "contracts/organ_contract.json").read_text(encoding="utf-8"))
+        self.assertNotIn("master_thread_id", contract["handoff"])
+
 
 if __name__ == "__main__":
     unittest.main()

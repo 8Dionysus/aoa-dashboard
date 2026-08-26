@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sysconfig
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -14,22 +15,88 @@ from .cursor import (
     read_correlation_observation_log,
     rebuild_goal_local_projection,
 )
+from .goal_catalog import observe_goal_catalog, observe_goal_projection
+from .goal_context import observe_goal_context
+from .goal_topology import observe_goal_topology
+from .master_context import project_master_context
+from .owner_context import observe_codex_goal_context
+from .participant_context import project_participant_context
 from .model import LIFECYCLE_STATES, STATUS_VOCABULARY, Projection
-from .pressure import build_pressure_inbox, migrate_legacy_pressure_candidates
+from .pressure import build_pressure_inbox, migrate_legacy_pressure_candidates, pressure_read_model_digest
+from .runtime_binding import mark_historical_demo, resolve_runtime_binding
 from .sources import observe_all, observe_owner_surfaces, utc_now
+from .source_binding import DuplicateJsonObjectNameError, loads_json
 from .state_store import action_intent_summary, annotation_summary
 
 
-DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "bootstrap.json"
+SOURCE_DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "bootstrap.json"
+INSTALLED_DEFAULT_CONFIG = Path(sysconfig.get_path("data")) / "share" / "aoa-dashboard" / "config" / "bootstrap.json"
+DEFAULT_CONFIG = SOURCE_DEFAULT_CONFIG
 
 
-def load_config(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
-    config_path = Path(path or os.environ.get("AOA_DASHBOARD_CONFIG", DEFAULT_CONFIG))
-    with config_path.open("r", encoding="utf-8") as stream:
-        value = json.load(stream)
+def _default_config_path() -> Path:
+    for candidate in (SOURCE_DEFAULT_CONFIG, INSTALLED_DEFAULT_CONFIG):
+        if candidate.is_file():
+            return candidate
+    return SOURCE_DEFAULT_CONFIG
+
+
+def _read_object(path: Path) -> dict[str, Any]:
+    value = loads_json(path.read_text(encoding="utf-8"), reject_duplicate_keys=True)
     if not isinstance(value, dict):
         raise ValueError("dashboard config must be a JSON object")
     return value
+
+
+def _invalid_explicit_config(base: dict[str, Any], path: Path, reason: str) -> dict[str, Any]:
+    config = dict(base)
+    config["runtime_binding_state"] = "invalid"
+    config["runtime_binding_observation"] = {
+        "schema_version": "aoa_dashboard_runtime_binding_observation_v1",
+        "state": "invalid",
+        "currentness": "invalid",
+        "binding_id": None,
+        "selected_goal": None,
+        "source": {"owner": "aoa-sdk", "ref": str(path), "currentness": "invalid", "claim_limit": "The explicit binding input is not admitted."},
+        "diagnostics": [reason],
+        "claim_limit": "The explicit binding input is not admitted; no current Goal or task-local source is inferred.",
+    }
+    return config
+
+
+def load_config(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
+    """Load the reusable bootstrap and optionally resolve one explicit binding.
+
+    ``path`` is a selected runtime binding, not a mutable environment
+    override.  A legacy/demo config is accepted only when it declares the
+    explicit historical-demo profile.
+    """
+
+    default_path = _default_config_path()
+    base = _read_object(default_path)
+    if path is None:
+        return resolve_runtime_binding(base, None)
+
+    config_path = Path(path).resolve(strict=False)
+    try:
+        value = _read_object(config_path)
+    except FileNotFoundError:
+        return resolve_runtime_binding(base, config_path)
+    except DuplicateJsonObjectNameError:
+        return _invalid_explicit_config(
+            base,
+            config_path,
+            "runtime_binding_duplicate_json_object_name",
+        )
+    except (OSError, UnicodeError, ValueError):
+        return _invalid_explicit_config(base, config_path, "runtime_binding_explicit_input_unreadable")
+    if value.get("schema_version") == "aoa_dashboard_runtime_binding_v1":
+        return resolve_runtime_binding(base, config_path)
+    if value.get("profile") == "historical-demo-instance":
+        return mark_historical_demo(value, path=config_path)
+    if value.get("schema_version") == "aoa_dashboard_bootstrap_config_v2":
+        return resolve_runtime_binding(base, None)
+    return _invalid_explicit_config(base, config_path, "runtime_binding_explicit_input_unsupported")
 
 
 def _ref_for(source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -225,20 +292,45 @@ def _lifecycle(config: dict[str, Any], source_index: dict[str, dict[str, Any]]) 
     ]
 
 
-def build_projection(config_path: str | os.PathLike[str] | None = None) -> Projection:
-    config = load_config(config_path)
+def _empty_goal_local_correlation() -> dict[str, Any]:
+    return {
+        "schema_version": "aoa_dashboard_goal_local_correlation_projection_v1",
+        "goal_id": None,
+        "master_thread_id": None,
+        "status": "missing",
+        "cursor": None,
+        "observations": [],
+        "conflicts": [],
+        "duplicates": [],
+        "retention": {"mode": "not_selected", "retained_observation_count": 0, "conflict_count": 0, "duplicate_count": 0, "provenance_preserved": True, "winner_selection": "none", "claim_limit": "No Goal-local ledger is selected."},
+        "rebuild": {"mode": "not_selected", "deterministic": False, "replay_safe": False, "errors": ["runtime_binding_not_selected"], "claim_limit": "No Goal-local ledger is selected."},
+        "checkpoint": None,
+        "authority": "aoa-dashboard:derived_goal_local_correlation",
+        "claim_limits": ["No current Goal-local correlation is projected without an explicit runtime binding."],
+    }
+
+
+def build_projection(
+    config_path: str | os.PathLike[str] | None = None,
+    *,
+    binding_path: str | os.PathLike[str] | None = None,
+    selected_goal_ref: str | None = None,
+) -> Projection:
+    if config_path is not None and binding_path is not None:
+        raise ValueError("provide only one explicit runtime binding path")
+    config = load_config(binding_path if binding_path is not None else config_path)
     sources, source_index = observe_all(config)
     # Keep the unconnected eval source addressable by the lifecycle adapter.
     source_index["aoa-evals-surface"] = next(item for item in sources if item["id"] == "aoa-evals-surface")
     correlation_source = source_index["task-local-correlation"]
     current_correlation = config.get("current_correlation") if isinstance(config.get("current_correlation"), dict) else {}
     master_thread_id = current_correlation.get("master_thread_id")
-    if not isinstance(master_thread_id, str) or not master_thread_id:
-        master_thread_id = "unresolved-master-thread"
-    live_observations = observations_from_correlation(
-        correlation_source,
-        goal_id=str(config.get("goal_id", "unresolved-goal")),
-        master_thread_id=master_thread_id,
+    goal_id = config.get("goal_id")
+    has_identity = isinstance(goal_id, str) and bool(goal_id) and isinstance(master_thread_id, str) and bool(master_thread_id)
+    live_observations = (
+        observations_from_correlation(correlation_source, goal_id=goal_id, master_thread_id=master_thread_id)
+        if has_identity
+        else []
     )
     projection_config = config.get("correlation_projection") if isinstance(config.get("correlation_projection"), dict) else {}
     persisted_observations: list[dict[str, Any]] = []
@@ -252,11 +344,15 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     if isinstance(checkpoint_path, str) and checkpoint_path:
         checkpoint, checkpoint_read_errors = read_correlation_checkpoint(checkpoint_path)
         persistence_errors.extend(f"checkpoint_file:{error}" for error in checkpoint_read_errors)
-    goal_local_correlation = rebuild_goal_local_projection(
-        goal_id=str(config.get("goal_id", "unresolved-goal")),
-        master_thread_id=master_thread_id,
-        observations=[*persisted_observations, *live_observations],
-        checkpoint=checkpoint,
+    goal_local_correlation = (
+        rebuild_goal_local_projection(
+            goal_id=goal_id,
+            master_thread_id=master_thread_id,
+            observations=[*persisted_observations, *live_observations],
+            checkpoint=checkpoint,
+        )
+        if has_identity
+        else _empty_goal_local_correlation()
     )
     if persistence_errors:
         goal_local_correlation["status"] = "invalid"
@@ -278,27 +374,63 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
         [source_index["goal-anchor"], correlation_source],
     )
     pressure_inbox = build_pressure_inbox(
-        goal_id=str(config.get("goal_id", "unresolved-goal")),
-        records=pressure_records,
-        legacy_candidates=legacy_pressure,
+        goal_id=goal_id if has_identity else None,
+        records=pressure_records if has_identity else [],
+        legacy_candidates=legacy_pressure if has_identity else [],
     )
+    pressure_source_state = config.get("pressure_source_state")
+    if config.get("runtime_binding_state") == "bound" and pressure_source_state in {"missing", "unknown", "stale", "deferred", "invalid"}:
+        pressure_inbox["status"] = pressure_source_state
+        pressure_inbox["items"] = []
+        pressure_inbox["critical_next_routes"] = []
+        pressure_inbox["errors"] = sorted(set([*pressure_inbox.get("errors", []), "pressure_context_not_current"]))
+        pressure_inbox["claim_limit"] = "The selected owner pressure context is not current; no pressure record is borrowed from another Goal."
+        pressure_inbox["read_model_digest"] = pressure_read_model_digest(pressure_inbox)
     source_index["goal-local-correlation"] = {"status": goal_local_correlation.get("status")}
     source_index["pressure-inbox"] = pressure_inbox
     lifecycle = _lifecycle(config, source_index)
+    owner_goal_context = observe_codex_goal_context(config)
+    owner_goal = owner_goal_context["goal_projection"]
+    goal_topology = observe_goal_topology(config)
+    goal_context = observe_goal_context(
+        config,
+        goal_ref=goal_id if isinstance(goal_id, str) else None,
+        master_thread_id=master_thread_id if isinstance(master_thread_id, str) else None,
+    )
+    sources.extend(goal_context.get("source_observations", []))
     dag: list[dict[str, Any]] = []
-    for node in config.get("dag", []):
-        state, observation = _node_state(node["id"], config, source_index)
-        dag.append(
-            {
-                "id": node["id"],
-                "title": node["title"],
-                "pressure": node["pressure"],
-                "state": state,
-                "observation": observation,
-                "claim_limit": "DAG state is a dashboard observation, not owner acceptance or proof.",
-                "evidence_refs": [{"label": "node observation", "kind": "derived", "ref": observation, "claim_limit": "Derived node status is bounded to the listed source."}],
-            }
-        )
+    if goal_topology.get("state") == "bound":
+        for node in goal_topology["nodes"]:
+            dag.append(
+                {
+                    "id": node["id"],
+                    "title": node["title"],
+                    "source_kind": "master_goal_topology",
+                    "branch_ref": f"dag:{node['id']}",
+                    "owner": node.get("owner"),
+                    "state": node["source_state"],
+                    "observation_state": "bound",
+                    "source_state": node["source_state"],
+                    "depends_on": node["depends_on"],
+                    "observation": node.get("scope"),
+                    "claim_limit": goal_topology["claim_limit"],
+                    "evidence_refs": goal_topology["evidence_refs"],
+                }
+            )
+    else:
+        for node in config.get("dag", []):
+            state, observation = _node_state(node["id"], config, source_index)
+            dag.append(
+                {
+                    "id": node["id"],
+                    "title": node["title"],
+                    "pressure": node["pressure"],
+                    "state": state,
+                    "observation": observation,
+                    "claim_limit": "DAG state is a dashboard observation, not owner acceptance or proof.",
+                    "evidence_refs": [{"label": "node observation", "kind": "derived", "ref": observation, "claim_limit": "Derived node status is bounded to the listed source."}],
+                }
+            )
 
     counts = Counter(item["state"] for item in lifecycle)
     counts.update(item["state"] for item in dag)
@@ -326,24 +458,79 @@ def build_projection(config_path: str | os.PathLike[str] | None = None) -> Proje
     )
     safe_sources = redact_legacy_metadata(sources)
     actor_activity = source_index["task-local-actor-activity"].get("metadata", {})
+    participant_context = project_participant_context(actor_activity, owner_goal_context)
+    presentation = config.get("presentation") if isinstance(config.get("presentation"), dict) else {}
+    goal_catalog = observe_goal_catalog(config)
+    selected_goal_projection = observe_goal_projection(config, selected_goal_ref, goal_catalog) if selected_goal_ref else observe_goal_projection(config, None, goal_catalog)
+    master_context = project_master_context(
+        owner_goal_context,
+        safe_correlation,
+        goal_catalog,
+        goal_topology,
+    )
+    legacy_goal = {
+        "goal_id": config.get("goal_id"),
+        "title": config.get("title"),
+        "state": goal_source["state"],
+        "anchor_digest": goal_metadata.get("anchor_digest"),
+        "master_thread_id": config.get("current_correlation", {}).get("master_thread_id") if isinstance(config.get("current_correlation"), dict) else None,
+        "source_refs": goal_source.get("evidence_refs", []),
+        "claim_limit": "The Goal Anchor is a task-local source binding; the dashboard does not own Goal semantics or acceptance.",
+    }
+    current_goal = owner_goal.get("goal")
+    if owner_goal.get("state") == "bound" and isinstance(current_goal, dict):
+        goal = {
+            "goal_id": config.get("goal_id"),
+            "title": current_goal["title"],
+            "objective": current_goal["objective"],
+            "state": current_goal["status"],
+            "currentness": owner_goal["currentness"],
+            "master_thread_id": current_goal["thread_id"],
+            "owner_ref": owner_goal["source"]["ref"],
+            "title_source": "codex_app_server_thread_goal",
+            "source_refs": owner_goal["evidence_refs"],
+            "usage": {
+                "token_budget": current_goal["token_budget"],
+                "tokens_used": current_goal["tokens_used"],
+                "time_used_seconds": current_goal["time_used_seconds"],
+            },
+            "observed_at": {
+                "created": current_goal["created_at"],
+                "updated": current_goal["updated_at"],
+            },
+            "legacy_binding": legacy_goal,
+            "claim_limit": "Goal objective and lifecycle come from Codex thread/goal/get; the local Goal key remains only a correlation binding.",
+        }
+    else:
+        goal = {**legacy_goal, "owner_binding_state": owner_goal.get("state", "unknown")}
     return {
         "schema_version": "aoa_dashboard_projection_v1",
         "generated_at": utc_now(),
-        "goal": {
-            "goal_id": config["goal_id"],
-            "title": config["title"],
-            "state": goal_source["state"],
-            "anchor_digest": goal_metadata.get("anchor_digest"),
-            "master_thread_id": config.get("current_correlation", {}).get("master_thread_id"),
-            "source_refs": goal_source.get("evidence_refs", []),
-            "claim_limit": "The Goal Anchor is source binding; the dashboard does not own Goal semantics or acceptance.",
-        },
+        "presentation": presentation,
+        "runtime_binding": config.get("runtime_binding_observation"),
+        "goal": goal,
+        "owner_goal": owner_goal,
+        "owner_goal_context": owner_goal_context,
+        "goal_context": goal_context,
+        "master_context": master_context,
+        "goal_topology": goal_topology,
+        "goal_catalog": goal_catalog,
+        "selected_goal_projection": selected_goal_projection,
         "correlation": safe_correlation,
         "correlation_read_model": goal_local_correlation,
         "pressure_inbox": pressure_inbox,
+        "pressure_source": {
+            "state": config.get("pressure_source_state", "missing" if config.get("runtime_binding_state") != "bound" else "unknown"),
+            "evidence_refs": [config["pressure_source_evidence"]] if isinstance(config.get("pressure_source_evidence"), dict) else [],
+            "diagnostics": config.get("pressure_source_diagnostics", []),
+            "claim_limit": "Owner pressure context is read-only and Goal-qualified; stale or mismatched input is not borrowed.",
+        },
         "current_holder": safe_correlation.get("current_holder", {"scope": "current_correlation", "claim_limit": "Current holder is not runtime authority."}),
         "actor_activity": actor_activity,
+        "participant_context": participant_context,
         "dag": dag,
+        "branches": goal_topology.get("branches", []),
+        "trajectories": goal_topology.get("trajectories", []),
         "lifecycle": lifecycle,
         "state_inventory": state_inventory,
         "sources": safe_sources,

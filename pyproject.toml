@@ -7,6 +7,7 @@ name = "aoa-dashboard"
 version = "0.1.0"
 description = "Owner-bounded AoA Goal Space derived read model"
 requires-python = ">=3.11"
+dependencies = ["jsonschema>=4.18"]
 
 [project.scripts]
 aoa-dashboard-desktop = "aoa_dashboard.desktop:main"
@@ -15,7 +16,9 @@ aoa-dashboard-desktop = "aoa_dashboard.desktop:main"
 where = ["src"]
 
 [tool.setuptools.data-files]
-"share/aoa-dashboard/web" = ["web/index.html", "web/app.js", "web/i18n.js", "web/styles.css", "web/theme.js"]
+"share/aoa-dashboard/web" = ["web/index.html", "web/app.js", "web/favicon.svg", "web/i18n.js", "web/preferences.js", "web/styles.css", "web/theme.js", "web/ui_state.js"]
+"share/aoa-dashboard/config" = ["config/bootstrap.json"]
+"share/aoa-dashboard/contracts" = ["contracts/runtime_binding.schema.json", "contracts/goal_anchor.schema.json", "contracts/goal-context-projection.schema.json"]
 "share/applications" = ["packaging/org.aoa.AoaDashboard.desktop"]
 "share/icons/hicolor/scalable/apps" = ["packaging/icons/org.aoa.AoaDashboard.svg"]
 

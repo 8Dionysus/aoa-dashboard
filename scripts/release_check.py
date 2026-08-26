@@ -8,6 +8,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from validate_default_binding import DefaultBindingError, validate_default_binding
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,6 +76,10 @@ def main() -> int:
     require("c0fec92d36b0fd1f6c0c4a9802b37d22cea2c598" in reconciliation, "reconciliation must bind the observed landed baseline")
     require("Complete reachable-commit ledger" in reconciliation, "complete reconciliation ledger is missing")
     require(releasing_path.is_file(), "docs/RELEASING.md is missing")
+    try:
+        validate_default_binding()
+    except DefaultBindingError as exc:
+        raise ReleaseError(f"reusable default binding is invalid: {exc}") from exc
 
     print(f"[ok] owner-local release surface is consistent for {tag} ({release_match.group('date')})")
     return 0

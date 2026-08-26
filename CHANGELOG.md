@@ -2,7 +2,28 @@
 
 ## [Unreleased]
 
-No unreleased changes are claimed after `0.1.0`.
+### Changed
+
+- The shipped bootstrap is now reusable: an explicit owner-qualified runtime
+  binding selects the Goal, thread, topology, catalog, correlation, and
+  pressure sources; no binding remains fail-closed.
+- Added an optional explicit read-only Codex app-server Goal catalog adapter:
+  paginated `thread/list` is followed by exact `thread/goal/get` reads, then
+  federated with historical `aoa-session-memory` navigation while retaining
+  per-source provenance, currentness, lifecycle observations, and failures.
+
+### Validation
+
+- Added two-binding, fail-closed, mismatch, demo-isolation, default-scan, and
+  packaging coverage for the reusable bootstrap route.
+- Added adversarial live-catalog coverage for multiple Goals, pagination,
+  exact-ref overlap, deferred/stale history, unavailable and malformed owner
+  responses, and stable navigation selection.
+
+### Notes
+
+- The historical first-slice instance remains an explicit demo input and is
+  not the default current product binding.
 
 ## [0.1.0] - 2026-08-22
 

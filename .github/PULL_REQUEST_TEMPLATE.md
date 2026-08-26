@@ -7,8 +7,11 @@
 ## Validation
 
 - [ ] `python3 scripts/validate_organ_contract.py`
+- [ ] `python3 scripts/validate_default_binding.py`
+- [ ] `python3 scripts/release_check.py`
 - [ ] `python3 -m unittest discover -s tests -v`
 - [ ] JSON contracts parse successfully.
+- [ ] JavaScript syntax and `git diff --check` pass.
 
 ## Evidence and residuals
 

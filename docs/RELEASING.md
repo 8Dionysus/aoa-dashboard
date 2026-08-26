@@ -27,6 +27,7 @@ Run from the clean release-prep or exact landed-main worktree:
 ```text
 python3 scripts/release_check.py
 python3 scripts/validate_organ_contract.py
+python3 scripts/validate_default_binding.py
 python3 -m unittest discover -s tests -v
 for contract in contracts/*.json; do python3 -m json.tool "$contract" >/dev/null; done
 python3 -m compileall -q src scripts tests
@@ -53,6 +54,93 @@ provenance, required sidecars, registry admission, and a non-unknown trust
 gate. An authorized reconciliation may preserve and remove legacy attachments
 from this same Release after recording digest-bound recovery evidence, but it
 must not create a successor tag or Release.
+
+## Deterministic exact-tree artifacts
+
+For independently repeatable package evidence, build from two fresh extracts
+of the same exact Git commit. Derive `SOURCE_DATE_EPOCH` from that commit's
+author-independent Git commit timestamp, and compare both output files byte by
+byte. The recipe below keeps generated build state outside the source tree:
+
+```text
+COMMIT="$(git rev-parse HEAD)"
+SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$COMMIT")"
+BUILD_ROOT="$(mktemp -d)"
+mkdir "$BUILD_ROOT/one" "$BUILD_ROOT/two" "$BUILD_ROOT/dist-one" "$BUILD_ROOT/dist-two"
+
+git archive --format=tar "$COMMIT" | tar -x -C "$BUILD_ROOT/one"
+git archive --format=tar "$COMMIT" | tar -x -C "$BUILD_ROOT/two"
+
+(cd "$BUILD_ROOT/one" && SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+  python3 -m build --no-isolation --sdist --wheel --outdir "$BUILD_ROOT/dist-one")
+(cd "$BUILD_ROOT/two" && SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+  python3 -m build --no-isolation --sdist --wheel --outdir "$BUILD_ROOT/dist-two")
+
+# The legacy setuptools sdist path puts wall-clock mtimes on generated
+# directories. Normalize only archive metadata, preserving every member byte,
+# before comparing the exact-tree sdist outputs.
+normalize_sdist() {
+  python3 - "$1" "$SOURCE_DATE_EPOCH" <<'PY'
+import gzip
+import io
+import os
+import sys
+import tarfile
+import tempfile
+from pathlib import Path
+
+source = Path(sys.argv[1])
+epoch = int(sys.argv[2])
+with tempfile.NamedTemporaryFile(prefix="normalized-sdist-", dir=source.parent, delete=False) as handle:
+    temporary = Path(handle.name)
+try:
+    with tarfile.open(source, "r:gz") as source_tar:
+        with temporary.open("wb") as raw:
+            with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=epoch) as gzip_stream:
+                with tarfile.open(fileobj=gzip_stream, mode="w", format=tarfile.PAX_FORMAT) as target_tar:
+                    for member in source_tar.getmembers():
+                        normalized = tarfile.TarInfo(member.name)
+                        normalized.type = member.type
+                        normalized.mode = member.mode
+                        normalized.uid = 0
+                        normalized.gid = 0
+                        normalized.uname = ""
+                        normalized.gname = ""
+                        normalized.mtime = epoch
+                        normalized.linkname = member.linkname
+                        normalized.pax_headers = {}
+                        if member.isfile():
+                            data = source_tar.extractfile(member).read()
+                            normalized.size = len(data)
+                            target_tar.addfile(normalized, io.BytesIO(data))
+                        else:
+                            target_tar.addfile(normalized)
+    os.replace(temporary, source)
+finally:
+    if temporary.exists():
+        temporary.unlink()
+PY
+}
+
+normalize_sdist "$BUILD_ROOT/dist-one/aoa_dashboard-0.1.0.tar.gz"
+normalize_sdist "$BUILD_ROOT/dist-two/aoa_dashboard-0.1.0.tar.gz"
+
+sha256sum "$BUILD_ROOT/dist-one"/* "$BUILD_ROOT/dist-two"/*
+cmp "$BUILD_ROOT/dist-one/aoa_dashboard-0.1.0-py3-none-any.whl" \
+    "$BUILD_ROOT/dist-two/aoa_dashboard-0.1.0-py3-none-any.whl"
+cmp "$BUILD_ROOT/dist-one/aoa_dashboard-0.1.0.tar.gz" \
+    "$BUILD_ROOT/dist-two/aoa_dashboard-0.1.0.tar.gz"
+```
+
+The normalization step changes archive metadata only: it pins directory and
+gzip mtimes, owner fields, and the gzip header to the same commit-derived
+epoch. It does not rewrite source or package member bytes. A raw legacy sdist
+comparison that fails before this step is not reproducibility evidence.
+
+The commit, derived epoch, both SHA-256 pairs, and successful `cmp` results
+are the package evidence. The artifacts remain local producer outputs; these
+checks do not establish registry admission, signatures, deployment, health,
+proof, or acceptance.
 
 ## Landing and publication
 

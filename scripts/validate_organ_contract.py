@@ -55,6 +55,12 @@ def main() -> int:
             "goal_local_cursor_v1",
             "pressure_inbox_v1",
             "task_local_actor_activity_projection_v1",
+            "aoa_dashboard_goal_catalog_projection_v1",
+            "aoa_dashboard_goal_projection_v1",
+            "aoa_dashboard_codex_goal_thread_observation_v1",
+            "aoa_dashboard_participant_envelope_v1",
+            "aoa_dashboard_master_context_projection_v1",
+            "aoa_dashboard_goal_topology_projection_v1",
         }.issubset(owned),
         "owned surface set is incomplete",
     )
@@ -108,7 +114,7 @@ def main() -> int:
     handoff = payload.get("handoff")
     require(isinstance(handoff, dict), "handoff route is required")
     require(handoff.get("return_owner") == "holder:aoa-dashboard-master-sol", "return owner is not exact")
-    require(handoff.get("master_thread_id") == "01a00722-0291-72e0-8310-559da802d6e1", "master thread is not exact")
+    require("master_thread_id" not in handoff, "reusable organ contract must not embed a task-instance master thread")
 
     print(f"[ok] validated {CONTRACT_PATH.relative_to(ROOT)}")
     return 0
