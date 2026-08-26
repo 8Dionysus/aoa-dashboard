@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/runtime-binding-v1",
+  "title": "Owner-qualified aoa-dashboard runtime Goal binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "binding_id", "owner", "authority", "access_scope", "claim_policy", "claim_limit", "state", "currentness", "selected_goal", "sources"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_runtime_binding_v1"},
+    "binding_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "owner": {"enum": ["aoa-sdk", "master-thread"]},
+    "authority": {"enum": ["source_owner", "master_decision"]},
+    "access_scope": {"const": "owner_bounded"},
+    "claim_policy": {"type": "string", "minLength": 1, "maxLength": 96},
+    "claim_limit": {"type": "string", "minLength": 1, "maxLength": 640},
+    "state": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+    "currentness": {"enum": ["current", "current_at_read", "stale", "deferred", "missing", "unknown", "invalid"]},
+    "selected_goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goal_id", "master_thread_id"],
+      "properties": {
+        "goal_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "master_thread_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "title": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goal_anchor", "codex_goal", "codex_thread", "topology", "catalog", "correlation", "pressure"],
+      "properties": {
+        "goal_anchor": {"$ref": "#/$defs/goal_anchor_source"},
+        "codex_goal": {"$ref": "#/$defs/codex_goal_source"},
+        "codex_thread": {"$ref": "#/$defs/codex_thread_source"},
+        "topology": {"$ref": "#/$defs/topology_source"},
+        "catalog": {"$ref": "#/$defs/catalog_source"},
+        "live_goal_catalog": {"$ref": "#/$defs/live_goal_catalog_source"},
+        "goal_projection": {"$ref": "#/$defs/goal_projection_source"},
+        "correlation": {"$ref": "#/$defs/correlation_source"},
+        "pressure": {"$ref": "#/$defs/pressure_source"},
+        "historical": {"$ref": "#/$defs/historical_source"},
+        "actor": {"$ref": "#/$defs/actor_source"},
+        "stats": {"$ref": "#/$defs/stats_source"},
+        "goal_context": {"$ref": "#/$defs/goal_context_sources"}
+      }
+    },
+    "owner_surfaces": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/owner_surface"}},
+    "source": {"$ref": "#/$defs/source"}
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "authority", "access_scope", "claim_policy", "claim_limit"],
+      "properties": {
+        "owner": {"type": "string", "minLength": 1, "maxLength": 128},
+        "authority": {"enum": ["source_owner", "master_decision"]},
+        "access_scope": {"const": "owner_bounded"},
+        "claim_policy": {"type": "string", "minLength": 1, "maxLength": 96},
+        "claim_limit": {"type": "string", "minLength": 1, "maxLength": 640},
+        "currentness": {"enum": ["current", "current_at_read"]},
+        "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "expected_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "capability": {"type": "string", "minLength": 1, "maxLength": 256},
+        "transport": {"enum": ["path", "command"]},
+        "command": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30},
+        "goal_ref_arg": {"type": "string", "minLength": 1, "maxLength": 128},
+        "publication": {"$ref": "#/$defs/publication"},
+        "enabled": {"type": "boolean"},
+        "access": {"enum": ["read_only"]},
+        "method": {"type": "string", "minLength": 1, "maxLength": 128},
+        "socket_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "methods": {"type": "array", "maxItems": 16, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "page_size": {"type": "integer", "minimum": 1, "maximum": 512},
+        "max_pages": {"type": "integer", "minimum": 1, "maximum": 128},
+        "archived": {"type": "boolean"},
+        "client_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "sort_key": {"type": "string", "minLength": 1, "maxLength": 64},
+        "sort_direction": {"type": "string", "minLength": 1, "maxLength": 64},
+        "relation_queries": {"type": "array", "maxItems": 16, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "requires_experimental_api": {"type": "boolean"},
+        "relative_path": {"type": "string", "minLength": 1, "maxLength": 512},
+        "expected_schema_version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "master_thread_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "task_local_dir": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "master_filter_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "master_filter_currentness": {"$ref": "#/$defs/currentness_binding"},
+        "handoff_glob": {"type": "string", "minLength": 1, "maxLength": 256},
+        "wake_glob": {"type": "string", "minLength": 1, "maxLength": 256},
+        "ignored_handoff_names": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+        "ignored_wake_names": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+        "current_holder": {"type": ["string", "boolean"], "maxLength": 256},
+        "scope": {"type": "string", "minLength": 1, "maxLength": 128},
+        "binding_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "session_manifest_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "session_archive_raw_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "actor_manifest_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "registry_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "freshness_status": {"type": "string", "minLength": 1, "maxLength": 64},
+        "source_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "runtime_path": {"type": ["string", "null"], "minLength": 1, "maxLength": 4096},
+        "kag_snapshot_state": {"type": ["string", "null"], "maxLength": 128},
+        "owner_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "goal_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "goal_ref": {"type": "object"},
+            "goal_instance_ref": {"type": "object"},
+            "master_thread_ref": {"type": "object"}
+          }
+        }
+      }
+    },
+    "goal_anchor_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["path", "expected_sha256"]}
+      ]
+    },
+    "codex_goal_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["enabled", "method"]}
+      ]
+    },
+    "codex_thread_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["enabled", "methods", "relation_queries"]}
+      ]
+    },
+    "live_goal_catalog_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["enabled", "access", "methods", "socket_path", "page_size", "max_pages", "timeout_seconds", "archived", "client_version"]}
+      ]
+    },
+    "topology_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["relative_path", "expected_schema_version"]}
+      ]
+    },
+    "catalog_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["expected_schema_version"], "anyOf": [{"required": ["path"]}, {"required": ["command"]}, {"required": ["publication"]}]}
+      ]
+    },
+    "goal_projection_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["expected_schema_version"], "anyOf": [{"required": ["path"]}, {"required": ["command"]}, {"required": ["publication"]}]}
+      ]
+    },
+    "correlation_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["task_local_dir", "master_filter_path", "master_filter_currentness", "handoff_glob", "wake_glob", "ignored_handoff_names", "ignored_wake_names"]}
+      ]
+    },
+    "pressure_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["path", "expected_schema_version"]}
+      ]
+    },
+    "historical_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["scope", "binding_id", "session_manifest_path", "session_archive_raw_path", "current_holder"]}
+      ]
+    },
+    "actor_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["path"]}
+      ]
+    },
+    "stats_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["path", "registry_path", "freshness_status"]}
+      ]
+    },
+    "goal_context_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {
+          "type": "object",
+          "required": ["expected_schema_version"],
+          "anyOf": [{"required": ["path"]}, {"required": ["command"]}, {"required": ["publication"]}]
+        }
+      ]
+    },
+    "goal_context_sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "thread_board": {
+          "allOf": [
+            {"$ref": "#/$defs/goal_context_source"},
+            {"type": "object", "properties": {"owner": {"const": "aoa-session-memory"}, "expected_schema_version": {"const": "aoa_session_memory_goal_thread_board_v1"}}}
+          ]
+        },
+        "participant_graph": {
+          "allOf": [
+            {"$ref": "#/$defs/goal_context_source"},
+            {"type": "object", "properties": {"owner": {"const": "aoa-agents"}, "expected_schema_version": {"const": "aoa_agents_goal_participant_graph_v1"}}}
+          ]
+        }
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability"],
+      "properties": {
+        "capability": {"type": "string", "minLength": 1, "maxLength": 256},
+        "transport": {"enum": ["path", "command"]},
+        "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "command": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+        "expected_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30},
+        "goal_ref_arg": {"type": "string", "minLength": 1, "maxLength": 128},
+        "cursor_arg": {"type": "string", "minLength": 1, "maxLength": 128},
+        "max_pages": {"type": "integer", "minimum": 1, "maximum": 128}
+      },
+      "anyOf": [{"required": ["path"]}, {"required": ["command"]}]
+    },
+    "owner_surface": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["source_path"]}
+      ]
+    },
+    "currentness_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "owner", "authority", "access_scope", "filter_ref", "current_head_ref", "history_ref", "claim_limit"],
+      "properties": {
+        "schema_version": {"const": "aoa_dashboard_master_filter_currentness_binding_v1"},
+        "owner": {"const": "master-thread"},
+        "authority": {"const": "master_decision"},
+        "access_scope": {"const": "owner_bounded"},
+        "filter_ref": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "current_head_ref": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "history_ref": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "claim_limit": {"type": "string", "minLength": 1, "maxLength": 640}
+      }
+    }
+  }
+}

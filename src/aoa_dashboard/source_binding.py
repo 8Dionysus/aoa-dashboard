@@ -19,6 +19,7 @@ KNOWN_OWNERS = frozenset(
         "aoa-evals",
         "aoa-kag",
         "aoa-memo",
+        "aoa-session-memory",
         "aoa-sdk",
         "aoa-skills",
         "aoa-stats",
@@ -140,6 +141,42 @@ KNOWN_DIAGNOSTIC_CODES = frozenset(
 )
 
 ClaimParser = Literal["json", "text"]
+
+
+class DuplicateJsonObjectNameError(ValueError):
+    """Raised when one JSON object contains the same member name twice."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(f"duplicate JSON object name: {name}")
+
+
+def _reject_duplicate_object_names(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for name, value in pairs:
+        if name in result:
+            raise DuplicateJsonObjectNameError(name)
+        result[name] = value
+    return result
+
+
+def loads_json(value: str, *, reject_duplicate_keys: bool = False) -> Any:
+    """Parse JSON with an optional fail-closed duplicate-member policy."""
+
+    object_pairs_hook = _reject_duplicate_object_names if reject_duplicate_keys else None
+    return json.loads(value, object_pairs_hook=object_pairs_hook)
+
+
+def _normalized_parse_error(exc: Exception) -> str:
+    """Return a bounded parse diagnostic without retaining source content."""
+
+    if isinstance(exc, DuplicateJsonObjectNameError):
+        return "duplicate JSON object name"
+    if isinstance(exc, UnicodeError):
+        return "source is not valid UTF-8"
+    if isinstance(exc, json.JSONDecodeError):
+        return f"invalid JSON document at line {exc.lineno}, column {exc.colno}"
+    return "structured source parse failed"
 
 
 def is_sha256(value: Any) -> bool:
@@ -271,8 +308,9 @@ def read_file_snapshot(
     *,
     expected_digest: str | None = None,
     parser: ClaimParser = "json",
+    reject_duplicate_keys: bool = True,
 ) -> FileSnapshot:
-    """Read bytes once, hash those bytes, parse those bytes, then decide currentness."""
+    """Read, hash, and parse one source with fail-closed JSON admission."""
 
     source = Path(path).resolve(strict=False)
     observed_at = utc_now()
@@ -292,12 +330,12 @@ def read_file_snapshot(
     parse_error: str | None = None
     try:
         text = raw.decode("utf-8")
-        parsed = json.loads(text) if parser == "json" else text
+        parsed = loads_json(text, reject_duplicate_keys=reject_duplicate_keys) if parser == "json" else text
         if parser == "json" and not isinstance(parsed, dict):
             parse_error = "top-level JSON value is not an object"
             parsed = None
-    except (UnicodeError, json.JSONDecodeError) as exc:
-        parse_error = str(exc)
+    except (UnicodeError, ValueError) as exc:
+        parse_error = _normalized_parse_error(exc)
 
     if expected_error or parse_error:
         currentness = "invalid"

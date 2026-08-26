@@ -135,6 +135,16 @@ process.stdout.write(JSON.stringify({ mode: context.AoaDashboardTheme.getMode(),
         source = THEME_JS.read_text(encoding="utf-8")
         self.assertIn("setLabels", source)
 
+    def test_theme_uses_versioned_preferences_and_exposes_density_without_owner_state(self) -> None:
+        source = THEME_JS.read_text(encoding="utf-8")
+        html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('aoa-dashboard.preferences.v1', source)
+        self.assertIn('readPresentationPreferences', source)
+        self.assertIn('writePresentationPreferences', source)
+        self.assertIn('getDensity', source)
+        self.assertIn('dataset.themeMode', html)
+        self.assertIn('before the stylesheet paints', html)
+
 
 if __name__ == "__main__":
     unittest.main()

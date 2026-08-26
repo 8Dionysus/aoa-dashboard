@@ -3,8 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any, Iterable
+
+from .quality import (
+    combine_freshness,
+    normalize_quality_state,
+    strongest_degradation,
+)
 
 
 ACTIVITY_SCHEMA_VERSION = "aoa_dashboard_actor_activity_v1"
@@ -77,6 +84,75 @@ def _first_identifier(payloads: list[dict[str, Any]], paths: Iterable[str]) -> s
             if result is not None:
                 return result
     return None
+
+
+def _first_dict(payloads: list[dict[str, Any]], paths: Iterable[str]) -> dict[str, Any] | None:
+    for payload in payloads:
+        for path in _candidate_paths(paths):
+            value = _lookup(payload, path)
+            if isinstance(value, dict):
+                return value
+    return None
+
+
+RELATION_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+RELATION_KEYS = frozenset(
+    {
+        "kind",
+        "state",
+        "source",
+        "owner",
+        "parent",
+        "fork",
+        "thread",
+        "branch",
+        "trajectory",
+        "relationship",
+        "relations",
+        "goal",
+    }
+)
+
+
+def _safe_relation_value(value: Any, *, depth: int = 0) -> Any:
+    if depth > 2:
+        return None
+    if isinstance(value, str):
+        return _safe_text(value)
+    if isinstance(value, bool) or isinstance(value, (int, float)):
+        return value
+    if isinstance(value, list):
+        values = [_safe_relation_value(item, depth=depth + 1) for item in value[:32]]
+        return [item for item in values if item is not None]
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or not RELATION_KEY_RE.fullmatch(key):
+                continue
+            if key not in RELATION_KEYS and not key.endswith(("_id", "_ref")):
+                continue
+            safe = _safe_relation_value(item, depth=depth + 1)
+            if safe is not None:
+                result[key] = safe
+        return result
+    return None
+
+
+def _first_relations(payloads: list[dict[str, Any]], paths: Iterable[str]) -> dict[str, Any] | None:
+    value = _first_dict(payloads, paths)
+    safe = _safe_relation_value(value)
+    return safe if isinstance(safe, dict) and safe else None
+
+
+def _model_subject(value: dict[str, Any] | None) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, str] = {}
+    for key in ("kind", "source", "digest"):
+        item = _safe_text(value.get(key))
+        if item is not None:
+            result[key] = item
+    return result or None
 
 
 def _first_number(
@@ -170,10 +246,33 @@ def _group_state(payloads: list[dict[str, Any]], errors: list[str], observed: bo
     return "observed" if observed else "unknown"
 
 
+def _envelope_freshness(envelope: dict[str, Any], inherited_freshness: str) -> str:
+    values: list[Any] = [inherited_freshness, envelope.get("freshness"), envelope.get("state")]
+    for key in ("return_observation", "wake_observation"):
+        observation = envelope.get(key)
+        if not isinstance(observation, dict):
+            continue
+        ref = observation.get("ref")
+        if isinstance(ref, dict):
+            values.extend((ref.get("freshness"), ref.get("currentness")))
+        values.append(observation.get("freshness"))
+    master_filter = envelope.get("master_filter")
+    if isinstance(master_filter, dict):
+        currentness = master_filter.get("currentness")
+        if isinstance(currentness, dict):
+            values.append(currentness.get("state"))
+        else:
+            values.append(currentness)
+    return combine_freshness(*values, fallback=inherited_freshness)
+
+
 def _build_actor(
     envelope: dict[str, Any],
     payloads: list[dict[str, Any]],
     payload_errors: list[str],
+    *,
+    activity_state: str,
+    activity_freshness: str,
 ) -> dict[str, Any]:
     return_observation = envelope.get("return_observation") if isinstance(envelope.get("return_observation"), dict) else {}
     wake_observation = envelope.get("wake_observation") if isinstance(envelope.get("wake_observation"), dict) else {}
@@ -187,6 +286,14 @@ def _build_actor(
     actor_label = _first_text(
         payloads,
         ("actor.name", "responsibility_state.holder", "owner.name", "reviewer.name"),
+    )
+    observed_name = _first_text(
+        payloads,
+        ("identity.name", "actor.name", "owner.name", "reviewer.name"),
+    )
+    display_name = _first_text(
+        payloads,
+        ("identity.display_name", "actor.display_name", "owner.display_name", "reviewer.display_name"),
     )
     incarnation_id = _first_identifier(
         payloads,
@@ -205,8 +312,70 @@ def _build_actor(
             "reviewer.role",
         ),
     )
+    role_name = _first_text(
+        payloads,
+        ("identity.role_name", "actor.role_name", "owner.role_name", "reviewer.role_name", "role.name"),
+    )
+    specialization_id = _first_identifier(
+        payloads,
+        ("specialization_id", "identity.specialization_id", "actor.specialization_id", "role.specialization_id"),
+    )
+    tier_id = _first_identifier(
+        payloads,
+        ("tier_id", "identity.tier_id", "actor.tier_id", "role.tier_id"),
+    )
+    role_resolution_ref = _first_identifier(
+        payloads,
+        ("role_resolution_ref", "identity.role_resolution_ref", "role.resolution_ref"),
+    )
+    model_id = _first_identifier(
+        payloads,
+        (
+            "model_id",
+            "model.id",
+            "model.name",
+            "identity.model_id",
+            "actor.model_id",
+            "actor.model",
+        ),
+    )
+    model_identity_ref = _first_identifier(
+        payloads,
+        ("model_identity_ref", "identity.model_identity_ref", "model.identity_ref", "model_realization.model_identity_ref"),
+    )
+    model_realization_ref = _first_identifier(
+        payloads,
+        ("model_realization_ref", "model.realization_ref", "model_realization.model_realization_ref"),
+    )
+    fit_projection_ref = _first_identifier(
+        payloads,
+        ("fit_projection_ref", "model.fit_projection_ref", "model_realization.fit_projection_ref"),
+    )
+    runtime_subject = _model_subject(_first_dict(
+        payloads,
+        ("runtime_subject", "model.runtime_subject", "model_realization.runtime_subject"),
+    ))
     mandate_id = _first_identifier(payloads, ("mandate_id", "mandate.id", "identity.mandate_id"))
     obligation_id = _first_identifier(payloads, ("obligation_id", "obligation.id", "identity.obligation_id"))
+    task_id = _first_identifier(
+        payloads,
+        ("task_id", "task.id", "task.task_id", "obligation_id", "obligation.id"),
+    )
+    task_summary = _first_text(
+        payloads,
+        (
+            "task.title",
+            "task.summary",
+            "task.description",
+            "actor.responsibility",
+            "responsibility_state.scope",
+        ),
+    )
+    task_ref = _first_identifier(payloads, ("task.ref", "task.task_ref", "task_ref"))
+    relationships = _first_relations(
+        payloads,
+        ("relationships", "relations", "relationship", "actor.relationships", "task.relationships"),
+    )
     actor_key = actor_id or incarnation_id or (f"return:{return_id}" if return_id else "actor:unknown")
 
     process_id = _first_identifier(payloads, ("process_id", "process.id", "process_pid", "pid"))
@@ -281,17 +450,69 @@ def _build_actor(
         if actor_state == "invalid" or any(error != "handoff payload missing" and error != "wake payload missing" for error in payload_errors)
         else ("observed" if payloads else "missing")
     )
+    freshness = _envelope_freshness(envelope, activity_freshness)
+    payload_quality = "invalid" if payload_state == "invalid" else None
+    quality_state = strongest_degradation(activity_state, actor_state, freshness, payload_quality)
+    if quality_state is None:
+        quality_state = normalize_quality_state(actor_state)
+    quality_diagnostics = []
+    if quality_state == "invalid":
+        quality_diagnostics.append("actor_activity_quality_invalid")
+    elif quality_state == "stale":
+        quality_diagnostics.append("actor_activity_freshness_stale")
 
     return {
         "actor_key": actor_key,
         "state": actor_state,
+        "quality_state": quality_state,
+        "freshness": freshness,
+        "quality_diagnostics": quality_diagnostics,
+        "correlation": {
+            "goal_id": _first_identifier(
+                [envelope.get("goal", {})] if isinstance(envelope.get("goal"), dict) else [],
+                ("goal_id",),
+            ),
+            "master_thread_id": _first_identifier(
+                [envelope.get("goal", {})] if isinstance(envelope.get("goal"), dict) else [],
+                ("master_thread_id",),
+            ),
+            "state": actor_state,
+            "claim_limit": "Explicit task-local correlation identity is retained for comparison only; it does not create a cross-owner Goal or actor binding.",
+        },
         "identity": {
-            "state": "observed" if any((actor_id, actor_label, incarnation_id, role_id)) else ("missing" if not payloads else "unknown"),
+            "state": "observed" if any((actor_id, actor_label, incarnation_id, role_id, model_id, observed_name, display_name, role_name, specialization_id, tier_id, role_resolution_ref)) else ("missing" if not payloads else "unknown"),
             "actor_id": actor_id,
             "incarnation_id": incarnation_id,
             "role_id": role_id,
+            "role_name": role_name,
+            "specialization_id": specialization_id,
+            "tier_id": tier_id,
+            "role_resolution_ref": role_resolution_ref,
+            "model_id": model_id,
             "label": actor_label or actor_id or incarnation_id or (f"return {return_id}" if return_id else "actor identity unknown"),
+            "name": observed_name,
+            "display_name": display_name,
             "claim_limit": FIELD_CLAIM_LIMIT,
+        },
+        "task": {
+            "state": "observed" if task_id or task_summary else ("missing" if not payloads else "unknown"),
+            "task_id": task_id,
+            "task_ref": task_ref,
+            "summary": task_summary,
+            "claim_limit": "Task values are bounded task-local return observations; they do not establish assignment, completion, or acceptance.",
+        },
+        "model_realization": {
+            "state": "observed" if any((model_identity_ref, model_realization_ref, fit_projection_ref, runtime_subject)) else ("missing" if not payloads else "unknown"),
+            "model_identity_ref": model_identity_ref,
+            "model_realization_ref": model_realization_ref,
+            "fit_projection_ref": fit_projection_ref,
+            "runtime_subject": runtime_subject,
+            "claim_limit": "Explicit model owner descriptors are retained as observations only; they do not establish fit, activation, or runtime health.",
+        },
+        "relationships": {
+            "state": "observed" if relationships else ("missing" if not payloads else "unknown"),
+            "items": relationships or {},
+            "claim_limit": "Relationship fields are allowlisted task-local observations; they do not establish a complete participant graph or branch authority.",
         },
         "responsibility": {
             "state": "observed" if responsibility_state or responsibility_holder else ("missing" if not payloads else "unknown"),
@@ -366,6 +587,7 @@ def _empty_activity(
             "actor_count": None,
             "envelopes": None,
             "with_identity": None,
+            "with_task": None,
             "with_process": None,
             "with_session": None,
             "with_terminal": None,
@@ -415,6 +637,12 @@ def observe_actor_activity(config: dict[str, Any], correlation: dict[str, Any]) 
     task_root = Path(current["task_local_dir"]).resolve(strict=False)
     actors: list[dict[str, Any]] = []
     degradation: list[str] = []
+    activity_state = normalize_quality_state(correlation_state)
+    inherited_freshness = combine_freshness(
+        correlation_state,
+        correlation.get("freshness"),
+        fallback="current_at_read" if activity_state == "present" else activity_state,
+    )
     for envelope in envelopes:
         if not isinstance(envelope, dict):
             degradation.append("actor_envelope_not_object")
@@ -433,7 +661,15 @@ def observe_actor_activity(config: dict[str, Any], correlation: dict[str, Any]) 
             payload_errors.append("wake payload missing")
         if payload_errors:
             degradation.append("actor_payload_evidence_degraded")
-        actors.append(_build_actor(envelope, payloads, payload_errors))
+        actors.append(
+            _build_actor(
+                envelope,
+                payloads,
+                payload_errors,
+                activity_state=activity_state,
+                activity_freshness=inherited_freshness,
+            )
+        )
 
     if not actors:
         activity = _empty_activity(
@@ -444,9 +680,12 @@ def observe_actor_activity(config: dict[str, Any], correlation: dict[str, Any]) 
         )
         return _as_source(activity)
 
-    group_names = ("identity", "responsibility", "process", "session", "terminal", "usage")
+    group_names = ("identity", "task", "responsibility", "process", "session", "terminal", "usage")
     has_invalid = correlation_state == "invalid" or any(
-        actor["state"] == "invalid" or any(actor[name]["state"] == "invalid" for name in group_names) for actor in actors
+        actor["quality_state"] == "invalid"
+        or actor["state"] == "invalid"
+        or any(actor[name]["state"] == "invalid" for name in group_names)
+        for actor in actors
     )
     has_degraded = correlation_state in {"deferred", "missing"} or any(
         actor[name]["state"] in {"missing", "unknown"} for actor in actors for name in group_names
@@ -456,18 +695,26 @@ def observe_actor_activity(config: dict[str, Any], correlation: dict[str, Any]) 
         "actor_count": len(actors),
         "envelopes": len(envelopes),
         "with_identity": sum(actor["identity"]["state"] == "observed" for actor in actors),
+        "with_task": sum(actor["task"]["state"] == "observed" for actor in actors),
         "with_process": sum(actor["process"]["state"] == "observed" for actor in actors),
         "with_session": sum(actor["session"]["state"] == "observed" for actor in actors),
         "with_terminal": sum(actor["terminal"]["state"] == "observed" for actor in actors),
         "with_usage": sum(actor["usage"]["state"] == "observed" for actor in actors),
     }
+    freshness = combine_freshness(
+        correlation_state,
+        correlation.get("freshness"),
+        *(actor.get("freshness") for actor in actors),
+        "invalid" if has_invalid else None,
+        fallback="current_at_read" if state == "bound" else state,
+    )
     activity = {
         "schema_version": ACTIVITY_SCHEMA_VERSION,
         "state": state,
         "actors": actors,
         "summary": summary,
         "observed_at": metadata.get("observed_at"),
-        "freshness": "current_at_read" if state == "bound" else state,
+        "freshness": freshness,
         "degradation": sorted(set(degradation)),
         "observation": (
             f"Observed {len(actors)} task-local actor envelope(s); process, session, terminal, wake/return, usage, and unknown fields remain separate."

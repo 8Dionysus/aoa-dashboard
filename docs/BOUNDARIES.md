@@ -2,7 +2,7 @@
 
 ## What this organ owns
 
-The dashboard owns seven local derived/operator surfaces:
+The dashboard owns ten local derived/operator surfaces:
 
 1. `aoa_dashboard_projection_v1`, a derived read model assembled from named
    owner sources;
@@ -27,6 +27,25 @@ The dashboard owns seven local derived/operator surfaces:
    actor key and retains allowlisted process/session/terminal/usage observations
    with their source refs. It is an observation surface, not a lifecycle or
    runtime-health owner.
+8. a normalized Goal catalog view over the exact owner-published
+   `aoa_session_memory_goal_catalog_public_v1` snapshot and, when explicitly
+   bound, the read-only Codex app-server catalog. The historical adapter
+   accepts the owner envelope `aoa_session_memory_goal_catalog_v1`, verifies
+   the immutable snapshot, source watermark, generation, page/item digests,
+   and explicit opaque cursor chain, then retains only public-safe fields.
+   The live adapter follows only the configured `thread/list` /
+   `thread/goal/get` route, joins only on exact owner refs, and keeps each
+   source's pagination, currentness, lifecycle observation, evidence ref, and
+   failure state. A live failure never replaces a valid historical catalog.
+   Grouping and presentation are dashboard-owned; lifecycle history and Goal
+   identity remain owner data. No current Goal, selected Goal, title, path,
+   task root, or timestamp is an identity source.
+9. a read-only Codex Goal/Thread observation envelope for one exact current
+   thread, including bounded direct-child and descendant relation pages. Goal,
+   Thread, and branch meaning remain with the Codex app-server owner.
+10. an independently degraded participant-context envelope. Identity, task,
+    model, and runtime dimensions remain separate observations; the envelope
+    does not create participant authority, model activation, or runtime health.
 
 ## What remains outside the organ
 
@@ -36,6 +55,7 @@ The dashboard owns seven local derived/operator surfaces:
 | capability ABI and task-local DAG | `aoa-skills` | show bounded owner metadata only |
 | RunPlan and incarnation binding | `aoa-sdk` | show binding refs, never choose them |
 | deployed runtime lifecycle | `abyss-stack` | source/deploy/live is separate and may be deferred |
+| Goal/thread semantics and spawn relations | Codex app-server | read exact Goal/Thread records and bounded relation pages only |
 | raw session transcript and freshness | `.aoa/session-memory` | use refs and metadata, never promote a projection to proof; configured bootstrap bindings are historical |
 | proof, review, eval verdict | `aoa-evals` | missing until an independent packet is connected |
 | reviewed durable memory | `aoa-memo` | optional context, never current truth |
@@ -48,12 +68,14 @@ the lifecycle step (`planned`, `bound`, `running`, `paused`, `returned`,
 quality (`missing`, `unknown`, `stale`, `deferred`, `invalid`). A step can be
 known to be a step while its expected evidence is missing or deferred.
 
-The current holder is bound through the Goal/thread and task-local receipt
-directory in `current_correlation`. The old session/edeac bootstrap remains a
-separate `historical_bootstrap` binding and is never used as current-holder
+The current Goal/thread and task-local receipt directory are selected through
+an explicit owner-qualified runtime binding and then exposed to the derived
+adapter through `current_correlation`. The old session/edeac bootstrap remains
+a separate historical/demo binding and is never used as current-holder.
 Wake delivery is transport evidence only. The dashboard keeps the
 task-local v2 witness and owner-shaped SDK v1 source as distinct families; the
-current independently admitted v1 binding set is empty, so v1 remains raw
+current independently admitted wake-receipt v1 binding set is empty, so v1
+remains raw
 candidate evidence with null canonical owner refs, invalid state, and no
 re-entry. An unlanded, forged, or merely shaped config string cannot create
 owner authority. A future owner-qualified route must come from the stronger

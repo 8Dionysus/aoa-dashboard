@@ -937,13 +937,25 @@ def observe_current_correlation(
 ) -> dict[str, Any]:
     current = config.get("current_correlation")
     if not isinstance(current, dict):
+        binding_state = config.get("runtime_binding_state")
+        if binding_state == "missing":
+            return _source(
+                state="missing",
+                freshness="missing",
+                observation="No owner-qualified runtime binding selected; current correlation is withheld.",
+                metadata={"schema_version": CORRELATION_PROJECTION_VERSION, "envelopes": []},
+                refs=[],
+                degradation=["runtime_binding_not_selected"],
+                claim_limit=_base_claim_limit(),
+            )
+        degraded_binding_state = binding_state if binding_state in {"stale", "deferred", "unknown", "invalid"} else "unknown"
         return _source(
-            state="invalid",
-            freshness="invalid",
+            state=degraded_binding_state,
+            freshness=degraded_binding_state,
             observation="Current correlation config is missing or not an object.",
             metadata={"schema_version": CORRELATION_PROJECTION_VERSION, "envelopes": []},
             refs=[],
-            degradation=["current_correlation_config_invalid"],
+            degradation=["current_correlation_config_invalid" if degraded_binding_state == "unknown" else f"runtime_binding_{degraded_binding_state}"],
             claim_limit=_base_claim_limit(),
         )
     expected_thread = current.get("master_thread_id")
@@ -959,6 +971,24 @@ def observe_current_correlation(
             metadata={"schema_version": CORRELATION_PROJECTION_VERSION, "envelopes": []},
             refs=[],
             degradation=["current_correlation_config_incomplete"],
+            claim_limit=_base_claim_limit(),
+        )
+    handoff_glob = current.get("handoff_glob")
+    wake_glob = current.get("wake_glob")
+    if not _non_empty_string(handoff_glob) or not _non_empty_string(wake_glob):
+        historical = config.get("runtime_binding_state") == "historical_demo_opt_in"
+        state = "deferred" if historical else "invalid"
+        return _source(
+            state=state,
+            freshness=state,
+            observation=(
+                "Historical correlation is withheld because its explicit receipt selectors are missing."
+                if historical
+                else "Current correlation requires explicit owner-qualified handoff and wake selectors."
+            ),
+            metadata={"schema_version": CORRELATION_PROJECTION_VERSION, "envelopes": []},
+            refs=[],
+            degradation=["historical_correlation_selectors_missing" if historical else "current_correlation_explicit_selectors_missing"],
             claim_limit=_base_claim_limit(),
         )
     task_root = Path(task_root_value).resolve(strict=False)
@@ -1138,16 +1168,6 @@ def observe_current_correlation(
         dag,
         filter_entries,
         currentness=currentness_observation,
-    )
-    handoff_glob = (
-        current.get("handoff_glob")
-        if isinstance(current.get("handoff_glob"), str)
-        else "*-luna-handoff.json"
-    )
-    wake_glob = (
-        current.get("wake_glob")
-        if isinstance(current.get("wake_glob"), str)
-        else "*.wake-receipt.json"
     )
     owner_contract = current.get("codex_wake_receipt_owner")
     if not isinstance(owner_contract, dict):

@@ -16,9 +16,17 @@
       "dashboard_annotation_v1",
       "action_intent_v1",
       "goal_local_correlation_projection_v1",
-      "goal_local_cursor_v1",
+    "goal_local_cursor_v1",
       "pressure_inbox_v1",
-      "task_local_actor_activity_projection_v1"
+      "task_local_actor_activity_projection_v1",
+      "aoa_dashboard_goal_catalog_projection_v1",
+      "aoa_dashboard_live_goal_catalog_federation_v1",
+      "aoa_dashboard_goal_projection_v1",
+      "aoa_dashboard_codex_goal_thread_observation_v1",
+      "aoa_dashboard_participant_envelope_v1",
+      "aoa_dashboard_master_context_projection_v1",
+      "aoa_dashboard_goal_topology_projection_v1",
+      "aoa_dashboard_goal_context_projection_v1"
     ],
     "effects": [
       "read_named_owner_surfaces",
@@ -59,8 +67,8 @@
       "dashboard_action": "keep source deploy and live evidence distinct"
     },
     ".aoa-session-memory": {
-      "owns": "raw session material and freshness",
-      "dashboard_action": "retain refs and provenance; never promote a projection to proof"
+      "owns": "raw session material freshness and the bounded Goal catalog publisher",
+      "dashboard_action": "admit the exact Goal catalog schema and retain refs provenance and degradation"
     },
     "aoa-evals": {
       "owns": "proof review and eval verdicts",
@@ -118,25 +126,44 @@
     "docs/RELEASE_POSTURE.md",
     "docs/RELEASING.md",
     "docs/RELEASE_RECONCILIATION.md",
+    "config/bootstrap.json",
+    "config/demo/first-slice.json",
     "MANIFEST.in",
     "contracts/organ_contract.json",
+    "contracts/goal_catalog_projection.schema.json",
+    "contracts/goal_projection.schema.json",
+    "contracts/codex_goal_thread_projection.schema.json",
+    "contracts/participant_context.schema.json",
+    "contracts/master_context_projection.schema.json",
+    "contracts/goal_topology_projection.schema.json",
+    "contracts/goal-context-projection.schema.json",
+    "contracts/runtime_binding.schema.json",
+    "src/aoa_dashboard/runtime_binding.py",
+    "src/aoa_dashboard/goal_context.py",
+    "src/aoa_dashboard/goal_catalog.py",
+    "src/aoa_dashboard/live_goal_catalog.py",
     "scripts/release_check.py",
+    "scripts/validate_default_binding.py",
     "scripts/validate_organ_contract.py",
+    "tests/test_runtime_binding.py",
+    "tests/test_live_goal_catalog.py",
     "tests/test_organ_contract.py"
   ],
   "validation": {
     "local": [
       "python3 scripts/validate_organ_contract.py",
+      "python3 scripts/validate_default_binding.py",
+      "python3 scripts/release_check.py",
       "python3 -m unittest discover -s tests -v",
-      "for contract in contracts/*.json; do python3 -m json.tool $contract >/dev/null; done"
+      "for contract in contracts/*.json; do python3 -m json.tool $contract >/dev/null; done",
+      "git diff --check"
     ],
     "ci_workflow": ".github/workflows/repo-validation.yml",
     "required_check_name": "Repo Validation"
   },
   "handoff": {
     "return_owner": "holder:aoa-dashboard-master-sol",
-    "master_thread_id": "01a00722-0291-72e0-8310-559da802d6e1",
     "next_transition": "master filters this return, updates the Goal DAG, and routes any access contour to its natural owner",
-    "claim_limit": "source and federation bootstrap landed; no private admission, runtime deployment, proof verdict, semantic reentry, or human acceptance is claimed"
+    "claim_limit": "source and federation bootstrap landed; task-instance identity is supplied by the explicit return/handoff packet; no private admission, runtime deployment, proof verdict, semantic reentry, or human acceptance is claimed"
   }
 }

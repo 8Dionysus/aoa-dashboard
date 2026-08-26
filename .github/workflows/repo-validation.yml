@@ -21,11 +21,17 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install test dependency
-        run: python3 -m pip install --disable-pip-version-check --no-input jsonschema
+        run: python3 -m pip install --disable-pip-version-check --no-input jsonschema pytest
       - name: Validate organ contract
         run: python3 scripts/validate_organ_contract.py
+      - name: Validate reusable default binding
+        run: python3 scripts/validate_default_binding.py
+      - name: Validate release surface
+        run: python3 scripts/release_check.py
       - name: Run unit tests
         run: python3 -m unittest discover -s tests -v
+      - name: Run pytest suite
+        run: python3 -m pytest -q
       - name: Parse JSON contracts
         shell: bash
         run: |

@@ -1,0 +1,40 @@
+{
+  "producer": "aoa-session-memory:goal_thread_board_public_owner_projection",
+  "candidate_commit": "81211cf3193ee13d1656be5da4b9bd4805678b63",
+  "candidate_tree": "527766aec2adbdb69ebaabec9a8949d180f6373f",
+  "goal_ref": "goal:exact",
+  "master_thread_id": "thread:exact",
+  "item": {
+    "item_ref": "codex-thread-item:item:fixture-user",
+    "item_id": "item:fixture-user",
+    "item_id_state": "available",
+    "item_kind": "codex_thread_item_observation",
+    "owner_event_kind": null,
+    "owner_item_type": "userMessage",
+    "review_state": "reviewed_public_safe",
+    "body_state": "withheld",
+    "order": 0,
+    "order_state": "owner_page_order",
+    "goal_ref": "goal:exact",
+    "thread_id": "thread:exact",
+    "observed_at": null,
+    "source_ref": "codex-app-server:thread/items/list",
+    "evidence_ref": "codex-thread-item:item:fixture-user",
+    "redacted_fields": [
+      "content",
+      "text",
+      "summary",
+      "command",
+      "aggregatedOutput",
+      "cwd",
+      "path",
+      "prompt",
+      "arguments",
+      "result",
+      "error",
+      "model",
+      "processId"
+    ],
+    "item_digest": "sha256:ddf4bc5a1ad767e180285754edf8d8aafeac85f56b7c5921744ca1c4b36f4800"
+  }
+}

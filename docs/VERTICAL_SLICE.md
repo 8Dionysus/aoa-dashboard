@@ -1,8 +1,14 @@
 # First vertical slice
 
+The observations below are available for an explicitly selected
+owner-qualified runtime binding. With no binding, current-Goal and
+task-local-source observations remain missing rather than falling back to the
+historical/demo instance.
+
 The slice is complete when a local operator can open the dashboard and see:
 
-- the current Goal Anchor id/title and digest;
+- the current structured Goal Anchor id/title, owner-qualified Goal/thread
+  identity, and exact source digest;
 - the historical bootstrap session binding alongside archive freshness, with
   its current-holder limit visible;
 - `aoa-stats` source coverage with its `not_attested` freshness ceiling;
@@ -46,11 +52,16 @@ observation: null for v1, unsupported, or missing, and the exact v2 boolean
 when present; it is not an admission or semantic-resume signal.
 
 The new cursor layer is adjacent to, and does not modify, the wake-receipt
-compatibility adapter. Existing `bootstrap.json` and
-`master-return-disposition.json` inputs remain accepted through an explicit
-migration record. Legacy pressure strings are shown only as redacted,
-digest-linked deferred candidates until all structured fields are present; raw
-legacy text is never emitted.
+compatibility adapter. The shipped `config/bootstrap.json` is reusable and
+contains no current instance. A process may explicitly select an
+owner-qualified `aoa_dashboard_runtime_binding_v1` document; missing,
+ambiguous, stale, deferred, invalid, or mismatched binding/source inputs remain
+fail-closed. A current Goal Anchor must be a strict owner-qualified JSON source
+whose Goal/thread identity matches the selected binding and whose required
+digest matches the bytes read. The old first-slice material is retained only at
+`config/demo/first-slice.json` as historical/demo opt-in. Legacy pressure
+strings are shown only as redacted, digest-linked deferred candidates until all
+structured fields are present; raw legacy text is never emitted.
 
 The mutable master filter is not pinned to a changing snapshot digest. The
 configured `master_filter_currentness` binding names the master-thread-owned

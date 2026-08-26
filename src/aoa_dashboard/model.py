@@ -71,13 +71,20 @@ class SourceObservation(TypedDict, total=False):
 class Projection(TypedDict, total=False):
     schema_version: str
     generated_at: str
+    presentation: dict[str, object]
     goal: dict[str, object]
+    goal_context: dict[str, object]
+    owner_goal_context: dict[str, object]
+    master_context: dict[str, object]
+    participant_context: dict[str, object]
     correlation: dict[str, object]
     correlation_read_model: dict[str, object]
     pressure_inbox: dict[str, object]
     actor_activity: dict[str, object]
     current_holder: dict[str, object]
     dag: list[dict[str, object]]
+    branches: list[dict[str, object]]
+    trajectories: list[dict[str, object]]
     lifecycle: list[StatusItem]
     state_inventory: list[dict[str, object]]
     sources: list[SourceObservation]

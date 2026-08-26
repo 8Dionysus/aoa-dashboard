@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aoa-dashboard://contracts/goal-catalog-projection-v1",
+  "title": "aoa-dashboard admitted Goal catalog projection",
+  "type": "object",
+  "required": ["schema_version", "state", "currentness", "items", "counts_by_group", "evidence_refs", "diagnostics", "claim_limit"],
+  "properties": {
+    "schema_version": {"const": "aoa_dashboard_goal_catalog_projection_v1"},
+    "state": {"enum": ["current", "current_at_read", "stale", "deferred", "unknown", "invalid", "missing"]},
+    "currentness": {"enum": ["current", "current_at_read", "stale", "deferred", "unknown", "invalid", "missing"]},
+    "generated_at": {"type": ["string", "null"]},
+    "source": {"type": ["object", "null"]},
+    "publication_schema_version": {"type": ["string", "null"]},
+    "target": {"type": ["string", "null"]},
+    "order": {"enum": ["recent", "chronological", null]},
+    "source_watermark": {"type": ["object", "null"]},
+    "snapshot": {"type": ["object", "null"]},
+    "snapshot_digest": {"type": ["string", "null"]},
+    "page_digest": {"type": ["string", "null"]},
+    "owner_page_digests": {"type": "array", "items": {"type": "string"}},
+    "owner_page_count": {"type": ["integer", "null"], "minimum": 0},
+    "sources": {"type": "array", "items": {"type": "object"}},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ref", "title", "title_state", "lifecycle_state", "group", "first_observed_at", "last_observed_at", "ambiguity"],
+        "properties": {
+          "ref": {"type": "string", "minLength": 1, "maxLength": 160},
+          "title": {"type": ["string", "null"], "maxLength": 96},
+          "title_state": {"enum": ["available", "missing", "withheld"]},
+          "title_locale": {"type": ["string", "null"], "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"},
+          "title_by_locale": {"type": "object", "maxProperties": 8, "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 96}},
+          "lifecycle_state": {"type": "string"},
+          "group": {"enum": ["active", "attention", "paused", "completed"]},
+          "first_observed_at": {"type": ["string", "null"]},
+          "last_observed_at": {"type": ["string", "null"]},
+          "ambiguity": {"type": "boolean"},
+          "evidence_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+          "lifecycle_group": {"type": "object"},
+          "thread_metadata_state": {"enum": ["available", "missing", "unknown", "invalid"]},
+          "relation_state": {"enum": ["complete", "deferred", "missing", "unknown", "invalid"]},
+          "ambiguity_state": {"enum": ["present", "none"]},
+          "redacted_fields": {"type": "array", "items": {"type": "string"}},
+          "item_digest": {"type": ["string", "null"]},
+          "identity": {"type": "object"},
+          "source_records": {"type": "array", "items": {"type": "object"}},
+          "observations": {"type": "array", "items": {"type": "object"}}
+        },
+        "additionalProperties": false
+      }
+    },
+    "counts_by_group": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "pagination": {
+      "type": "object",
+      "required": ["mode", "cursor", "next_cursor", "complete"],
+      "properties": {
+        "mode": {"enum": ["snapshot", "opaque_cursor", "immutable_snapshot", "federated"]},
+        "cursor": {"type": ["string", "null"], "maxLength": 512},
+        "next_cursor": {"type": ["string", "null"], "maxLength": 512},
+        "complete": {"type": "boolean"},
+        "complete_for_query": {"type": "boolean"},
+        "page_size": {"type": "integer", "minimum": 1},
+        "supports_immutable_snapshot": {"type": "boolean"},
+        "pages_read": {"type": "integer", "minimum": 0},
+        "sources": {"type": "object"}
+      },
+      "allOf": [{"if": {"properties": {"mode": {"const": "snapshot"}}}, "then": {"properties": {"cursor": {"const": null}, "next_cursor": {"const": null}}}}],
+      "additionalProperties": false
+    },
+    "omissions": {"type": "object"},
+    "privacy": {"type": "object"},
+    "evidence_refs": {"type": "array"},
+    "diagnostics": {"type": "array", "items": {"type": "string"}},
+    "claim_limit": {"type": "string"}
+  },
+  "additionalProperties": false
+}

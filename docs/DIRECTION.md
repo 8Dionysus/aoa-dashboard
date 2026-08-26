@@ -19,7 +19,8 @@ record absent and continue using derived observations.
 ## Stop-lines
 
 - Do not create `aoa-goals`.
-- Do not let dashboard config create owner authority or canonical bindings.
+- Do not let the reusable bootstrap or dashboard config create owner authority
+  or canonical facts; consume only a selected owner-qualified binding.
 - Do not wake, branch, approve, execute, or select a winner from the UI.
 - Do not treat absent producer coverage as zero.
 - Do not call local tests, GitHub landing, or registry presence live admission.

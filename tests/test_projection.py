@@ -16,6 +16,7 @@ from aoa_dashboard.projection import _lifecycle, build_projection, load_config  
 from aoa_dashboard.correlation import observe_current_correlation  # noqa: E402
 from aoa_dashboard.cursor import observations_from_correlation, rebuild_goal_local_projection  # noqa: E402
 from aoa_dashboard.activity import observe_actor_activity  # noqa: E402
+from aoa_dashboard.participant_context import project_participant_context  # noqa: E402
 from aoa_dashboard.sources import observe_session  # noqa: E402
 from aoa_dashboard.wake_receipts import (  # noqa: E402
     CODEX_WAKE_CANDIDATE_ONLY_AUTHORITY,
@@ -37,6 +38,7 @@ CORRELATION_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "contracts" / "c
 CORRELATION_SCHEMA_VALIDATOR = Draft202012Validator(
     json.loads(CORRELATION_SCHEMA_PATH.read_text(encoding="utf-8"))
 )
+DEMO_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "demo" / "first-slice.json"
 from aoa_dashboard.sources import observe_goal  # noqa: E402
 from aoa_dashboard.source_binding import read_file_snapshot  # noqa: E402
 
@@ -90,11 +92,17 @@ class ProjectionFixture:
         self.actor_manifest.write_text("{}", encoding="utf-8")
 
     def config(self) -> dict:
-        config = copy.deepcopy(load_config())
+        config = copy.deepcopy(load_config(DEMO_CONFIG_PATH))
         config.update(
             {
                 "goal_id": "test-goal",
                 "title": "Test goal",
+                "owner_goal_source": {"enabled": False},
+                "goal_topology_source": {"enabled": False},
+                "parent_posture": "paused",
+                "goal_catalog_source": {
+                    "path": str(self.root / "goal-catalog.json"),
+                },
                 "goal_anchor_path": str(self.anchor),
                 "goal_anchor_expected_sha256": hashlib.sha256(self.anchor.read_bytes()).hexdigest(),
                 "historical_bootstrap": {
@@ -249,6 +257,17 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(steps["returned"], "missing")
         self.assertEqual(steps["reviewed"], "missing")
         self.assertEqual(steps["accepted"], "missing")
+
+    def test_human_presentation_is_separate_from_canonical_projection_values(self) -> None:
+        projection = build_projection(self._write_config())
+        presentation = projection["presentation"]
+        self.assertEqual(presentation["schema_version"], "aoa_dashboard_human_presentation_v1")
+        self.assertEqual(projection["goal"]["title"], "Test goal")
+        self.assertIn("D4", presentation["directions"])
+        self.assertIn("en", presentation["directions"]["D4"]["title"])
+        self.assertIn("ru", presentation["directions"]["D4"]["title"])
+        self.assertIn("pressure:d4:cursor-conflict-retention", presentation["pressures"])
+        self.assertEqual(presentation["participants"]["roles"]["external_codex_incarnation"]["en"], "Working agent")
 
     def test_invalid_json_source_is_invalid(self) -> None:
         self.fixture.stats.write_text("{not-json", encoding="utf-8")
@@ -419,6 +438,14 @@ class CorrelationAdapterTests(unittest.TestCase):
         messages = [f"{list(error.path)}: {error.message}" for error in errors]
         self.assertEqual([], messages, "\n".join(messages))
 
+    def _owner_context(self) -> dict:
+        return {
+            "state": "bound",
+            "goal_ref": {"thread_id": self.fixture.thread, "owner": "codex-app-server"},
+            "goal_projection": {"state": "bound"},
+            "thread": {"state": "bound", "thread": {"thread_id": self.fixture.thread}},
+        }
+
     def test_positive_real_task_local_shape_is_reentered_only_by_turn_and_filter(self) -> None:
         result = observe_current_correlation(self.fixture.config())
         self.assertIn(result["state"], {"bound", "deferred"})
@@ -475,7 +502,7 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertIsNone(rebuilt["cursor"]["source_collisions"][0]["winner"])
 
     def test_current_real_receipt_directory_is_bound_when_available(self) -> None:
-        config = load_config()
+        config = load_config(DEMO_CONFIG_PATH)
         current = config["current_correlation"]
         if not Path(current["task_local_dir"]).is_dir():
             self.skipTest("task-local receipt directory is not present")
@@ -620,7 +647,21 @@ class CorrelationAdapterTests(unittest.TestCase):
                 "name": "Luna",
                 "kind": "external_codex_incarnation",
                 "session_id": "session-alpha",
+                "model": "gpt-5.6-luna:max",
+                "responsibility": "Review the Goal catalog integration",
             },
+            "identity": {
+                "name": "Luna",
+                "display_name": "Luna owner label",
+                "role_name": "Independent read-model holder",
+            },
+            "task": {"ref": "aoa-task:catalog", "title": "Review the Goal catalog integration"},
+            "model_realization": {
+                "model_identity_ref": "aoa-models:model:gpt",
+                "model_realization_ref": "aoa-models:realization:gpt",
+                "runtime_subject": {"kind": "model", "source": "runtime:subject", "digest": "c" * 64},
+            },
+            "relationships": {"parent_thread_id": self.fixture.thread, "branch_ref": "dag:GS31"},
             "runtime": {
                 "incarnation": "incarnation:alpha",
                 "process_pid": 731,
@@ -663,10 +704,18 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(activity["state"], "deferred")
         self.assertEqual(activity["summary"]["actor_count"], 2)
         self.assertEqual(activity["summary"]["with_usage"], 1)
+        self.assertEqual(activity["summary"]["with_task"], 1)
         alpha = next(item for item in activity["actors"] if item["identity"]["incarnation_id"] == "incarnation:alpha")
         secondary_view = next(item for item in activity["actors"] if item["actor_key"] == "return:secondary")
         self.assertEqual(alpha["identity"]["label"], "Luna")
         self.assertEqual(alpha["identity"]["role_id"], "external_codex_incarnation")
+        self.assertEqual(alpha["identity"]["model_id"], "gpt-5.6-luna:max")
+        self.assertEqual(alpha["identity"]["display_name"], "Luna owner label")
+        self.assertEqual(alpha["identity"]["role_name"], "Independent read-model holder")
+        self.assertEqual(alpha["task"]["summary"], "Review the Goal catalog integration")
+        self.assertEqual(alpha["task"]["task_ref"], "aoa-task:catalog")
+        self.assertEqual(alpha["model_realization"]["state"], "observed")
+        self.assertEqual(alpha["relationships"]["items"]["branch_ref"], "dag:GS31")
         self.assertEqual(alpha["responsibility"]["holder"], "independent Luna Max implementation holder")
         self.assertEqual(alpha["process"]["process_id"], "731")
         self.assertEqual(alpha["session"]["session_id"], "session-alpha")
@@ -701,6 +750,64 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(malformed_view["state"], "invalid")
         self.assertEqual(malformed_view["payload_state"], "invalid")
         self.assertNotEqual(malformed_view["usage"]["state"], "observed")
+
+    def test_real_invalid_activity_output_remains_invalid_in_participant_projection(self) -> None:
+        self.fixture._write_valid(handoff_thread="other-thread")
+        correlation = observe_current_correlation(self.fixture.config())
+        self.assertEqual(correlation["state"], "invalid")
+        activity = observe_actor_activity(self.fixture.config(), correlation)
+        self.assertEqual(activity["metadata"]["state"], "invalid")
+        projected = project_participant_context(activity["metadata"], self._owner_context())
+        self.assertEqual(projected["state"], "invalid")
+        self.assertEqual(projected["participants"], [])
+        self.assertEqual(projected["summary"]["participant_count"], None)
+        self.assertEqual(projected["summary"]["aggregate_count"], 1)
+        self.assertIn("participant_actor_correlation_invalid", projected["diagnostics"])
+
+    def test_real_activity_stale_freshness_reaches_all_participant_dimensions(self) -> None:
+        primary = {
+            "schema_version": "test_handoff_v1",
+            "master_thread_id": self.fixture.thread,
+            "responsibility_state": {
+                "state": "returned_pending_review",
+                "holder": "independent Luna Max implementation holder",
+            },
+            "actor": {
+                "name": "Luna",
+                "kind": "external_codex_incarnation",
+                "session_id": "session-alpha",
+                "model": "gpt-5.6-luna:max",
+                "responsibility": "Repair owner/activity/participant quality propagation",
+            },
+            "runtime": {
+                "incarnation": "incarnation:alpha",
+                "process_pid": 731,
+                "terminal_wake_state_before_command": "pending",
+            },
+            "return_summary": {"usage_observation": {"status": "complete"}},
+        }
+        self.fixture._write_json(self.fixture.handoff, primary)
+        handoff_digest = hashlib.sha256(self.fixture.handoff.read_bytes()).hexdigest()
+        wake = json.loads(self.fixture.wake.read_text(encoding="utf-8"))
+        wake["handoff_sha256"] = handoff_digest
+        self.fixture._write_json(self.fixture.wake, wake)
+        self.fixture._write_filter(handoff_digest)
+
+        correlation = observe_current_correlation(self.fixture.config())
+        correlation["freshness"] = "stale"
+        activity = observe_actor_activity(self.fixture.config(), correlation)
+        activity_metadata = activity["metadata"]
+        self.assertEqual(activity_metadata["freshness"], "stale")
+        projected = project_participant_context(activity_metadata, self._owner_context())
+        participant = projected["participants"][0]
+        self.assertEqual(participant["dimension_states"], {
+            "identity": "stale",
+            "task_context": "stale",
+            "model_realization": "stale",
+            "runtime_evidence": "stale",
+        })
+        self.assertEqual(participant["quality"], "stale")
+        self.assertEqual(projected["state"], "stale")
 
     def _assert_v1_candidate_only(self, owner_binding: dict | None = None) -> dict:
         self.fixture._write_codex_v1()
@@ -825,6 +932,20 @@ class CorrelationAdapterTests(unittest.TestCase):
         self.assertEqual(envelope["state"], "invalid")
         self._assert_schema_valid(envelope)
         self.assertTrue(any("master_thread_id mismatch" in item for item in envelope["return_observation"]["errors"]))
+
+    def test_duplicate_json_member_in_correlation_filter_is_invalid_without_source_content(self) -> None:
+        raw = self.fixture.filter.read_text(encoding="utf-8").replace(
+            f'"master_thread_id":"{self.fixture.thread}"',
+            f'"master_thread_id":"{self.fixture.thread}","master_thread_id":"secret-correlation-value"',
+            1,
+        )
+        self.fixture.filter.write_text(raw, encoding="utf-8")
+
+        result = observe_current_correlation(self.fixture.config())
+
+        self.assertEqual(result["state"], "invalid")
+        self.assertNotIn("secret-correlation-value", json.dumps(result))
+        self.assertEqual(result["metadata"]["envelopes"], [])
 
     def test_v1_digest_mismatch_is_invalid(self) -> None:
         payload = self.fixture._write_codex_v1()
