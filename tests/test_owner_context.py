@@ -4,6 +4,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from jsonschema import Draft202012Validator
 
@@ -79,6 +80,14 @@ class ContextRpc:
 
 
 class OwnerContextTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.socket_discovery = patch(
+            "aoa_dashboard.owner_context.discover_control_socket",
+            return_value=Path("/run/user/test/app-server-control.sock"),
+        )
+        self.socket_discovery.start()
+        self.addCleanup(self.socket_discovery.stop)
+
     def config(self, *, thread_enabled: bool = True) -> dict:
         return {
             "owner_goal_source": {"enabled": True},
