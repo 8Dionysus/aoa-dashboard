@@ -11,6 +11,8 @@
   paginated `thread/list` is followed by exact `thread/goal/get` reads, then
   federated with historical `aoa-session-memory` navigation while retaining
   per-source provenance, currentness, lifecycle observations, and failures.
+- Added owner-bounded Goal Space context, topology, participant, and master
+  frontier projections with reusable runtime binding and human-safe UI states.
 
 ### Validation
 
