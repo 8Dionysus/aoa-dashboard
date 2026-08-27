@@ -163,6 +163,7 @@ class RuntimeBindingTests(unittest.TestCase):
                     **self._owner("master-thread", "master_decision", "master_decision_disposition"),
                     "relative_path": "goal-space-wave/goal-space-dag.json",
                     "expected_schema_version": "aoa_dashboard_goal_space_task_dag_v1",
+                    "expected_sha256": hashlib.sha256(topology.read_bytes()).hexdigest(),
                 },
                 "catalog": {
                     **self._owner("aoa-session-memory", "source_owner", "source_owner_metadata"),
@@ -536,6 +537,7 @@ class RuntimeBindingTests(unittest.TestCase):
             encoding="utf-8",
         )
         payload_a["sources"]["topology"]["relative_path"] = borrowed_topology.name
+        payload_a["sources"]["topology"]["expected_sha256"] = hashlib.sha256(borrowed_topology.read_bytes()).hexdigest()
         payload_a["sources"]["pressure"]["path"] = payload_b["sources"]["pressure"]["path"]
         binding_a.write_text(json.dumps(payload_a), encoding="utf-8")
 

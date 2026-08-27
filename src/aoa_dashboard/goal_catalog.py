@@ -208,6 +208,19 @@ def _command_snapshot(publication: dict[str, Any], *, cursor: str | None = None)
         return FileSnapshot(evidence_path, None, None, None, "invalid", publication.get("expected_sha256"), None, str(exc), observed_at)
     raw = completed.stdout if isinstance(completed.stdout, bytes) else b""
     digest = hashlib.sha256(raw).hexdigest()
+    if completed.returncode != 0:
+        bounded_raw = raw[:MAX_PUBLICATION_BYTES]
+        return FileSnapshot(
+            evidence_path,
+            bounded_raw,
+            digest,
+            None,
+            "unknown",
+            publication.get("expected_sha256"),
+            None,
+            "publication command failed",
+            observed_at,
+        )
     if len(raw) > MAX_PUBLICATION_BYTES:
         return FileSnapshot(evidence_path, raw[:MAX_PUBLICATION_BYTES], digest, None, "invalid", publication.get("expected_sha256"), None, "publication output exceeded limit", observed_at)
     parsed: Any = None
@@ -775,6 +788,8 @@ def _observe_public_catalog(
         return _empty("missing", "publisher_missing", evidence_refs=evidence_refs)
     if first_snapshot.currentness == "stale":
         return _empty("stale", "publisher_stale", evidence_refs=evidence_refs)
+    if first_snapshot.currentness == "unknown":
+        return _empty("unknown", "publisher_command_failed", evidence_refs=evidence_refs)
     if first_snapshot.currentness == "invalid" or not isinstance(first_snapshot.parsed, dict):
         return _empty("invalid", "publisher_unreadable", evidence_refs=evidence_refs)
     try:
@@ -804,6 +819,9 @@ def _observe_public_catalog(
         )
         evidence_refs.append(page_ref)
         if snapshot.currentness != "current_at_read" or not isinstance(snapshot.parsed, dict):
+            if snapshot.currentness in {"missing", "stale", "unknown"}:
+                reason = "publisher_page_command_failed" if snapshot.currentness == "unknown" else "publisher_page_unreadable"
+                return _empty(snapshot.currentness, reason, evidence_refs=evidence_refs)
             return _empty("invalid", "publisher_page_unreadable", evidence_refs=evidence_refs)
         try:
             page = _validate_public_page(snapshot.parsed)
@@ -864,6 +882,8 @@ def observe_historical_goal_catalog(config: dict[str, Any]) -> dict[str, Any]:
         return _empty("missing", "publisher_missing", evidence_refs=[base_ref])
     if snapshot.currentness == "stale":
         return _empty("stale", "publisher_stale", evidence_refs=[base_ref])
+    if snapshot.currentness == "unknown":
+        return _empty("unknown", "publisher_command_failed", evidence_refs=[base_ref])
     if snapshot.currentness == "invalid" or not isinstance(snapshot.parsed, dict):
         return _empty("invalid", "publisher_unreadable", evidence_refs=[base_ref])
     payload = snapshot.parsed
@@ -1049,6 +1069,8 @@ def observe_goal_projection(
         return _empty_goal_projection(goal_ref, "missing", "per_goal_publisher_missing", evidence_refs=[evidence])
     if snapshot.currentness == "stale":
         return _empty_goal_projection(goal_ref, "stale", "per_goal_publisher_stale", evidence_refs=[evidence])
+    if snapshot.currentness == "unknown":
+        return _empty_goal_projection(goal_ref, "unknown", "per_goal_publisher_command_failed", evidence_refs=[evidence])
     if snapshot.currentness == "invalid" or not isinstance(snapshot.parsed, dict):
         return _empty_goal_projection(goal_ref, "invalid", "per_goal_publisher_unreadable", evidence_refs=[evidence])
     payload = snapshot.parsed
