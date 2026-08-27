@@ -214,6 +214,37 @@ class GoalContextConsumerTests(unittest.TestCase):
         config = {"goal_context_sources": {"thread_board": {"owner": "aoa-session-memory", "path": str(path), "expected_sha256": "0" * 64}}}
         self.assertEqual(observe_goal_context(config, goal_ref=GOAL, master_thread_id=THREAD)["thread_board"]["state"], "stale")
 
+    def test_failed_publication_command_is_unknown_and_items_are_empty(self) -> None:
+        script = self.root / "failing-thread-board.py"
+        payload = board_payload()
+        script.write_text(
+            "import json, sys\n"
+            f"print({json.dumps(payload, ensure_ascii=False)!r})\n"
+            "raise SystemExit(1)\n",
+            encoding="utf-8",
+        )
+        observed = observe_goal_context(
+            {
+                "goal_context_sources": {
+                    "thread_board": {
+                        "owner": "aoa-session-memory",
+                        "owner_commit": THREAD_OWNER_COMMIT,
+                        "publication": {
+                            "capability": "aoa-session-memory.goal-thread-board.read",
+                            "command": [sys.executable, str(script)],
+                            "goal_ref_arg": "--goal-ref",
+                        },
+                    }
+                }
+            },
+            goal_ref=GOAL,
+            master_thread_id=THREAD,
+        )
+
+        self.assertEqual(observed["thread_board"]["state"], "unknown")
+        self.assertEqual(observed["thread_board"]["items"], [])
+        self.assertIn("source_read_invalid", observed["thread_board"]["diagnostics"])
+
     def test_deferred_graph_and_missing_scope_are_human_negative_states(self) -> None:
         deferred = graph_payload(state="deferred")
         observed = observe_goal_context(self.config(board_payload(), deferred), goal_ref=GOAL, master_thread_id=THREAD)

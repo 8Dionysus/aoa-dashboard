@@ -118,6 +118,36 @@ class OwnerContextTests(unittest.TestCase):
         self.assertEqual(initialize["capabilities"], {"experimentalApi": True})
         self.assertTrue(all(ref["currentness"] == "current_at_read" for ref in observed["evidence_refs"]))
 
+    def test_distinct_goal_and_thread_sockets_use_distinct_rpc_clients(self) -> None:
+        goal_socket = Path("/run/user/test/goal-control.sock")
+        thread_socket = Path("/run/user/test/thread-control.sock")
+        instances: list[ContextRpc] = []
+
+        class DistinctRpc(ContextRpc):
+            def __init__(self, path: Path) -> None:
+                super().__init__(path)
+                self.path = path
+                instances.append(self)
+
+        def discover(_config: dict, *, source_key: str = "owner_goal_source") -> Path:
+            return goal_socket if source_key == "owner_goal_source" else thread_socket
+
+        with patch("aoa_dashboard.owner_context.discover_control_socket", side_effect=discover):
+            observed = observe_codex_goal_context(self.config(), rpc_factory=DistinctRpc)
+
+        self.assertEqual(observed["state"], "bound")
+        self.assertEqual([instance.path for instance in instances], [goal_socket, thread_socket])
+        self.assertEqual(
+            [method for method, _params in instances[0].calls],
+            ["initialize", "initialized", "thread/goal/get"],
+        )
+        self.assertEqual(
+            [method for method, _params in instances[1].calls],
+            ["initialize", "initialized", "thread/read", "thread/list", "thread/list"],
+        )
+        self.assertEqual(observed["goal_projection"]["source"]["socket_path"], str(goal_socket))
+        self.assertEqual(observed["thread"]["source"]["socket_path"], str(thread_socket))
+
     def test_two_synthetic_goal_identities_bind_without_source_changes(self) -> None:
         for synthetic_thread in (THREAD, "thread:synthetic-two"):
             synthetic_goal = {
