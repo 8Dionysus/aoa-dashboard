@@ -216,7 +216,7 @@ def observe_goal_topology(config: dict[str, Any]) -> dict[str, Any]:
     expected_digest = binding.get("expected_sha256")
     snapshot = read_file_snapshot(
         path,
-        expected_digest=expected_digest if isinstance(expected_digest, str) else None,
+        expected_digest=expected_digest,
         parser="json",
     )
     evidence = snapshot_ref(
@@ -235,6 +235,22 @@ def observe_goal_topology(config: dict[str, Any]) -> dict[str, Any]:
         return _empty("stale", "topology_source_stale", evidence)
     if snapshot.currentness == "invalid" or not isinstance(snapshot.parsed, dict):
         return _empty("invalid", "topology_source_invalid", evidence)
+    if expected_digest is None:
+        evidence = snapshot_ref(
+            snapshot,
+            label="Current Goal topology",
+            kind="goal_topology_snapshot",
+            owner="master-thread",
+            access_scope="owner_bounded",
+            authority="master_decision",
+            claim_policy="master_decision_disposition",
+            claim_limit="Master-owned task-local planning topology; no node is proof, acceptance or runtime health.",
+            currentness_override="deferred",
+            freshness_override="deferred",
+            extra_degradation=["currentness_attestation"],
+            extra_missing_fields=["currentness_attestation"],
+        )
+        return _empty("deferred", "topology_currentness_attestation_missing", evidence)
     payload = snapshot.parsed
     try:
         correlation = config.get("current_correlation")

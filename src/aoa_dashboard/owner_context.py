@@ -141,9 +141,10 @@ def _evidence(
     observed_at: str,
     query: dict[str, Any],
     claim_limit: str = THREAD_CLAIM_LIMIT,
+    socket_path: str | None = None,
 ) -> dict[str, Any]:
     query_value = "&".join(f"{key}={value}" for key, value in sorted(query.items()))
-    return {
+    result = {
         "label": f"Codex {method}",
         "kind": "owner_api_observation",
         "ref": f"codex-app-server:{method}:{thread_id}",
@@ -156,6 +157,9 @@ def _evidence(
         "currentness": "current_at_read",
         "claim_limit": claim_limit,
     }
+    if socket_path is not None:
+        result["socket_path"] = socket_path
+    return result
 
 
 def _thread(value: Any, expected_thread_id: str | None = None) -> dict[str, Any]:
@@ -231,7 +235,13 @@ def _empty_relation(state: str, reason: str, *, thread_id: str, query_kind: str,
     }
 
 
-def _goal_projection(goal: dict[str, Any], thread_id: str, observed_at: str) -> dict[str, Any]:
+def _goal_projection(
+    goal: dict[str, Any],
+    thread_id: str,
+    observed_at: str,
+    *,
+    socket_path: str | None = None,
+) -> dict[str, Any]:
     source_ref = f"codex-app-server:thread/goal/get:{thread_id}"
     evidence = _evidence(
         method="thread/goal/get",
@@ -239,6 +249,7 @@ def _goal_projection(goal: dict[str, Any], thread_id: str, observed_at: str) -> 
         observed_at=observed_at,
         query={"threadId": thread_id},
         claim_limit="Exact Goal state returned for this thread at projection read time.",
+        socket_path=socket_path,
     )
     return {
         "schema_version": GOAL_SCHEMA,
@@ -253,6 +264,7 @@ def _goal_projection(goal: dict[str, Any], thread_id: str, observed_at: str) -> 
             "transport": "websocket_unix",
             "query": {"threadId": thread_id},
             "currentness": "current_at_read",
+            **({"socket_path": socket_path} if socket_path is not None else {}),
         },
         "evidence_refs": [evidence],
         "diagnostics": [],
@@ -267,6 +279,7 @@ def _relation_page(
     query_key: str,
     relation_kind: str,
     observed_at: str,
+    socket_path: str | None = None,
 ) -> dict[str, Any]:
     query = {query_key: thread_id}
     result = rpc.call("thread/list", query)
@@ -282,6 +295,7 @@ def _relation_page(
         observed_at=observed_at,
         query=query,
         claim_limit=RELATION_CLAIM_LIMIT,
+        socket_path=socket_path,
     )
     complete = next_cursor is None
     return {
@@ -300,11 +314,98 @@ def _relation_page(
             "transport": "websocket_unix",
             "query": query,
             "currentness": "current_at_read",
+            **({"socket_path": socket_path} if socket_path is not None else {}),
         },
         "evidence_refs": [evidence],
         "diagnostics": [] if complete else ["owner_thread_relation_pagination_incomplete"],
         "claim_limit": RELATION_CLAIM_LIMIT,
     }
+
+
+def _initialize_rpc(rpc: Any) -> None:
+    rpc.call(
+        "initialize",
+        {
+            "clientInfo": {
+                "name": "aoa_dashboard",
+                "title": "AoA Dashboard read-only Goal and Thread projection",
+                "version": "1",
+            },
+            "capabilities": {"experimentalApi": True},
+        },
+    )
+    rpc.notify("initialized")
+
+
+def _thread_observations(
+    rpc: Any,
+    *,
+    thread_id: str,
+    observed_at: str,
+    socket_path: str,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]], list[dict[str, Any]], list[str]]:
+    diagnostics: list[str] = []
+    sources: list[dict[str, Any]] = []
+    try:
+        thread_result = rpc.call("thread/read", {"threadId": thread_id, "includeTurns": False})
+        thread = _thread(thread_result.get("thread") if isinstance(thread_result, dict) else None, thread_id)
+        thread_evidence = _evidence(
+            method="thread/read",
+            thread_id=thread_id,
+            observed_at=observed_at,
+            query={"threadId": thread_id, "includeTurns": False},
+            socket_path=socket_path,
+        )
+        thread_view = {
+            "state": "bound",
+            "currentness": "current_at_read",
+            "thread_id": thread_id,
+            "thread": thread,
+            "source": {
+                "owner": "codex-app-server",
+                "method": "thread/read",
+                "transport": "websocket_unix",
+                "query": {"threadId": thread_id, "includeTurns": False},
+                "currentness": "current_at_read",
+                "socket_path": socket_path,
+            },
+            "evidence_refs": [thread_evidence],
+            "diagnostics": [],
+            "claim_limit": THREAD_CLAIM_LIMIT,
+        }
+        sources.append(thread_evidence)
+    except (CodexGoalUnavailable, OSError, TimeoutError) as exc:
+        diagnostics.append(str(exc) or "owner_thread_read_unavailable")
+        thread_view = _empty_thread("invalid" if "mismatch" in str(exc) else "unknown", str(exc), thread_id=thread_id)
+
+    relations: dict[str, dict[str, Any]] = {}
+    for relation_kind, query_key in (
+        ("spawn_parent", "parentThreadId"),
+        ("history_fork", "ancestorThreadId"),
+    ):
+        try:
+            relation = _relation_page(
+                rpc,
+                thread_id=thread_id,
+                query_key=query_key,
+                relation_kind=relation_kind,
+                observed_at=observed_at,
+                socket_path=socket_path,
+            )
+            relations[relation_kind] = relation
+            sources.extend(relation["evidence_refs"])
+            diagnostics.extend(relation["diagnostics"])
+        except (CodexGoalUnavailable, OSError, TimeoutError) as exc:
+            relation = _empty_relation(
+                "invalid" if "invalid" in str(exc) or "mismatch" in str(exc) else "unknown",
+                str(exc),
+                thread_id=thread_id,
+                query_kind=query_key,
+                relation_kind=relation_kind,
+            )
+            relations[relation_kind] = relation
+            diagnostics.extend(relation["diagnostics"])
+    return thread_view, relations, sources, diagnostics
 
 
 def _context_empty(state: str, reason: str, *, thread_id: str | None) -> dict[str, Any]:
@@ -350,22 +451,16 @@ def observe_codex_goal_context(
 
     observed_at = _now()
     try:
-        endpoint = discover_control_socket(config)
-        with rpc_factory(endpoint) as rpc:
-            rpc.call(
-                "initialize",
-                {
-                    "clientInfo": {
-                        "name": "aoa_dashboard",
-                        "title": "AoA Dashboard read-only Goal and Thread projection",
-                        "version": "1",
-                    },
-                    "capabilities": {"experimentalApi": True},
-                },
+        goal_endpoint = discover_control_socket(config, source_key="owner_goal_source")
+        with rpc_factory(goal_endpoint) as goal_rpc:
+            _initialize_rpc(goal_rpc)
+            goal = _validate_goal(goal_rpc.call("thread/goal/get", {"threadId": thread_id}), thread_id)
+            goal_projection = _goal_projection(
+                goal,
+                thread_id,
+                observed_at,
+                socket_path=str(goal_endpoint),
             )
-            rpc.notify("initialized")
-            goal = _validate_goal(rpc.call("thread/goal/get", {"threadId": thread_id}), thread_id)
-            goal_projection = _goal_projection(goal, thread_id, observed_at)
             diagnostics: list[str] = []
             sources: list[dict[str, Any]] = list(goal_projection["evidence_refs"])
 
@@ -387,62 +482,43 @@ def observe_codex_goal_context(
                 }
             else:
                 try:
-                    thread_result = rpc.call("thread/read", {"threadId": thread_id, "includeTurns": False})
-                    thread = _thread(thread_result.get("thread") if isinstance(thread_result, dict) else None, thread_id)
-                    thread_evidence = _evidence(
-                        method="thread/read",
-                        thread_id=thread_id,
-                        observed_at=observed_at,
-                        query={"threadId": thread_id, "includeTurns": False},
-                    )
-                    thread_view = {
-                        "state": "bound",
-                        "currentness": "current_at_read",
-                        "thread_id": thread_id,
-                        "thread": thread,
-                        "source": {
-                            "owner": "codex-app-server",
-                            "method": "thread/read",
-                            "transport": "websocket_unix",
-                            "query": {"threadId": thread_id, "includeTurns": False},
-                            "currentness": "current_at_read",
-                        },
-                        "evidence_refs": [thread_evidence],
-                        "diagnostics": [],
-                        "claim_limit": THREAD_CLAIM_LIMIT,
-                    }
-                    sources.append(thread_evidence)
-                except (CodexGoalUnavailable, OSError, TimeoutError) as exc:
-                    diagnostics.append(str(exc) or "owner_thread_read_unavailable")
-                    thread_view = _empty_thread("invalid" if "mismatch" in str(exc) else "unknown", str(exc), thread_id=thread_id)
-
-                relations = {}
-                relation_queries = (
-                    ("spawn_parent", "parentThreadId"),
-                    ("history_fork", "ancestorThreadId"),
-                )
-                for relation_kind, query_key in relation_queries:
-                    try:
-                        relation = _relation_page(
-                            rpc,
+                    thread_endpoint = discover_control_socket(config, source_key="owner_thread_source")
+                    if thread_endpoint == goal_endpoint:
+                        thread_view, relations, thread_sources, thread_diagnostics = _thread_observations(
+                            goal_rpc,
                             thread_id=thread_id,
-                            query_key=query_key,
-                            relation_kind=relation_kind,
                             observed_at=observed_at,
+                            socket_path=str(thread_endpoint),
                         )
-                        relations[relation_kind] = relation
-                        sources.extend(relation["evidence_refs"])
-                        diagnostics.extend(relation["diagnostics"])
-                    except (CodexGoalUnavailable, OSError, TimeoutError) as exc:
-                        relation = _empty_relation(
-                            "invalid" if "invalid" in str(exc) or "mismatch" in str(exc) else "unknown",
-                            str(exc),
+                    else:
+                        with rpc_factory(thread_endpoint) as thread_rpc:
+                            _initialize_rpc(thread_rpc)
+                            thread_view, relations, thread_sources, thread_diagnostics = _thread_observations(
+                                thread_rpc,
+                                thread_id=thread_id,
+                                observed_at=observed_at,
+                                socket_path=str(thread_endpoint),
+                            )
+                    sources.extend(thread_sources)
+                    diagnostics.extend(thread_diagnostics)
+                except (CodexGoalUnavailable, OSError, TimeoutError) as exc:
+                    reason = str(exc) or "owner_thread_source_unavailable"
+                    diagnostics.append(reason)
+                    state = "invalid" if "invalid" in reason or "mismatch" in reason else "unknown"
+                    thread_view = _empty_thread(state, reason, thread_id=thread_id)
+                    relations = {
+                        relation_kind: _empty_relation(
+                            state,
+                            reason,
                             thread_id=thread_id,
                             query_kind=query_key,
                             relation_kind=relation_kind,
                         )
-                        relations[relation_kind] = relation
-                        diagnostics.extend(relation["diagnostics"])
+                        for relation_kind, query_key in (
+                            ("spawn_parent", "parentThreadId"),
+                            ("history_fork", "ancestorThreadId"),
+                        )
+                    }
 
     except (OSError, TimeoutError, CodexGoalUnavailable) as exc:
         reason = str(exc) if str(exc).startswith("owner_") else "owner_transport_unavailable"

@@ -408,6 +408,10 @@ def _validate_source_map(payload: dict[str, Any], selected: dict[str, str]) -> d
 
     topology = _owner_descriptor(sources.get("topology"), "topology", expected_owner="master-thread")
     raw_topology = sources["topology"]
+    expected_topology_digest = _sha(
+        raw_topology.get("expected_sha256"),
+        "topology_expected_sha256",
+    )
     topology.update(
         {
             "enabled": True,
@@ -415,6 +419,8 @@ def _validate_source_map(payload: dict[str, Any], selected: dict[str, str]) -> d
             "expected_schema_version": _text(raw_topology.get("expected_schema_version"), "topology_schema", maximum=128),
         }
     )
+    if expected_topology_digest is not None:
+        topology["expected_sha256"] = expected_topology_digest
 
     catalog = _owner_descriptor(sources.get("catalog"), "catalog", expected_owner="aoa-session-memory")
     raw_catalog = sources["catalog"]

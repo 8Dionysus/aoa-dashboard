@@ -228,17 +228,27 @@ def _empty(state: str, reason: str, *, thread_id: str | None = None) -> dict[str
     }
 
 
-def discover_control_socket(config: dict[str, Any]) -> Path:
-    binding = config.get("owner_goal_source")
+def discover_control_socket(config: dict[str, Any], *, source_key: str = "owner_goal_source") -> Path:
+    binding = config.get(source_key)
     explicit = binding.get("socket_path") if isinstance(binding, dict) else None
     candidates: list[Path] = []
-    for value in (explicit, os.environ.get("AOA_DASHBOARD_CODEX_SOCKET")):
-        if isinstance(value, str) and value:
-            candidates.append(Path(value))
-    codex_home = os.environ.get("CODEX_HOME")
-    if codex_home:
-        candidates.append(Path(codex_home) / "app-server-control" / "app-server-control.sock")
-    candidates.append(Path.home() / ".codex" / "app-server-control" / "app-server-control.sock")
+    if isinstance(explicit, str) and explicit:
+        # An explicit source binding is authoritative.  Do not silently fall
+        # back to another socket when that source is unavailable.
+        candidates.append(Path(explicit))
+    else:
+        if source_key != "owner_goal_source":
+            goal_binding = config.get("owner_goal_source")
+            goal_explicit = goal_binding.get("socket_path") if isinstance(goal_binding, dict) else None
+            if isinstance(goal_explicit, str) and goal_explicit:
+                candidates.append(Path(goal_explicit))
+        environment_socket = os.environ.get("AOA_DASHBOARD_CODEX_SOCKET")
+        if isinstance(environment_socket, str) and environment_socket:
+            candidates.append(Path(environment_socket))
+        codex_home = os.environ.get("CODEX_HOME")
+        if codex_home:
+            candidates.append(Path(codex_home) / "app-server-control" / "app-server-control.sock")
+        candidates.append(Path.home() / ".codex" / "app-server-control" / "app-server-control.sock")
     for candidate in candidates:
         try:
             metadata = candidate.lstat()

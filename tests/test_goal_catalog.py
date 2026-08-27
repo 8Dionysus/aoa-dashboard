@@ -291,9 +291,9 @@ def test_public_negative_command_payload_is_preserved_fail_closed(tmp_path: Path
             }
         }
     )
-    assert result["state"] == "stale"
+    assert result["state"] == "unknown"
     assert result["items"] == []
-    assert result["source"]["currentness"] == "stale"
+    assert result["evidence_refs"][0]["currentness"] == "unknown"
     assert result["evidence_refs"][0]["ref"] == "capability:aoa-session-memory.goal-catalog.read"
 
 
@@ -425,3 +425,27 @@ def test_per_goal_projection_requires_catalog_membership_and_exact_owner_ref(tmp
     not_member = observe_goal_projection(config, "goal-not-in-catalog")
     assert not_member["state"] == "missing"
     assert not_member["diagnostics"] == ["selected_goal_not_in_catalog"]
+
+    script = tmp_path / "owner-goal-projection-failure.py"
+    script.write_text(
+        "import json, sys\n"
+        f"print({json.dumps(projection, ensure_ascii=False)!r})\n"
+        "raise SystemExit(1)\n",
+        encoding="utf-8",
+    )
+    failed = observe_goal_projection(
+        {
+            "goal_catalog_source": {"path": str(catalog_path)},
+            "goal_projection_source": {
+                "publication": {
+                    "capability": "aoa-session-memory.goal-projection.read",
+                    "command": [sys.executable, str(script)],
+                    "goal_ref_arg": "--goal-ref",
+                }
+            },
+        },
+        "goal-current",
+    )
+    assert failed["state"] == "unknown"
+    assert failed["public_items"] == []
+    assert failed["currentness"] == "unknown"
