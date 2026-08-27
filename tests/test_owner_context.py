@@ -241,6 +241,19 @@ class OwnerContextTests(unittest.TestCase):
         self.assertEqual(view["name"], "Bound Goal thread")
         self.assertEqual(view["model_provider"], "openai")
 
+    def test_current_typed_section_is_normalized_without_discarding_thread(self) -> None:
+        typed = thread(THREAD)
+        typed["section"] = {"id": "section:pinned", "name": "Pinned"}
+
+        class TypedSectionRpc(ContextRpc):
+            read = {"thread": typed}
+
+        observed = observe_codex_goal_context(self.config(), rpc_factory=TypedSectionRpc)
+        self.assertEqual(observed["state"], "bound")
+        view = observed["thread"]["thread"]
+        self.assertEqual(view["section"], "section:pinned")
+        self.assertEqual(view["section_name"], "Pinned")
+
     def test_goal_identity_mismatch_is_invalid_in_context_and_goal_projection(self) -> None:
         class MismatchGoalRpc(ContextRpc):
             goal = {"goal": {**ContextRpc.goal["goal"], "threadId": "other-thread"}}

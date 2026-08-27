@@ -62,6 +62,18 @@ def _boolean(value: Any, field: str) -> bool | None:
     return value
 
 
+def _section(value: Any) -> tuple[str | None, str | None]:
+    if value is None:
+        return None, None
+    if isinstance(value, str):
+        return _string(value, "section"), None
+    if not isinstance(value, dict):
+        raise CodexGoalUnavailable("owner_thread_section_invalid")
+    section_id = _string(value.get("id"), "section_id", required=True)
+    section_name = _string(value.get("name"), "section_name")
+    return section_id, section_name
+
+
 def _status(value: Any) -> tuple[str | None, dict[str, str] | None]:
     """Normalize the app-server's string and typed status shapes."""
 
@@ -161,7 +173,7 @@ def _thread(value: Any, expected_thread_id: str | None = None) -> dict[str, Any]
     name = _string(value.get("name"), "name")
     model_provider = _string(value.get("modelProvider"), "model_provider")
     history_mode = _string(value.get("historyMode"), "history_mode")
-    section = _string(value.get("section"), "section")
+    section, section_name = _section(value.get("section"))
     agent_nickname = _string(value.get("agentNickname"), "agent_nickname")
     agent_role = _string(value.get("agentRole"), "agent_role")
     if isinstance(source_detail, dict):
@@ -183,6 +195,7 @@ def _thread(value: Any, expected_thread_id: str | None = None) -> dict[str, Any]
         "model_provider": model_provider,
         "history_mode": history_mode,
         "section": section,
+        "section_name": section_name,
         "created_at": _integer(value.get("createdAt"), "created_at"),
         "updated_at": _integer(value.get("updatedAt"), "updated_at"),
         "recency_at": _integer(value.get("recencyAt"), "recency_at"),
