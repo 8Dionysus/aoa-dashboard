@@ -88,16 +88,8 @@ the dashboard's provenance, missingness, and claim limits are unchanged.
 
 ## Validation
 
-```text
-python3 scripts/validate_organ_contract.py
-python3 scripts/validate_default_binding.py
-python3 scripts/release_check.py
-python3 -m unittest discover -s tests -v
-for contract in contracts/*.json; do python3 -m json.tool "$contract" >/dev/null; done
-git diff --check
-```
-
-The same route is run by the `Repo Validation` GitHub workflow.
+Contributor verification is documented in [`VALIDATION.md`](VALIDATION.md).
+The same full route is run by the `Repo Validation` GitHub workflow.
 
 ## Owner and admission routes
 
