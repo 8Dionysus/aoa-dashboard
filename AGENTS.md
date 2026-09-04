@@ -14,3 +14,6 @@ The first slice is intentionally read-mostly and host-local. The configured
 paths are bindings to real sources, not fixtures. Missing publishers are
 reported as `missing` or `unknown`; a recent file timestamp is not proof of
 freshness, process health, return, review, or acceptance.
+
+When a change needs verification, select the smallest applicable route from
+[`VALIDATION.md`](VALIDATION.md). Do not preload it for ordinary navigation.
