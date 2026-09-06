@@ -22,5 +22,5 @@ where = ["src"]
 "share/applications" = ["packaging/org.aoa.AoaDashboard.desktop"]
 "share/icons/hicolor/scalable/apps" = ["packaging/icons/org.aoa.AoaDashboard.svg"]
 
-[tool.unittest]
+[tool.pytest.ini_options]
 testpaths = ["tests"]
