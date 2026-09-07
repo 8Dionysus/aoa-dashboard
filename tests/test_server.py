@@ -81,7 +81,7 @@ class ServerTests(unittest.TestCase):
                     self.assertEqual(summary["availability"], "present")
                     self.assertEqual(summary["count"], 0)
 
-                with patch.object(Path, "open", side_effect=PermissionError("state file denied")):
+                with patch("aoa_dashboard.state_store.os.open", side_effect=PermissionError("state file denied")):
                     for summary in (annotation_summary(), action_intent_summary()):
                         self.assertEqual(summary["state"], "unknown")
                         self.assertEqual(summary["availability"], "unavailable")

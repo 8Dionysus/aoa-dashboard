@@ -74,8 +74,25 @@ owns only the thin translation and presentation layer.
   of current state.
 - `aoa-stats`: measurement/source-coverage owner. The first slice consumes the
   source coverage JSON and registry, preserving `not_attested` freshness.
-- KAG: derived navigation/index owner. Its 2026-08-08 projection is retained
-  as a stale snapshot reference and cannot make current owner claims.
+- KAG: derived navigation/index owner. A configured digest alone is an
+  unverified reference with unknown currentness, not a readable or stale
+  snapshot. Historical dates remain instance data, not adapter defaults.
+
+Optional `sources.kag`, `sources.evals`, `sources.memo`, and
+`sources.runtime_health` runtime bindings select read-only owner snapshots.
+Each uses the existing owner descriptor plus `path`, `expected_schema_version`,
+and an optional `expected_sha256`. The adapter requires the response's `owner`
+and `schema_version` to match; a response carrying `goal_id` must match the
+selected Goal. It exposes only bounded status/date metadata and a hashed source
+ref. Missing bytes, access denied, invalid shape, stale digest, partial output,
+and unbound publisher remain distinct observations. Source roots are taken
+only from the selected `owner_surfaces`, never a machine path in Python.
+
+This generic adapter does not admit owner-specific proof, reviewed memory,
+runtime health, or Goal acceptance. A reported `current` state proves only
+snapshot presence here; freshness remains unknown and the owner-reported value
+stays separately labeled metadata. Stronger claims need their owner's semantic
+adapter and admission route.
 
 `config/bootstrap.json` contains only the reusable selection contract. The
 selected Goal, thread, topology, catalog, correlation, and pressure paths are

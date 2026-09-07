@@ -535,8 +535,8 @@ def build_projection(
         "state_inventory": state_inventory,
         "sources": safe_sources,
         "owner_surfaces": observe_owner_surfaces(config),
-        "annotations": annotation_summary(),
-        "action_intents": action_intent_summary(),
+        "annotations": annotation_summary(binding_path if binding_path is not None else config_path),
+        "action_intents": action_intent_summary(binding_path if binding_path is not None else config_path),
         "claim_limits": [
             *config.get("claim_limits", []),
             "The versioned Goal-local cursor is deterministic over canonical observations; cursor drift fails closed.",

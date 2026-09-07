@@ -36,6 +36,26 @@ class RuntimeBindingTests(unittest.TestCase):
             "claim_limit": "This owner source is read-only evidence and does not grant dashboard authority.",
         }
 
+    def test_optional_owner_snapshots_follow_the_selected_binding(self) -> None:
+        from aoa_dashboard.sources import observe_kag
+
+        for label, state in (("first", "stale"), ("second", "partial")):
+            path, binding = self._binding(label, f"goal:{label}", f"thread:{label}")
+            response = path.parent / "kag-snapshot.json"
+            response.write_text(json.dumps({
+                "schema_version": "fixture_kag_snapshot_v1", "owner": "aoa-kag", "state": state,
+            }))
+            binding["sources"]["kag"] = {
+                **self._owner("aoa-kag", "source_owner", "source_owner_metadata"),
+                "path": str(response), "expected_schema_version": "fixture_kag_snapshot_v1",
+            }
+            path.write_text(json.dumps(binding))
+            config = load_config(path)
+            self.assertEqual(config["runtime_binding_state"], "bound")
+            observation = observe_kag(config)
+            self.assertEqual(observation["publisher_status"], state)
+            self.assertEqual(observation["evidence_refs"][0]["ref"], str(response))
+
     def _binding(self, label: str, goal_id: str, thread_id: str) -> tuple[Path, dict]:
         task_root = self.root / label
         topology_dir = task_root / "goal-space-wave"

@@ -288,6 +288,7 @@ class FileSnapshot:
     parse_error: str | None
     read_error: str | None
     observed_at: str | None
+    read_error_kind: str | None = None
 
     @property
     def missing_fields(self) -> list[str]:
@@ -322,6 +323,8 @@ def read_file_snapshot(
         raw = source.read_bytes()
     except FileNotFoundError:
         return FileSnapshot(source, None, None, None, "missing", expected_digest, expected_error, "source is absent", observed_at)
+    except PermissionError as exc:
+        return FileSnapshot(source, None, None, None, "invalid", expected_digest, expected_error, str(exc), observed_at, "denied")
     except (OSError, UnicodeError) as exc:
         return FileSnapshot(source, None, None, None, "invalid", expected_digest, expected_error, str(exc), observed_at)
 
