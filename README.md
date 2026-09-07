@@ -59,7 +59,30 @@ python3 scripts/run_dashboard.py --host 127.0.0.1 --port 8765 \
 owner-qualified `aoa_dashboard_runtime_binding_v1` JSON document. The
 historical first-slice instance is available only through the explicit
 `config/demo/first-slice.json` path. Runtime records go to
-`AOA_DASHBOARD_STATE_ROOT` (default `/tmp/aoa-dashboard-state`).
+`AOA_DASHBOARD_STATE_ROOT` when explicitly configured. By default, annotations
+and non-executing intents live under
+`$XDG_STATE_HOME/aoa-dashboard/user-<uid>/workspaces/<workspace-hash>`
+(`~/.local/state` when XDG state is unset), not in temporary storage.
+The workspace is `AOA_DASHBOARD_WORKSPACE_ROOT` when the install profile sets
+it; otherwise it is the selected binding's directory, or the process working
+directory without a binding. Set the workspace variable for a stable namespace
+when moving binding files. Direct API callers can pass the same `binding_path`.
+Directories are private and files are user-owned; linked, shared-writable,
+non-regular, or wrong-owner state paths are refused.
+
+Legacy `/tmp/aoa-dashboard-state` data is never silently read, moved, or
+deleted. With the server stopped, explicitly copy it into the selected
+workspace namespace using:
+
+```text
+PYTHONPATH=src python3 -m aoa_dashboard.state_store migrate \
+  --from /tmp/aoa-dashboard-state --binding /path/to/owner-qualified-runtime-binding.json
+```
+
+The copy preserves source files and record identifiers, accepts an identical
+repeat, and refuses different existing destination records. Reconcile such
+records explicitly; do not erase a store to force migration. No migration is
+performed during startup or a read-model request.
 The correlation ledger and checkpoint paths are configured under
 `correlation_projection`; the HTTP read path does not create or mutate them.
 

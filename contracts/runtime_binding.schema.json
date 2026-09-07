@@ -42,6 +42,10 @@
         "historical": {"$ref": "#/$defs/historical_source"},
         "actor": {"$ref": "#/$defs/actor_source"},
         "stats": {"$ref": "#/$defs/stats_source"},
+        "kag": {"$ref": "#/$defs/observation_source"},
+        "evals": {"$ref": "#/$defs/observation_source"},
+        "memo": {"$ref": "#/$defs/observation_source"},
+        "runtime_health": {"$ref": "#/$defs/observation_source"},
         "goal_context": {"$ref": "#/$defs/goal_context_sources"}
       }
     },
@@ -184,6 +188,12 @@
       "allOf": [
         {"$ref": "#/$defs/source"},
         {"type": "object", "required": ["path", "registry_path", "freshness_status"]}
+      ]
+    },
+    "observation_source": {
+      "allOf": [
+        {"$ref": "#/$defs/source"},
+        {"type": "object", "required": ["path", "expected_schema_version"]}
       ]
     },
     "goal_context_source": {

@@ -597,6 +597,18 @@ def _validate_source_map(payload: dict[str, Any], selected: dict[str, str]) -> d
             descriptor["freshness_status"] = _text(raw.get("freshness_status", "unknown"), "stats_freshness_status", maximum=64)
         result[key] = descriptor
 
+    owner_observations: dict[str, Any] = {}
+    for key, owner in {"kag": "aoa-kag", "evals": "aoa-evals", "memo": "aoa-memo", "runtime_health": "abyss-stack"}.items():
+        raw = sources.get(key)
+        if raw is None:
+            continue
+        descriptor = _owner_descriptor(raw, key, expected_owner=owner)
+        descriptor["path"] = _path(raw.get("path"), f"{key}_path")
+        descriptor["expected_schema_version"] = _text(raw.get("expected_schema_version"), f"{key}_schema", maximum=128)
+        descriptor["expected_sha256"] = _sha(raw.get("expected_sha256"), f"{key}_digest")
+        owner_observations[owner] = descriptor
+    result["owner_observations"] = owner_observations
+
     goal_context_sources: dict[str, Any] = {}
     raw_goal_context = sources.get("goal_context")
     if raw_goal_context is not None:
@@ -734,6 +746,7 @@ def _flatten_binding(
             "goal_projection_source": descriptors.get("goal_projection"),
             "current_correlation": descriptors["correlation"],
             "owner_surfaces": descriptors["owner_surfaces"],
+            "owner_observations": descriptors["owner_observations"],
             "pressure_inbox": [],
             "pressure_source": descriptors["pressure"],
             "goal_context_sources": descriptors.get("goal_context_sources", {}),

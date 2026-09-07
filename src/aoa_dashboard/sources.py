@@ -453,7 +453,67 @@ def observe_stats(config: dict[str, Any], actor_source: dict[str, Any]) -> dict[
     }
 
 
+def _owner_root_refs(config: dict[str, Any], owner: str, claim_limit: str) -> list[dict[str, str]]:
+    return [
+        _ref(f"{owner} owner root", item["source_path"], claim_limit)
+        for item in config.get("owner_surfaces", [])
+        if isinstance(item, dict) and item.get("owner") == owner
+        and isinstance(item.get("source_path"), str) and item["source_path"]
+    ]
+
+
+def _observe_bound_owner(config: dict[str, Any], owner: str, source_id: str) -> dict[str, Any] | None:
+    descriptor = config.get("owner_observations", {}).get(owner)
+    if not isinstance(descriptor, dict):
+        return None
+    claim_limit = "Selected owner snapshot only: reported status and readable bytes do not establish current owner truth, Goal proof, acceptance, or runtime health."
+    snapshot = read_file_snapshot(descriptor["path"], expected_digest=descriptor.get("expected_sha256"))
+    ref = snapshot_ref(snapshot, label=f"{owner} selected observation", kind="owner_observation", owner=owner,
+                       access_scope=descriptor["access_scope"], authority=descriptor["authority"],
+                       claim_policy=descriptor["claim_policy"], claim_limit=claim_limit)
+    metadata: dict[str, Any] = {"goal_evidence_admitted": False, "source_bytes_sha256": snapshot.digest}
+    state, freshness, availability = "unknown", "unknown", "partial"
+    if snapshot.read_error_kind == "denied":
+        availability = "denied"
+    elif snapshot.currentness == "missing":
+        state, freshness, availability = "missing", "missing", "missing"
+    elif snapshot.currentness in {"invalid", "stale"}:
+        state = freshness = availability = snapshot.currentness
+    elif isinstance(snapshot.parsed, dict):
+        payload = snapshot.parsed
+        if payload.get("owner") != owner or payload.get("schema_version") != descriptor["expected_schema_version"]:
+            state, freshness, availability = "invalid", "invalid", "invalid"
+        elif payload.get("goal_id") is not None and payload["goal_id"] != config.get("goal_id"):
+            state, freshness, availability = "invalid", "invalid", "goal_mismatch"
+        else:
+            for key in ("schema_version", "updated_at", "generated_at", "projection_digest", "retrieval_eval", "state", "currentness", "freshness"):
+                value = payload.get(key)
+                if value is None or isinstance(value, bool) or (isinstance(value, str) and len(value) <= 512):
+                    metadata[f"reported_{key}"] = value
+            reported = payload.get("currentness", payload.get("freshness", payload.get("state")))
+            reported = reported if isinstance(reported, str) else None
+            if payload.get("state") in ("denied", "partial"):
+                availability = payload["state"]
+            elif reported in {"stale", "missing", "deferred", "invalid"}:
+                state = freshness = reported
+                availability = reported
+            elif reported in {"denied", "partial"}:
+                availability = reported
+            elif reported in {"current", "current_at_read", "present", "bound"}:
+                state, availability = "bound", "present"
+                # A generic snapshot adapter proves presence, not freshness.
+    return {
+        "id": source_id, "owner": owner, "state": state, "freshness": freshness,
+        "publisher_status": availability,
+        "observation": f"Selected {owner} snapshot: {availability}. Owner-reported fields remain metadata, not Goal admission.",
+        "metadata": metadata, "evidence_refs": [ref], "claim_limit": claim_limit,
+    }
+
+
 def observe_kag(config: dict[str, Any]) -> dict[str, Any]:
+    bound = _observe_bound_owner(config, "aoa-kag", "aoa-kag-projection")
+    if bound is not None:
+        return bound
     claim_limit = "KAG is derived navigation evidence; this snapshot cannot establish current owner truth, proof, deployment, or acceptance."
     digest = config.get("kag_projection_digest")
     if not isinstance(digest, str) or not digest:
@@ -461,32 +521,37 @@ def observe_kag(config: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": "aoa-kag-projection",
         "owner": "aoa-kag",
-        "state": "stale",
-        "freshness": "stale",
-        "observation": "The configured KAG projection is a readable 2026-08-08 navigation snapshot; owner digests are not all current.",
+        "state": "unknown",
+        "freshness": "unknown",
+        "publisher_status": "unverified_reference",
+        "observation": "A KAG digest is configured, but no selected owner response establishes readability or currentness.",
         "metadata": {
             "projection_digest": digest,
             "updated_at": config.get("kag_projection_updated_at"),
-            "retrieval_eval": "missing",
+            "retrieval_eval": "unknown",
         },
         "evidence_refs": [
             _json_ref("KAG projection", f"aoa-kag://projections/{digest}", claim_limit),
-            _ref("KAG owner checkout", "/srv/AbyssOS/aoa-kag", claim_limit),
+            *_owner_root_refs(config, "aoa-kag", claim_limit),
         ],
         "claim_limit": claim_limit,
     }
 
 
-def observe_unconnected_owner(owner: str, path: str, note: str, state: str = "deferred") -> dict[str, Any]:
+def observe_unconnected_owner(owner: str, config: dict[str, Any]) -> dict[str, Any]:
+    bound = _observe_bound_owner(config, owner, f"{owner}-surface")
+    if bound is not None:
+        return bound
     claim_limit = f"No owner-specific publisher is connected for {owner}; dashboard absence is not a domain zero."
     return {
         "id": f"{owner}-surface",
         "owner": owner,
-        "state": state,
-        "freshness": state,
-        "observation": note,
+        "state": "unknown",
+        "freshness": "unknown",
+        "publisher_status": "unbound",
+        "observation": f"No {owner} publisher is selected. Owner-root references are navigation only.",
         "metadata": {},
-        "evidence_refs": [_ref(f"{owner} owner root", path, claim_limit)],
+        "evidence_refs": _owner_root_refs(config, owner, claim_limit),
         "claim_limit": claim_limit,
     }
 
@@ -590,24 +655,9 @@ def observe_all(config: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str,
         stats,
         actor,
         observe_kag(config),
-        observe_unconnected_owner(
-            "aoa-evals",
-            "/srv/AbyssOS/aoa-evals",
-            "No independent proof/eval packet for this Goal is connected to the read model.",
-            "missing",
-        ),
-        observe_unconnected_owner(
-            "aoa-memo",
-            "/srv/AbyssOS/aoa-memo",
-            "Reviewed memory is available as an owner surface but no current memo is admitted as Goal evidence.",
-            "deferred",
-        ),
-        observe_unconnected_owner(
-            "abyss-stack",
-            "/srv/AbyssOS/abyss-stack",
-            "No runtime health publisher is connected in this first read-mostly slice.",
-            "deferred",
-        ),
+        observe_unconnected_owner("aoa-evals", config),
+        observe_unconnected_owner("aoa-memo", config),
+        observe_unconnected_owner("abyss-stack", config),
     ]
     index = {item["id"]: item for item in sources}
     # Short aliases keep adapter call sites readable while the public source

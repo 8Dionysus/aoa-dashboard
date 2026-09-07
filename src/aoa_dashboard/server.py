@@ -115,6 +115,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     str(body.get("author_ref", "operator:anonymous")),
                     str(body.get("target_ref", "goal:unknown")),
                     str(body.get("body", "")),
+                    binding_path=getattr(self.server, "binding_path", None),
                 )
                 self._json(result, HTTPStatus.CREATED)
                 return
@@ -124,6 +125,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     str(body.get("target_ref", "goal:unknown")),
                     str(body.get("owner_route", "owner:unresolved")),
                     str(body.get("summary", "")),
+                    binding_path=getattr(self.server, "binding_path", None),
                 )
                 self._json(result, HTTPStatus.CREATED)
                 return
